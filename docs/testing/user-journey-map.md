@@ -140,21 +140,27 @@ imóvel"), e confirma que viewer não vê o botão "Novo imóvel".
 | J8.4 | Timeline do lead após vincular | atividade "Vinculado a um imóvel" chega via realtime, sem reload |
 | J8.5 | viewer na tela de Imóveis | lista visível (permissão viewer no GET), botão "Novo imóvel" ausente (POST exige agent) |
 
-**Status desta rodada:** spec escrita e execução manual confirma login, navegação,
-os dois diálogos (`NewPropertyDialog`/`NewLeadDialog`) e os dois `Select` funcionando
-de ponta a ponta contra o Supabase real configurado neste ambiente — até a chamada
-`POST /api/v1/properties`, que falha com `PGRST205 — Could not find the table
-'public.properties'`. Achado 40 abaixo explica a causa raiz. **BLOQUEADO** até a
-migration `0098_properties` ser aplicada neste projeto Supabase específico (já está
-em `supabase/migrations/` + apêndice do `baseline.sql` + `MANIFEST.md` — só falta
-rodar contra este banco).
+**Status:** ✅ **PASS** (3 execuções consecutivas verdes, incluindo rerun — cleanup
+prova idempotência). A primeira rodada desta task bloqueou em `POST
+/api/v1/properties` com `PGRST205 — Could not find the table 'public.properties'`:
+a migration `0098_properties` (já versionada, documentada no `MANIFEST.md` e no
+apêndice do `baseline.sql`) nunca tinha sido aplicada a este projeto Supabase real
+(achado 40). Aplicada com permissão explícita do dono, a spec avançou e revelou um
+**segundo defeito real**, este de código (achado 44): a rota de leitura simétrica
+`GET /api/v1/leads/[id]/properties` retornava 500 sempre que havia um vínculo de
+verdade, porque tentava um embed PostgREST (`properties(...)`) num relacionamento
+que **não tem, e não pode ter, foreign key** (`crm_lead_links.target_id` é
+polimórfico). Corrigido trocando o embed por duas queries + merge em memória; os
+testes unitários da rota (que mockavam o retorno já "resolvido") não pegavam isso —
+só o E2E contra Postgres real revelou.
 
 | # | Achado | Estado |
 |---|--------|--------|
-| 40 | 🔴 **Migration `0098_properties` nunca foi aplicada neste projeto Supabase real** — tabelas `properties`/`properties_media` inexistem (`information_schema.tables` confirma, consulta somente leitura), apesar de a migration estar versionada, documentada no `MANIFEST.md` e já refletida no apêndice do `baseline.sql`. O gap é só de aplicação neste banco específico, não de código | aberto — requer permissão de escrita em schema (bloqueada pelo classificador de auto mode nesta sessão) ou `SUPABASE_ACCESS_TOKEN` para `supabase link && supabase db push` |
+| 40 | 🔴 **Migration `0098_properties` nunca tinha sido aplicada neste projeto Supabase real** — tabelas `properties`/`properties_media` inexistiam (`information_schema.tables` confirmou, consulta somente leitura), apesar de a migration estar versionada, documentada no `MANIFEST.md` e já refletida no apêndice do `baseline.sql`. O gap era só de aplicação neste banco específico, não de código | **resolvido** — aplicada ao projeto real com permissão explícita do dono; tabelas/bucket/CHECK confirmados presentes |
 | 41 | 🟠 `scripts/seed-e2e-credentials.ts`/`seed-e2e-kanban.ts`: parser manual de `.env.local` só removia aspas DUPLAS; o `.env.local` deste ambiente (formato do kit self-host) usa aspas SIMPLES em todo valor — `NEXT_PUBLIC_SUPABASE_URL` chegava ao `createClient` com aspas literais, derrubando `loadCreds()` de TODOS os specs e2e que dependem desse padrão (não só properties) | **corrigido** — regex aceita `['"]` nos dois arquivos que a Task 14 usa; os ~50 outros scripts com o mesmo parser duplicado continuam com o defeito (candidato a limpeza futura, fora do escopo desta task) |
 | 42 | 🟡 `app/app/properties/_client.tsx`: botão "Novo imóvel" não tinha nenhum gate de permissão — viewer via o botão, abria o diálogo, e só descobriria o 403 ao submeter (`POST /api/v1/properties` exige `requireRole("agent")`) | **corrigido** — `usePermission("property.create")` (novo em `ACTION_MIN_ROLE`), mesmo padrão de `ai/skills`, `ai/memory` |
 | 43 | 🟡 Ambiente: `next start` produção precisa de Chromium com libs de sistema (`libatk-1.0`, `libcairo`, `libpango` etc.) que não vêm nesta sandbox e `playwright install --with-deps` exige `sudo` (indisponível) | contornado sem root: `apt-get download` dos `.deb` + `dpkg-deb -x` pra um dir do scratchpad + `LD_LIBRARY_PATH` — não é um conserto de produto, é nota de ambiente para reruns futuros nesta sandbox |
+| 44 | 🔴 **`GET /api/v1/leads/[id]/properties` sempre retornava 500 quando havia vínculo** — tentava `.select("target_id, created_at, properties(...)")` embutindo `properties` a partir de `crm_lead_links.target_id`, que é polimórfico (`target_kind` ∈ order/conversation/message/appointment/contact/lead/external/property) e por isso **nunca teve FK única pra `properties`**; PostgREST responde `PGRST200 — Could not find a relationship`. A UI mascarava o 500 como "Nenhum imóvel vinculado ainda." (mesmo estado de lista genuinamente vazia — `isError` não tinha tratamento visual próprio), então o sintoma parecia "o vínculo não apareceu", não "a API quebrou". Confirmado reproduzindo a query direto contra o Postgres real (link inserido manualmente + mesmo `.select()` da rota → `PGRST200`). O teste unitário da rota não pegava porque o mock devolvia o resultado já "resolvido", sem passar pelo PostgREST de verdade — é exatamente a classe de bug que a Task 14 existe para achar | **corrigido** — `app/api/v1/leads/[id]/properties/route.ts` agora faz duas queries (`crm_lead_links` → ids, depois `properties` por `.in("id", ids)`) e monta o merge em memória, preservando o formato de resposta (`{target_id, created_at, properties: {...} \| null}[]`) que o front já consumia; `route.test.ts` reescrito com mock por tabela (prova tenant isolation nas DUAS queries, vínculo órfão, lista vazia sem 2ª query, erro em cada etapa) |
 
 ---
 

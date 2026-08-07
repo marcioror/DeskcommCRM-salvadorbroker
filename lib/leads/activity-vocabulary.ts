@@ -30,7 +30,9 @@ export type ActivityType =
   | "lead_reactivated"
   | "reactivation_accepted"
   | "reactivation_dismissed"
-  | "reactivation_expired";
+  | "reactivation_expired"
+  | "property_linked"
+  | "property_unlinked";
 
 export const ACTIVITY_LABELS: Record<ActivityType, string> = {
   stage_changed: "Mudou de estágio",
@@ -60,6 +62,13 @@ export const ACTIVITY_LABELS: Record<ActivityType, string> = {
   reactivation_accepted: "Retomada de contato aprovada",
   reactivation_dismissed: "Retomada de contato descartada",
   reactivation_expired: "Sugestão de retomada venceu sem decisão",
+  // O módulo Imóveis (Task 6) vincula lead↔imóvel via crm_lead_links, mas essa
+  // tabela não tem trigger de atividade (doutrina: trigger nunca faz o
+  // trabalho que o handler já fez na mesma request) — a rota grava as duas
+  // linhas explicitamente. Sem rótulo aqui, a timeline mostraria o fallback
+  // genérico pra todo vínculo/desvínculo de imóvel.
+  property_linked: "Vinculado a um imóvel",
+  property_unlinked: "Desvinculado de um imóvel",
 };
 
 /** Quando o tipo é legado/desconhecido, a linha ainda é honesta — sem jargão. */

@@ -17,7 +17,7 @@ Este é o **primeiro vertical dedicado além do e-commerce** (que tem `orders` +
 - **Permissões**: `agent`/`manager`/`admin` podem criar e editar imóveis e vínculos; `viewer` só visualiza — mesma régua de RBAC (`requireRole`) já usada no resto do CRM.
 - **Fotos**: upload próprio via Supabase Storage, bucket privado, URLs assinadas (mesmo padrão do bucket `whatsapp-media`). Sem depender de link externo.
 - **Vitrine pública / site**: fora de escopo. Módulo é 100% interno, atrás de login.
-- **UI**: item novo "Imóveis" no sidebar (lista + filtros + detalhe), seção "Imóveis de interesse" no perfil do lead (Customer 360) pra vincular/desvincular.
+- **UI**: item novo "Imóveis" no sidebar (lista + filtros + detalhe), seção "Imóveis de interesse" no dossiê do lead (`LeadDossier`, o painel lateral que abre ao clicar num card do Kanban — **não** a página de contato) pra vincular/desvincular.
 
 ## 3. Arquitetura
 
@@ -117,8 +117,8 @@ Todas as rotas seguem o fluxo padrão do repo: Zod valida input → `requireRole
 
 - **Sidebar**: item "Imóveis", visível pra todos os papéis (viewer só sem botão de criar/editar).
 - **Lista de imóveis**: grade com foto de capa, título, tipo, finalidade, preço, status; filtros no topo.
-- **Detalhe do imóvel**: dados completos, galeria de fotos, lista de leads vinculados (com atalho pro perfil do lead), botão "vincular lead".
-- **Customer 360 (perfil do lead)**: nova seção "Imóveis de interesse" — lista os imóveis vinculados, botão pra buscar/vincular outro.
+- **Detalhe do imóvel**: dados completos, galeria de fotos, lista de leads vinculados (com atalho pro dossiê do lead), botão "vincular lead".
+- **Dossiê do lead (`LeadDossier`, painel lateral do Kanban)**: nova seção "Imóveis de interesse" entre a timeline e o formulário de campos — lista os imóveis vinculados, botão pra buscar/vincular outro.
 
 ## 7. Fora de escopo (v1)
 

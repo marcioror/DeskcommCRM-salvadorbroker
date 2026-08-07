@@ -2777,7 +2777,59 @@ git commit -m "feat(ui): página de detalhe do imóvel (fotos, edição, leads v
 
 ---
 
-## Task 11: `LeadDossier` — seção "Imóveis de interesse"
+## Task 11: `GET /api/v1/leads` (busca por nome) + conectar `LinkLeadDialog`
+
+> **Adicionada durante a execução do plano (não estava na spec original).** A Task 10 revelou que `LinkLeadDialog` (busca de lead pra vincular a um imóvel) assumia um endpoint `GET /api/v1/leads?search=...` que **não existe** — `app/api/v1/leads/route.ts` só tem `POST`. Não há nenhum endpoint de busca/listagem de leads em todo o repo hoje (leads são carregados via `/api/v1/pipelines/[id]/board`, não por uma lista plana pesquisável). O implementador da Task 10, corretamente, não construiu esse endpoint por conta própria (fora do escopo da própria task) — implementou o diálogo com um estado de erro explícito ("busca indisponível") em vez de fingir que funcionava. Esta task fecha essa lacuna: cria o endpoint mínimo e conecta o diálogo já existente a ele.
+
+**Files:**
+- Create: `app/api/v1/leads/route.ts` — **modificar** (o arquivo já existe com `POST`; adicionar `GET`)
+- Modify: `components/properties/LinkLeadDialog.tsx` (criado na Task 10) — remover o estado de erro "busca indisponível", usar o endpoint de verdade
+- Test: `app/api/v1/leads/route.test.ts` (se já existir um arquivo de teste pro `POST`, adicionar casos pro `GET`; senão criar)
+
+**Interfaces:**
+- Consumes: `requireRole`, `ok`/`fail`, `createClient` (mesmo padrão de `app/api/v1/properties/route.ts`).
+- Produces: `GET /api/v1/leads?search=<texto>&limit=<n>` — lista leads da org ativa filtrados por `title ilike %search%` (mesmo padrão de busca usado em `GET /api/v1/properties`), retorna `{ data: [{id, title}, ...] }` (mínimo necessário pro diálogo de busca — não precisa expor todos os campos do lead, isso é uma rota de "buscar pra vincular", não o board completo).
+
+- [ ] **Step 1: Ler o `app/api/v1/leads/route.ts` real e o `_handler.ts` ao lado, confirmar o padrão exato de `requireRole`/`createClient` já usado no `POST` existente, pra manter o `GET` novo no mesmo estilo do arquivo.**
+
+- [ ] **Step 2: Escrever o teste do GET (RBAC + filtro), rodar, confirmar que falha**
+
+```ts
+// dentro de app/api/v1/leads/route.test.ts — adicionar describe("GET /api/v1/leads", ...)
+// seguir exatamente o mesmo padrão de mocks (vi.mock de requireRole/createClient)
+// já usado nos testes de app/api/v1/properties/route.test.ts (Task 3):
+// - viewer consegue listar (role mínima viewer)
+// - query com "search" aplica .ilike("title", `%...%`) — ou o padrão real de busca
+//   de texto já usado em GET /api/v1/properties, pra manter os dois consistentes
+// - organization_id é filtrado explicitamente (mutation-test style, como a Task 3 fez)
+```
+
+- [ ] **Step 3: Implementar o `GET` em `app/api/v1/leads/route.ts`**
+
+Mesma estrutura do `GET` de `app/api/v1/properties/route.ts` (Task 3): `requireRole("viewer", ...)`, valida querystring com Zod (`search` opcional, `limit` default 10-50), query em `crm_leads` filtrada por `organization_id` + `ilike("title", ...)` quando `search` presente, `.limit(...)`, retorna `ok(rows, {requestId})`. Não precisa de paginação por cursor — é uma busca pra autocompletar, não uma listagem completa (YAGNI: o board já cobre listagem completa).
+
+- [ ] **Step 4: Rodar o teste e confirmar que passa**
+
+Run: `pnpm vitest run app/api/v1/leads/route.test.ts`
+
+- [ ] **Step 5: Conectar `LinkLeadDialog` ao endpoint de verdade**
+
+Em `components/properties/LinkLeadDialog.tsx`, trocar o estado de erro "busca indisponível" (adicionado na Task 10 como honestidade temporária) pela chamada real: `apiClient.get<{data: LeadSearchResult[]}>(`/api/v1/leads?search=${encodeURIComponent(search)}&limit=10`)`, exatamente como o desenho original da Task 10 já esperava.
+
+- [ ] **Step 6: `pnpm typecheck && pnpm lint`**
+
+- [ ] **Step 7: Rodar o dev server e conferir que a busca de lead no diálogo de vínculo (tela de detalhe do imóvel) agora retorna resultados de verdade.**
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add app/api/v1/leads/route.ts app/api/v1/leads/route.test.ts components/properties/LinkLeadDialog.tsx
+git commit -m "feat(api): GET /api/v1/leads (busca por nome) + conecta LinkLeadDialog"
+```
+
+---
+
+## Task 12: `LeadDossier` — seção "Imóveis de interesse"
 
 **Files:**
 - Create: `hooks/leads/useLeadInterestedProperties.ts`
@@ -3051,7 +3103,7 @@ git commit -m "feat(ui): seção 'Imóveis de interesse' no LeadDossier"
 
 ---
 
-## Task 12: RBAC — testes de rejeição para `viewer` nas rotas de mutação
+## Task 13: RBAC — testes de rejeição para `viewer` nas rotas de mutação
 
 **Files:**
 - Modify: `app/api/v1/properties/route.test.ts` (se algum caso já não cobrir)
@@ -3110,7 +3162,7 @@ git commit -m "test(properties): cobre 403 de viewer em PATCH /api/v1/properties
 
 ---
 
-## Task 13: E2E Playwright — cadastrar imóvel, vincular a um lead, ver na timeline
+## Task 14: E2E Playwright — cadastrar imóvel, vincular a um lead, ver na timeline
 
 **Files:**
 - Create: `tests/e2e/properties.spec.ts`
@@ -3241,7 +3293,7 @@ git commit -m "test(e2e): fluxo completo de cadastro de imóvel + vínculo com l
 
 ---
 
-## Task 14: Verificação final (Definition of Done)
+## Task 15: Verificação final (Definition of Done)
 
 **Files:** nenhum novo — só validação.
 
@@ -3262,7 +3314,7 @@ Expected: PASS, incluindo os testes de `properties`/`properties_media` adicionad
 
 - [ ] **Step 4: E2E**
 
-Run: o comando de E2E do repo (confirmar em `package.json`), no mínimo o spec da Task 13.
+Run: o comando de E2E do repo (confirmar em `package.json`), no mínimo o spec da Task 14.
 Expected: PASS.
 
 - [ ] **Step 5: Conferir a checklist de Definition of Done do `CLAUDE.md` item a item**

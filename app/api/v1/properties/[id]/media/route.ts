@@ -79,6 +79,22 @@ export async function POST(req: NextRequest | Request, ctx: RouteCtx): Promise<R
     .select("*")
     .single();
   if (insErr || !created) {
+    // O blob já subiu pro bucket antes do insert falhar — sem limpeza fica
+    // órfão (ninguém aponta pra `storagePath`). Best-effort, fire-and-forget:
+    // uma falha na limpeza não deve segurar a resposta de erro já em curso
+    // (mesmo espírito do `audit()` — não deixar falha secundária bloquear o
+    // fluxo principal), mas loga se a limpeza também falhar.
+    void admin.storage
+      .from("property-media")
+      .remove([storagePath])
+      .then(({ error: cleanupErr }) => {
+        if (cleanupErr) {
+          console.error("[properties.media] cleanup after insert failure failed", {
+            storagePath,
+            error: cleanupErr.message,
+          });
+        }
+      });
     return fail("internal_error", insErr?.message ?? "media_insert_failed", 500, { requestId });
   }
 

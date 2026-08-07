@@ -22,7 +22,7 @@ const ctx = { params: Promise.resolve({ id: PROP_ID }) };
 
 beforeEach(() => vi.clearAllMocks());
 
-function makeSupabase(propertyExists: boolean) {
+function makeSupabase(propertyExists: boolean, opts: { insertFails?: boolean } = {}) {
   const chain: Record<string, unknown> = {};
   chain.select = vi.fn(() => chain);
   chain.eq = vi.fn(() => chain);
@@ -32,10 +32,10 @@ function makeSupabase(propertyExists: boolean) {
   }));
   chain.insert = vi.fn(() => ({
     select: () => ({
-      single: async () => ({
-        data: { id: "media-1", property_id: PROP_ID, storage_path: "x" },
-        error: null,
-      }),
+      single: async () =>
+        opts.insertFails
+          ? { data: null, error: { message: "insert failed" } }
+          : { data: { id: "media-1", property_id: PROP_ID, storage_path: "x" }, error: null },
     }),
   }));
   return { from: vi.fn(() => chain) };
@@ -119,5 +119,35 @@ describe("POST /api/v1/properties/[id]/media", () => {
     const res = await POST(req, ctx as never);
     expect(res.status).toBe(415);
     expect(vi.mocked(createAdminClient)).not.toHaveBeenCalled();
+  });
+
+  it("insert falhando após upload bem-sucedido: limpa o blob órfão no storage (500)", async () => {
+    vi.mocked(requireRole).mockResolvedValue({
+      ok: true,
+      user: USER,
+      org: { orgId: ORG_ID, name: "Org", role: "agent" },
+    } as never);
+    vi.mocked(createClient).mockResolvedValue(makeSupabase(true, { insertFails: true }) as never);
+    const uploadSpy = vi.fn(async (_path: string, _buf: Buffer, _opts: unknown) => ({ error: null }));
+    const removeSpy = vi.fn(async (_paths: string[]) => ({ error: null }));
+    vi.mocked(createAdminClient).mockReturnValue({
+      storage: { from: () => ({ upload: uploadSpy, remove: removeSpy }) },
+    } as never);
+
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array([1, 2, 3])], "foto.jpg", { type: "image/jpeg" }));
+    const req = new Request("http://localhost", { method: "POST", body: form });
+
+    const { POST } = await import("./route");
+    const res = await POST(req, ctx as never);
+    expect(res.status).toBe(500);
+
+    // O upload já subiu o blob antes do insert falhar; sem a limpeza o
+    // objeto fica órfão no bucket (achado do review: Finding 2).
+    const uploadedPath = uploadSpy.mock.calls[0]?.[0] as string;
+    // A limpeza é fire-and-forget (não é await-ada no handler) — dá um
+    // microtask pra ela rodar antes de checar a chamada.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(removeSpy).toHaveBeenCalledWith([uploadedPath]);
   });
 });

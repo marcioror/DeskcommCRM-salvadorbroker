@@ -73,7 +73,17 @@ export async function DELETE(_req: NextRequest | Request, ctx: RouteCtx): Promis
   if (!media) return fail("not_found", "Foto não encontrada.", 404, { requestId });
 
   const admin = createAdminClient();
-  await admin.storage.from("property-media").remove([media.storage_path]);
+  const { error: rmErr } = await admin.storage.from("property-media").remove([media.storage_path]);
+  // Não bloqueia a remoção da linha por falha no storage (rede/permissão) —
+  // mas NUNCA engole o sinal em silêncio: sem isto o objeto fica órfão no
+  // bucket e nada aponta pra ele nem indica que algo deu errado. Loga e
+  // carrega o resultado no audit pra investigação manual.
+  if (rmErr) {
+    console.error("[properties.media] storage remove failed, proceeding with DB delete", {
+      storagePath: media.storage_path,
+      error: rmErr.message,
+    });
+  }
 
   // Filtro explícito de organization_id (+ property_id) no próprio DELETE,
   // não só no SELECT de existência que o precede — doutrina anti-pattern 10
@@ -94,7 +104,10 @@ export async function DELETE(_req: NextRequest | Request, ctx: RouteCtx): Promis
     resourceType: "property",
     resourceId: propertyId,
     requestId,
-    metadata: { media_id: mediaId },
+    metadata: {
+      media_id: mediaId,
+      storage_remove_error: rmErr?.message ?? null,
+    },
   });
 
   return noContent(requestId);

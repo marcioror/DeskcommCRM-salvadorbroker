@@ -2,6 +2,30 @@ export type PropertyType = "house" | "apartment" | "land" | "commercial" | "rura
 export type PropertyPurpose = "sale" | "rent" | "both";
 export type PropertyStatus = "available" | "reserved" | "sold" | "rented" | "inactive";
 
+/** Rótulos em pt-BR — fonte única, evita duplicar o map em cada tela (Card, detalhe, etc). */
+export const PROPERTY_TYPE_LABEL: Record<PropertyType, string> = {
+  house: "Casa",
+  apartment: "Apartamento",
+  land: "Terreno",
+  commercial: "Comercial",
+  rural: "Rural",
+  other: "Outro",
+};
+
+export const PROPERTY_PURPOSE_LABEL: Record<PropertyPurpose, string> = {
+  sale: "Venda",
+  rent: "Locação",
+  both: "Venda e locação",
+};
+
+export const PROPERTY_STATUS_LABEL: Record<PropertyStatus, string> = {
+  available: "Disponível",
+  reserved: "Reservado",
+  sold: "Vendido",
+  rented: "Alugado",
+  inactive: "Inativo",
+};
+
 export interface Property {
   id: string;
   organization_id: string;

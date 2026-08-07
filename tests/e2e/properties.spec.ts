@@ -131,8 +131,13 @@ test.describe("módulo de imóveis — fluxo completo", () => {
       await page.waitForURL(new RegExp(`/app/properties/${createdPropertyId}$`));
       await expect(page.getByRole("heading", { name: propertyTitle, level: 1 })).toBeVisible();
       // Prova que os dois Select persistiram o valor escolhido, não o default.
-      await expect(page.locator("dd", { hasText: /^house$/ })).toBeVisible();
-      await expect(page.locator("dd", { hasText: /^rent$/ })).toBeVisible();
+      // Rótulo em pt-BR (não o enum cru "house"/"rent") — Task 15 trocou a
+      // tela de detalhe pra usar PROPERTY_TYPE_LABEL/PROPERTY_PURPOSE_LABEL
+      // (lib/types/properties.ts); a asserção acompanha o rótulo exibido, e
+      // ainda prova o round-trip: se caísse no default ("apartment"/"sale")
+      // apareceria "Apartamento"/"Venda", não "Casa"/"Locação".
+      await expect(page.locator("dd", { hasText: /^Casa$/ })).toBeVisible();
+      await expect(page.locator("dd", { hasText: /^Locação$/ })).toBeVisible();
 
       // --- 2. Criar um lead novo no pipeline seedado e abrir o dossiê ---
       await page.goto(`${APP_URL}/app/pipelines/${creds.kanban!.pipeline_id}`);

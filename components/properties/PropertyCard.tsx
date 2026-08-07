@@ -2,15 +2,7 @@
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { Property } from "@/lib/types/properties";
-
-const STATUS_LABEL: Record<Property["status"], string> = {
-  available: "Disponível",
-  reserved: "Reservado",
-  sold: "Vendido",
-  rented: "Alugado",
-  inactive: "Inativo",
-};
+import { PROPERTY_STATUS_LABEL, type Property } from "@/lib/types/properties";
 
 function formatBRL(cents: number | null): string {
   if (cents === null) return "—";
@@ -25,7 +17,7 @@ export function PropertyCard({ property }: { property: Property }) {
       <Card className="flex h-full flex-col gap-2 p-4 transition-colors hover:border-primary">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-medium leading-tight">{property.title}</h3>
-          <Badge variant="outline">{STATUS_LABEL[property.status]}</Badge>
+          <Badge variant="outline">{PROPERTY_STATUS_LABEL[property.status]}</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
           {property.address_city ?? "—"}

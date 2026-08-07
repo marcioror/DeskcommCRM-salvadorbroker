@@ -10,15 +10,11 @@ import { useDeactivateProperty } from "@/hooks/properties/useDeactivateProperty"
 import { PropertyGallery } from "@/components/properties/PropertyGallery";
 import { PropertyLinkedLeads } from "@/components/properties/PropertyLinkedLeads";
 import { EditPropertyDialog } from "@/components/properties/EditPropertyDialog";
-import type { Property } from "@/lib/types/properties";
-
-const STATUS_LABEL: Record<Property["status"], string> = {
-  available: "Disponível",
-  reserved: "Reservado",
-  sold: "Vendido",
-  rented: "Alugado",
-  inactive: "Inativo",
-};
+import {
+  PROPERTY_PURPOSE_LABEL,
+  PROPERTY_STATUS_LABEL,
+  PROPERTY_TYPE_LABEL,
+} from "@/lib/types/properties";
 
 export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
   const [editOpen, setEditOpen] = useState(false);
@@ -53,7 +49,7 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline">{STATUS_LABEL[property.status]}</Badge>
+          <Badge variant="outline">{PROPERTY_STATUS_LABEL[property.status]}</Badge>
           <Button variant="outline" onClick={() => setEditOpen(true)}>
             <PencilSimple className="mr-2 h-4 w-4" /> Editar
           </Button>
@@ -72,11 +68,11 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
       <Card className="grid grid-cols-2 gap-4 p-4 text-sm sm:grid-cols-4">
         <div>
           <dt className="text-muted-foreground">Tipo</dt>
-          <dd>{property.property_type}</dd>
+          <dd>{PROPERTY_TYPE_LABEL[property.property_type]}</dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Finalidade</dt>
-          <dd>{property.purpose}</dd>
+          <dd>{PROPERTY_PURPOSE_LABEL[property.purpose]}</dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Quartos</dt>

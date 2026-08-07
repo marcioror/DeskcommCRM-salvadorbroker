@@ -10,6 +10,7 @@ import { useDeactivateProperty } from "@/hooks/properties/useDeactivateProperty"
 import { PropertyGallery } from "@/components/properties/PropertyGallery";
 import { PropertyLinkedLeads } from "@/components/properties/PropertyLinkedLeads";
 import { EditPropertyDialog } from "@/components/properties/EditPropertyDialog";
+import { usePermission } from "@/hooks/auth/AuthProvider";
 import {
   PROPERTY_PURPOSE_LABEL,
   PROPERTY_STATUS_LABEL,
@@ -20,6 +21,11 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
   const [editOpen, setEditOpen] = useState(false);
   const q = useProperty(propertyId);
   const deactivate = useDeactivateProperty(propertyId);
+  // PATCH/DELETE /api/v1/properties/[id] exigem role "agent" — sem este gate
+  // o viewer via os botões, clicava e só descobria o 403 no submit (mesmo
+  // padrão de gate client-side de "property.create" em
+  // PropertiesListClient).
+  const canEdit = usePermission("property.update");
 
   if (q.isLoading) {
     return (
@@ -50,10 +56,12 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline">{PROPERTY_STATUS_LABEL[property.status]}</Badge>
-          <Button variant="outline" onClick={() => setEditOpen(true)}>
-            <PencilSimple className="mr-2 h-4 w-4" /> Editar
-          </Button>
-          {property.status !== "inactive" && (
+          {canEdit && (
+            <Button variant="outline" onClick={() => setEditOpen(true)}>
+              <PencilSimple className="mr-2 h-4 w-4" /> Editar
+            </Button>
+          )}
+          {canEdit && property.status !== "inactive" && (
             <Button variant="destructive" onClick={() => deactivate.mutate()} disabled={deactivate.isPending}>
               Desativar
             </Button>

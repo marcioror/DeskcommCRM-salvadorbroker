@@ -7,6 +7,7 @@ import {
   useLeadInterestedProperties,
   useUnlinkPropertyFromLead,
 } from "@/hooks/leads/useLeadInterestedProperties";
+import { usePermission } from "@/hooks/auth/AuthProvider";
 import { LinkPropertyDialog } from "./LinkPropertyDialog";
 
 function formatBRL(cents: number | null): string {
@@ -26,16 +27,29 @@ export function LeadInterestedProperties({ leadId }: { leadId: string }) {
   const q = useLeadInterestedProperties(leadId);
   const unlink = useUnlinkPropertyFromLead(leadId);
   const items = q.data?.data ?? [];
+  // POST/DELETE /api/v1/properties/[id]/leads exigem role "agent" — sem
+  // este gate o viewer via os controles de vínculo e só descobria o 403 ao
+  // clicar.
+  const canEdit = usePermission("property.update");
 
   return (
     <section className="border-t border-border py-3">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-xs font-medium uppercase tracking-wide text-text-muted">Imóveis de interesse</h3>
-        <Button size="sm" variant="ghost" onClick={() => setDialogOpen(true)}>
-          Vincular
-        </Button>
+        {canEdit && (
+          <Button size="sm" variant="ghost" onClick={() => setDialogOpen(true)}>
+            Vincular
+          </Button>
+        )}
       </div>
-      {items.length === 0 ? (
+      {q.isError ? (
+        <div className="space-y-1">
+          <p className="text-xs text-error-fg">Não foi possível carregar os imóveis vinculados.</p>
+          <Button size="sm" variant="ghost" onClick={() => q.refetch()}>
+            Tentar novamente
+          </Button>
+        </div>
+      ) : items.length === 0 ? (
         <p className="text-xs text-text-muted">Nenhum imóvel vinculado ainda.</p>
       ) : (
         <ul className="space-y-1">
@@ -49,14 +63,16 @@ export function LeadInterestedProperties({ leadId }: { leadId: string }) {
                   <span className="tabular-nums text-text-muted">
                     {formatBRL(item.properties.price_sale_cents ?? item.properties.price_rent_cents)}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => unlink.mutate(item.properties!.id)}
-                    aria-label="Desvincular"
-                    className="text-text-muted hover:text-destructive"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => unlink.mutate(item.properties!.id)}
+                      aria-label="Desvincular"
+                      className="text-text-muted hover:text-destructive"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               </li>
             ) : null,

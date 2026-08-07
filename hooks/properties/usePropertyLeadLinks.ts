@@ -30,7 +30,16 @@ export function useLinkLeadToProperty(propertyId: string) {
     mutationFn: async (leadId: string) =>
       apiClient.post(`/api/v1/properties/${propertyId}/leads`, { lead_id: leadId }),
     onError: showApiError,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["property-leads", propertyId] }),
+    // O mesmo vínculo (uma linha de crm_lead_links) é lido por dois lados —
+    // esta tela (["property-leads", propertyId]) e o dossiê do lead
+    // (["lead-properties", leadId], hooks/leads/useLeadInterestedProperties.ts).
+    // Sem invalidar os dois, o lado que não disparou a mutação fica com
+    // cache stale por até 30s (staleTime global, lib/query/client.ts) — achado
+    // da revisão final.
+    onSuccess: (_data, leadId) => {
+      qc.invalidateQueries({ queryKey: ["property-leads", propertyId] });
+      qc.invalidateQueries({ queryKey: ["lead-properties", leadId] });
+    },
   });
 }
 
@@ -40,6 +49,9 @@ export function useUnlinkLeadFromProperty(propertyId: string) {
     mutationFn: async (leadId: string) =>
       apiClient.delete(`/api/v1/properties/${propertyId}/leads/${leadId}`),
     onError: showApiError,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["property-leads", propertyId] }),
+    onSuccess: (_data, leadId) => {
+      qc.invalidateQueries({ queryKey: ["property-leads", propertyId] });
+      qc.invalidateQueries({ queryKey: ["lead-properties", leadId] });
+    },
   });
 }

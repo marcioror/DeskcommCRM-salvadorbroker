@@ -114,6 +114,7 @@ const ACTION_MIN_ROLE: Record<string, Role> = {
   "ai.credentials.write": "admin",
   "webhooks.manage": "manager",
   "property.create": "agent",
+  "property.update": "agent",
 };
 
 export function usePermission(action: string): boolean {

@@ -42,7 +42,13 @@ export function useLinkPropertyToLead(leadId: string) {
     mutationFn: async (propertyId: string) =>
       apiClient.post(`/api/v1/properties/${propertyId}/leads`, { lead_id: leadId }),
     onError: showApiError,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["lead-properties", leadId] }),
+    // Mesmo vínculo, duas telas — ver comentário simétrico em
+    // hooks/properties/usePropertyLeadLinks.ts (achado da revisão final:
+    // sem invalidar os dois lados, o outro fica com cache stale por até 30s).
+    onSuccess: (_data, propertyId) => {
+      qc.invalidateQueries({ queryKey: ["lead-properties", leadId] });
+      qc.invalidateQueries({ queryKey: ["property-leads", propertyId] });
+    },
   });
 }
 
@@ -52,6 +58,9 @@ export function useUnlinkPropertyFromLead(leadId: string) {
     mutationFn: async (propertyId: string) =>
       apiClient.delete(`/api/v1/properties/${propertyId}/leads/${leadId}`),
     onError: showApiError,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["lead-properties", leadId] }),
+    onSuccess: (_data, propertyId) => {
+      qc.invalidateQueries({ queryKey: ["lead-properties", leadId] });
+      qc.invalidateQueries({ queryKey: ["property-leads", propertyId] });
+    },
   });
 }

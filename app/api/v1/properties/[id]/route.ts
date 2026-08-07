@@ -68,19 +68,35 @@ export async function PATCH(req: NextRequest | Request, ctx: RouteCtx): Promise<
     });
   }
 
+  // `propertyPatchSchema` é `propertyCreateSchema.partial()`: campos com
+  // `.default(...)` (status, currency, address_country, furnished,
+  // accepts_pets, features) continuam recebendo o default do Zod quando a
+  // chave está AUSENTE do body, mesmo sendo opcional após `.partial()`. Sem
+  // este filtro, um PATCH parcial (ex.: só `{ price_sale_cents }`) reescrevia
+  // silenciosamente `status` pra "available" e zerava `features` — apagando
+  // dado real. Mantém só as chaves que o cliente de fato enviou.
+  const providedKeys = new Set(Object.keys(raw as Record<string, unknown>));
+  const patch = Object.fromEntries(
+    Object.entries(parsed.data).filter(([key]) => providedKeys.has(key)),
+  );
+
   const supabase = await createClient();
   const { data: existing, error: fetchErr } = await supabase
     .from("properties")
-    .select("id")
+    .select("*")
     .eq("id", id)
     .eq("organization_id", activeOrg.orgId)
     .maybeSingle();
   if (fetchErr) return fail("internal_error", fetchErr.message, 500, { requestId });
   if (!existing) return fail("property_not_found", "Imóvel não encontrado.", 404, { requestId });
 
+  if (Object.keys(patch).length === 0) {
+    return ok(existing, { requestId });
+  }
+
   const { data: updated, error: updErr } = await supabase
     .from("properties")
-    .update(parsed.data)
+    .update(patch)
     .eq("id", id)
     .select("*")
     .single();
@@ -93,7 +109,7 @@ export async function PATCH(req: NextRequest | Request, ctx: RouteCtx): Promise<
     resourceType: "property",
     resourceId: id,
     requestId,
-    metadata: { changed_fields: Object.keys(parsed.data) },
+    metadata: { changed_fields: Object.keys(patch) },
   });
 
   return ok(updated, { requestId });

@@ -81,3 +81,20 @@ describe("DELETE /api/v1/properties/[id] (soft)", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("PATCH /api/v1/properties/[id]", () => {
+  it("viewer não consegue editar (403, nenhum update)", async () => {
+    vi.mocked(requireRole).mockResolvedValue({
+      ok: false,
+      response: fail("forbidden_role", "Permissão insuficiente. Requer role >= agent.", 403, {}),
+    } as never);
+    const { supabase, updates } = makeDb({ id: PROP_ID, status: "available" });
+    vi.mocked(createClient).mockResolvedValue(supabase as never);
+
+    const { PATCH } = await import("./route");
+    const req = new Request("http://localhost", { method: "PATCH", body: JSON.stringify({ status: "reserved" }) });
+    const res = await PATCH(req, ctx as never);
+    expect(res.status).toBe(403);
+    expect(updates).toEqual([]);
+  });
+});

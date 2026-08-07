@@ -2,9 +2,10 @@
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
 import { useLinkPropertyToLead } from "@/hooks/leads/useLeadInterestedProperties";
 
 interface PropertySearchResult {
@@ -53,9 +54,13 @@ export function LinkPropertyDialog({ leadId, open, onOpenChange }: Props) {
               onClick={() => link.mutate(property.id, { onSuccess: () => onOpenChange(false) })}
             >
               <span>{property.title}</span>
-              <Button size="sm" variant="ghost" disabled={link.isPending}>
+              {/* span, não <Button>: já está dentro do <button> da linha inteira —
+                  aninhar elemento interativo em elemento interativo é HTML inválido. */}
+              <span
+                className={cn(buttonVariants({ size: "sm", variant: "ghost" }), link.isPending && "opacity-50")}
+              >
                 Vincular
-              </Button>
+              </span>
             </button>
           ))}
           {q.isError && (

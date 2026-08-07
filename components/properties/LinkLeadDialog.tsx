@@ -19,18 +19,9 @@ interface Props {
 }
 
 /**
- * NOTA (Task 10): não existe hoje um `GET /api/v1/leads` no REST — o handler
- * `listLeadsHandler` (`app/api/v1/leads/_handler.ts`) só é usado pelo MCP, e
- * não tem parâmetro `search`. `route.ts` de `/api/v1/leads` expõe só `POST`.
- * `SearchTrigger.tsx` (Cmd+K) também já sinaliza que busca global é EPIC-03/12,
- * ainda não construída.
- *
- * Ou seja: a query abaixo bate num endpoint que HOJE devolve 405. Mantida
- * assim (em vez de removida) porque a UI já está pronta pro dia em que esse
- * endpoint existir — só falta o backend. Até lá, `q.isError` é tratado
- * explicitamente pra não parecer "nenhum lead encontrado" (busca vazia) quando
- * na verdade é "busca indisponível" (endpoint ausente). Ver task-10-report.md
- * (seção NEEDS_CONTEXT) pro que falta pra isto funcionar de verdade.
+ * Busca de lead pra vínculo lead↔imóvel. Bate em `GET /api/v1/leads?search=`
+ * (Task 11), que faz busca por título escopada à org ativa — não é o board
+ * completo (`/api/v1/pipelines/[id]/board`), é uma lookup de autocomplete.
  */
 export function LinkLeadDialog({ propertyId, open, onOpenChange }: Props) {
   const [search, setSearch] = useState("");
@@ -71,7 +62,7 @@ export function LinkLeadDialog({ propertyId, open, onOpenChange }: Props) {
           ))}
           {q.isError && (
             <p className="p-2 text-sm text-error-fg">
-              Busca de leads indisponível no momento. Tente novamente mais tarde.
+              Não foi possível buscar leads agora. Tente novamente.
             </p>
           )}
           {!q.isError && search.length >= 2 && q.data?.data.length === 0 && (

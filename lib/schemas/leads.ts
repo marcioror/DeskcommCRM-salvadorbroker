@@ -107,6 +107,18 @@ export const updateLeadSchema = z.object({
 });
 export type UpdateLeadInput = z.infer<typeof updateLeadSchema>;
 
+/**
+ * leadSearchQuerySchema → GET /api/v1/leads
+ * Busca por título pra autocomplete (ex.: LinkLeadDialog em properties).
+ * Não é a listagem do board (isso é `/api/v1/pipelines/[id]/board`) — sem
+ * cursor de propósito (YAGNI: resultado alimenta um dropdown de 10 itens).
+ */
+export const leadSearchQuerySchema = z.object({
+  search: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+export type LeadSearchQuery = z.infer<typeof leadSearchQuerySchema>;
+
 export const bulkLeadActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("move"),

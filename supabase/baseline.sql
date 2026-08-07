@@ -8798,3 +8798,8 @@ alter table public.crm_lead_links add constraint crm_lead_links_target_kind_enum
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('property-media', 'property-media', false, 10485760)
 on conflict (id) do update set file_size_limit = excluded.file_size_limit;
+
+-- ---- bucket property-media file_size_limit 10MB -> 50MB (migration 0099) ----
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('property-media', 'property-media', false, 52428800)
+on conflict (id) do update set file_size_limit = excluded.file_size_limit;

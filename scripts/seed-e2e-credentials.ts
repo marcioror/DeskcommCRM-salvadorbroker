@@ -20,7 +20,13 @@ const envFile = fs.readFileSync(path.join(process.cwd(), ".env.local"), "utf8");
 const env: Record<string, string> = {};
 for (const line of envFile.split("\n")) {
   const m = line.match(/^([A-Z_]+)=(.*)$/);
-  if (m) env[m[1]!] = m[2]!.replace(/^"(.*)"$/, "$1");
+  // Aceita valor entre aspas simples OU duplas — o `.env.local` deste
+  // ambiente é gerado no formato do kit self-host (`docker-compose --env-file`),
+  // que envolve todo valor em aspas simples; o parser só tratava duplas e
+  // `NEXT_PUBLIC_SUPABASE_URL` chegava ao createClient com as aspas literais
+  // dentro da string, disparando "Invalid supabaseUrl" e derrubando TODOS os
+  // specs e2e que dependem deste loader (não só este arquivo).
+  if (m) env[m[1]!] = m[2]!.replace(/^['"](.*)['"]$/, "$1");
 }
 
 const SUPABASE_URL = env.NEXT_PUBLIC_SUPABASE_URL!;

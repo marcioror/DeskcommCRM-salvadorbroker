@@ -18,7 +18,9 @@ const envFile = fs.readFileSync(path.join(process.cwd(), ".env.local"), "utf8");
 const env: Record<string, string> = {};
 for (const line of envFile.split("\n")) {
   const m = line.match(/^([A-Z_]+)=(.*)$/);
-  if (m) env[m[1]!] = m[2]!.replace(/^"(.*)"$/, "$1");
+  // Mesmo conserto de seed-e2e-credentials.ts: aceita aspas simples OU duplas
+  // (o `.env.local` deste ambiente usa aspas simples, formato do kit self-host).
+  if (m) env[m[1]!] = m[2]!.replace(/^['"](.*)['"]$/, "$1");
 }
 
 const SUPABASE_URL = env.NEXT_PUBLIC_SUPABASE_URL!;

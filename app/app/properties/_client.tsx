@@ -8,11 +8,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { usePropertyList } from "@/hooks/properties/usePropertyList";
 import { PropertyCard } from "@/components/properties/PropertyCard";
 import { NewPropertyDialog } from "@/components/properties/NewPropertyDialog";
+import { usePermission } from "@/hooks/auth/AuthProvider";
 
 export function PropertiesListClient() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  // POST /api/v1/properties exige role "agent" (requireRole("agent") na rota) —
+  // sem este gate o viewer via o botão, abria o diálogo e só descobria o 403
+  // ao submeter. Mesmo padrão de gate client-side de ai/skills, ai/memory etc.
+  const canCreate = usePermission("property.create");
 
   // Debounce search 250ms — mesmo padrão de ContactsListClient.
   useEffect(() => {
@@ -31,10 +36,12 @@ export function PropertiesListClient() {
           <h1 className="text-2xl font-semibold tracking-tight">Imóveis</h1>
           <p className="text-sm text-muted-foreground">Cadastro de imóveis para venda e locação.</p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus size={16} weight="bold" aria-hidden />
-          <span>Novo imóvel</span>
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus size={16} weight="bold" aria-hidden />
+            <span>Novo imóvel</span>
+          </Button>
+        )}
       </header>
 
       <div className="flex items-center gap-2 rounded-lg border border-border bg-surface p-2">

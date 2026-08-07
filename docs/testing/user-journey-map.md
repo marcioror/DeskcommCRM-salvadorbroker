@@ -122,6 +122,40 @@ Andar por TODAS as rotas navegáveis logado como admin e como agent: settings, c
 LGPD anonymize, /admin (platform), error pages (403/503/not-found), estados vazios.
 Critério: nenhuma tela quebra, nenhum stack trace, nenhum texto de erro cru.
 
+## J8 — Imóveis: cadastro e vínculo com leads `[P1]`
+
+Módulo novo (venda/locação). Spec: `tests/e2e/properties.spec.ts` (Task 14 do plano
+`2026-08-07-modulo-imoveis`). Agent cadastra um imóvel pela tela (exercitando de
+verdade os dois `Select` de Tipo/Finalidade, nunca clicados num browser real antes
+desta task), cria um lead novo pelo `NewLeadDialog`, abre o dossiê, vincula o imóvel,
+confere o vínculo dos DOIS lados (lead→imóvel em "Imóveis de interesse" E
+imóvel→lead em "Leads interessados"), confere a timeline do lead ("Vinculado a um
+imóvel"), e confirma que viewer não vê o botão "Novo imóvel".
+
+| # | Caso | Expectativa |
+|---|------|-------------|
+| J8.1 | Cadastrar imóvel pela tela (Select de Tipo/Finalidade) | POST 201; card aparece na grade; valores dos Select persistem (provado no detalhe) |
+| J8.2 | Criar lead pelo Kanban e vincular o imóvel recém-criado | vínculo aparece em "Imóveis de interesse" (lado do lead) |
+| J8.3 | Mesmo vínculo, lado do imóvel | aparece em "Leads interessados" — os dois lados concordam |
+| J8.4 | Timeline do lead após vincular | atividade "Vinculado a um imóvel" chega via realtime, sem reload |
+| J8.5 | viewer na tela de Imóveis | lista visível (permissão viewer no GET), botão "Novo imóvel" ausente (POST exige agent) |
+
+**Status desta rodada:** spec escrita e execução manual confirma login, navegação,
+os dois diálogos (`NewPropertyDialog`/`NewLeadDialog`) e os dois `Select` funcionando
+de ponta a ponta contra o Supabase real configurado neste ambiente — até a chamada
+`POST /api/v1/properties`, que falha com `PGRST205 — Could not find the table
+'public.properties'`. Achado 40 abaixo explica a causa raiz. **BLOQUEADO** até a
+migration `0098_properties` ser aplicada neste projeto Supabase específico (já está
+em `supabase/migrations/` + apêndice do `baseline.sql` + `MANIFEST.md` — só falta
+rodar contra este banco).
+
+| # | Achado | Estado |
+|---|--------|--------|
+| 40 | 🔴 **Migration `0098_properties` nunca foi aplicada neste projeto Supabase real** — tabelas `properties`/`properties_media` inexistem (`information_schema.tables` confirma, consulta somente leitura), apesar de a migration estar versionada, documentada no `MANIFEST.md` e já refletida no apêndice do `baseline.sql`. O gap é só de aplicação neste banco específico, não de código | aberto — requer permissão de escrita em schema (bloqueada pelo classificador de auto mode nesta sessão) ou `SUPABASE_ACCESS_TOKEN` para `supabase link && supabase db push` |
+| 41 | 🟠 `scripts/seed-e2e-credentials.ts`/`seed-e2e-kanban.ts`: parser manual de `.env.local` só removia aspas DUPLAS; o `.env.local` deste ambiente (formato do kit self-host) usa aspas SIMPLES em todo valor — `NEXT_PUBLIC_SUPABASE_URL` chegava ao `createClient` com aspas literais, derrubando `loadCreds()` de TODOS os specs e2e que dependem desse padrão (não só properties) | **corrigido** — regex aceita `['"]` nos dois arquivos que a Task 14 usa; os ~50 outros scripts com o mesmo parser duplicado continuam com o defeito (candidato a limpeza futura, fora do escopo desta task) |
+| 42 | 🟡 `app/app/properties/_client.tsx`: botão "Novo imóvel" não tinha nenhum gate de permissão — viewer via o botão, abria o diálogo, e só descobriria o 403 ao submeter (`POST /api/v1/properties` exige `requireRole("agent")`) | **corrigido** — `usePermission("property.create")` (novo em `ACTION_MIN_ROLE`), mesmo padrão de `ai/skills`, `ai/memory` |
+| 43 | 🟡 Ambiente: `next start` produção precisa de Chromium com libs de sistema (`libatk-1.0`, `libcairo`, `libpango` etc.) que não vêm nesta sandbox e `playwright install --with-deps` exige `sudo` (indisponível) | contornado sem root: `apt-get download` dos `.deb` + `dpkg-deb -x` pra um dir do scratchpad + `LD_LIBRARY_PATH` — não é um conserto de produto, é nota de ambiente para reruns futuros nesta sandbox |
+
 ---
 
 ## Achados do mapeamento (pré-execução) — candidatos a correção

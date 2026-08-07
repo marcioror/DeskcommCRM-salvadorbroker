@@ -11,7 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { propertyCreateSchema, type PropertyCreate } from "@/lib/schemas/properties";
+import {
+  propertyCreateSchema,
+  propertyPatchSchema,
+  type PropertyCreate,
+  type PropertyPatch,
+} from "@/lib/schemas/properties";
 import { parseReaisToCents } from "@/lib/money";
 import type { Property } from "@/lib/types/properties";
 
@@ -31,11 +36,18 @@ interface FormShape {
   featuresRaw: string;
 }
 
-interface Props {
-  initial?: Property;
-  onSubmit: (input: PropertyCreate) => void;
-  submitting?: boolean;
-}
+/**
+ * Discriminada por `initial`: sem `initial` é criação (`onSubmit` recebe
+ * `PropertyCreate`, com todos os defaults do Zod); com `initial` é edição
+ * (`onSubmit` recebe `PropertyPatch`, só os campos que este form de fato
+ * renderiza — ver comentário em `handleSubmit` sobre o achado da revisão
+ * final: `propertyCreateSchema` vazava default de criação — status,
+ * currency, address_country, furnished, accepts_pets — pro PATCH mesmo sem
+ * o usuário ter tocado nesses campos).
+ */
+type Props =
+  | { initial?: undefined; onSubmit: (input: PropertyCreate) => void; submitting?: boolean }
+  | { initial: Property; onSubmit: (input: PropertyPatch) => void; submitting?: boolean };
 
 /**
  * Centavos → "249,90" (sem prefixo de moeda) — pro campo de input reeditável.
@@ -48,7 +60,8 @@ function centsToReais(cents: number | null | undefined): string {
   return (cents / 100).toFixed(2).replace(".", ",");
 }
 
-export function PropertyForm({ initial, onSubmit, submitting }: Props) {
+export function PropertyForm(props: Props) {
+  const { initial, submitting } = props;
   const form = useForm<FormShape>({
     defaultValues: {
       title: initial?.title ?? "",
@@ -111,9 +124,30 @@ export function PropertyForm({ initial, onSubmit, submitting }: Props) {
       area_total_m2: values.area_total_m2 ? Number(values.area_total_m2) : undefined,
       features,
     };
+
+    if (initial) {
+      const parsed = propertyPatchSchema.safeParse(candidate);
+      if (!parsed.success) return;
+      // `propertyPatchSchema` é `propertyCreateSchema.partial()`: campos com
+      // `.default(...)` (status, currency, address_country, furnished,
+      // accepts_pets) continuam recebendo o default do Zod pra qualquer
+      // chave AUSENTE de `candidate` — este form não renderiza controle pra
+      // eles. Sem este filtro, toda edição reescrevia silenciosamente
+      // status/currency/etc pro valor-padrão de CRIAÇÃO (achado crítico da
+      // revisão final do módulo). Mesmo padrão de `providedKeys` já usado em
+      // PATCH /api/v1/properties/[id]/route.ts — mantém só as chaves que
+      // `candidate` de fato define (os ~12 campos renderizados).
+      const providedKeys = new Set(Object.keys(candidate));
+      const patch = Object.fromEntries(
+        Object.entries(parsed.data).filter(([key]) => providedKeys.has(key)),
+      ) as PropertyPatch;
+      props.onSubmit(patch);
+      return;
+    }
+
     const parsed = propertyCreateSchema.safeParse(candidate);
     if (!parsed.success) return;
-    onSubmit(parsed.data);
+    props.onSubmit(parsed.data);
   }
 
   return (

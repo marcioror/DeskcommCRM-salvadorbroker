@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PropertyForm } from "./PropertyForm";
 import { useUpdateProperty } from "@/hooks/properties/useUpdateProperty";
 import type { Property } from "@/lib/types/properties";
-import type { PropertyCreate } from "@/lib/schemas/properties";
+import type { PropertyPatch } from "@/lib/schemas/properties";
 
 interface Props {
   property: Property;
@@ -14,7 +14,7 @@ interface Props {
 export function EditPropertyDialog({ property, open, onOpenChange }: Props) {
   const update = useUpdateProperty(property.id);
 
-  function handleSubmit(input: PropertyCreate) {
+  function handleSubmit(input: PropertyPatch) {
     update.mutate(input, { onSuccess: () => onOpenChange(false) });
   }
 

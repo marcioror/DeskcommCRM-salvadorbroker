@@ -12,6 +12,7 @@ export * from "./leads";
 export * from "./contacts";
 export * from "./team";
 export * from "./onboarding";
+export * from "./properties";
 export * from "./messaging";
 export * from "./routing";
 export * from "./webhooks";

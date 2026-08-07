@@ -97,4 +97,36 @@ describe("PATCH /api/v1/properties/[id]", () => {
     expect(res.status).toBe(403);
     expect(updates).toEqual([]);
   });
+
+  it("PATCH parcial não vaza defaults do Zod pro .update() (Task 4/12 deferred, fechado na Task 15)", async () => {
+    // `propertyPatchSchema` é `propertyCreateSchema.partial()`: campos com
+    // `.default(...)` (status/currency/furnished/accepts_pets/features/
+    // address_country) reaparecem no `parsed.data` MESMO quando o body não
+    // enviou a chave. O handler já filtra isso via `providedKeys`
+    // (route.ts:71-80) — este teste prova que o filtro funciona, mandando só
+    // `price_sale_cents` e conferindo que nenhum dos 6 campos com default
+    // aparece no payload de `.update()`.
+    vi.mocked(requireRole).mockResolvedValue({
+      ok: true,
+      user: USER,
+      org: { orgId: ORG_ID, name: "Org", role: "agent" },
+    } as never);
+    const { supabase, updates } = makeDb({ id: PROP_ID, status: "available" });
+    vi.mocked(createClient).mockResolvedValue(supabase as never);
+
+    const { PATCH } = await import("./route");
+    const req = new Request("http://localhost", {
+      method: "PATCH",
+      body: JSON.stringify({ price_sale_cents: 500000 }),
+    });
+    const res = await PATCH(req, ctx as never);
+    expect(res.status).toBe(200);
+    expect(updates[0]).toEqual({ price_sale_cents: 500000 });
+    expect(updates[0]).not.toHaveProperty("status");
+    expect(updates[0]).not.toHaveProperty("currency");
+    expect(updates[0]).not.toHaveProperty("furnished");
+    expect(updates[0]).not.toHaveProperty("accepts_pets");
+    expect(updates[0]).not.toHaveProperty("features");
+    expect(updates[0]).not.toHaveProperty("address_country");
+  });
 });

@@ -186,4 +186,11 @@ export type AuditAction =
   | "pipeline.stage_updated"
   | "pipeline.stage_archived"
   | "system.update_requested"
-  | "system.update_finished";
+  | "system.update_finished"
+  | "property.created"
+  | "property.updated"
+  | "property.deactivated"
+  | "property.media_added"
+  | "property.media_removed"
+  | "property.lead_linked"
+  | "property.lead_unlinked";

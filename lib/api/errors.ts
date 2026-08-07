@@ -30,6 +30,8 @@ export const ApiErrorCodes = {
 
   // 404
   not_found: "not_found",
+  property_not_found: "property_not_found",
+  lead_not_found: "lead_not_found",
 
   // 409 — conflito
   idempotency_conflict: "idempotency_conflict",
@@ -40,6 +42,7 @@ export const ApiErrorCodes = {
   event_gone: "event_gone", // resend de run cujo event_log original foi apagado (on delete set null)
   next_action_absent: "next_action_absent", // decisão sobre proposta que não existe (mais) [wave 4]
   next_action_changed: "next_action_changed", // o agente reescreveu a proposta entre o render e o clique
+  duplicate_lead_link: "duplicate_lead_link", // lead já vinculado a esse imóvel
 
   // 422 — semântica
   unprocessable_entity: "unprocessable_entity",

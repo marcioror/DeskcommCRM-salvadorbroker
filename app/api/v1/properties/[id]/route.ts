@@ -98,6 +98,7 @@ export async function PATCH(req: NextRequest | Request, ctx: RouteCtx): Promise<
     .from("properties")
     .update(patch)
     .eq("id", id)
+    .eq("organization_id", activeOrg.orgId)
     .select("*")
     .single();
   if (updErr) return fail("internal_error", updErr.message, 500, { requestId });
@@ -136,6 +137,7 @@ export async function DELETE(_req: NextRequest | Request, ctx: RouteCtx): Promis
     .from("properties")
     .update({ status: "inactive" })
     .eq("id", id)
+    .eq("organization_id", activeOrg.orgId)
     .select("*")
     .single();
   if (updErr) return fail("internal_error", updErr.message, 500, { requestId });

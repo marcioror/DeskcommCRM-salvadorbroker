@@ -21,11 +21,15 @@ function makeDb(existing: Record<string, unknown> | null) {
   chain.maybeSingle = vi.fn(async () => ({ data: existing, error: null }));
   chain.update = vi.fn((patch: unknown) => {
     updates.push(patch);
-    return {
-      eq: () => ({
-        select: () => ({ single: async () => ({ data: { ...existing, ...(patch as object) }, error: null }) }),
-      }),
-    };
+    // Chainable like the real Supabase builder — the route now calls
+    // `.eq("id", id).eq("organization_id", activeOrg.orgId)` (two `.eq()`s)
+    // before `.select().single()`, so this must support repeated `.eq()`.
+    const updateChain: Record<string, unknown> = {};
+    updateChain.eq = vi.fn(() => updateChain);
+    updateChain.select = vi.fn(() => ({
+      single: async () => ({ data: { ...existing, ...(patch as object) }, error: null }),
+    }));
+    return updateChain;
   });
   const supabase = { from: vi.fn(() => chain) };
   return { supabase, updates };

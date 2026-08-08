@@ -64,7 +64,7 @@ function ativas(etapas: EtapaEditavel[]): EtapaEditavel[] {
  * ler como a mesma coluna, e ninguém explica ao dono da clínica por que o
  * quadro tem duas. Mesma razão para colapsar espaço interno.
  */
-function chaveDeNome(nome: string): string {
+export function chaveDeNome(nome: string): string {
   return nome
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -111,8 +111,18 @@ const SLUG_MAX = 40;
  *
  * `slugsExistentes` são os slugs do funil (INCLUSIVE os das arquivadas:
  * `uniq_crm_stages_pipeline_slug` não é parcial, arquivada continua ocupando).
+ *
+ * `raizPadrao` é a saída de emergência quando o nome não produz slug válido
+ * (emoji, uma letra só). `lib/pipelines/pipeline-editing.ts` reusa esta conta
+ * para os FUNIS — o formato do slug é o mesmo nas duas tabelas, e uma segunda
+ * cópia divergiria no primeiro ajuste — passando `"funil"`, senão um funil
+ * chamado só de emoji nasceria com o slug `etapa`.
  */
-export function slugDeNome(nome: string, slugsExistentes: string[] = []): string {
+export function slugDeNome(
+  nome: string,
+  slugsExistentes: string[] = [],
+  raizPadrao = "etapa",
+): string {
   const base = nome
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -123,7 +133,7 @@ export function slugDeNome(nome: string, slugsExistentes: string[] = []): string
 
   // Nome só de emoji, ou de uma letra só, não vira slug válido — e slug vazio
   // violaria o formato e o índice único de uma vez.
-  const raiz = base.length >= SLUG_MIN ? base : "etapa";
+  const raiz = base.length >= SLUG_MIN ? base : raizPadrao;
 
   const ocupados = new Set(slugsExistentes);
   if (!ocupados.has(raiz)) return raiz;

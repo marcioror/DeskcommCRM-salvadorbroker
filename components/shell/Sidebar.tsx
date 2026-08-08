@@ -2,54 +2,32 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTransition } from "react";
-import { Kanban, Users, UsersThree, Gear, CaretDoubleLeft, CaretDoubleRight, Inbox, ScalesSimple, Robot, Brain, PlugsConnected, ChartBar, ChartLineUp, WebhooksLogo, FlowArrow, FileText, ClockCountdown, PuzzlePiece, Signpost, Buildings } from "@/lib/ui/icons";
-import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
+import { ArrowRight, CaretDoubleLeft, CaretDoubleRight, Gear } from "@/lib/ui/icons";
 import { cn } from "@/lib/utils";
 import { toggleSidebar } from "@/app/actions/shell/toggleSidebar";
-import { usePermission } from "@/hooks/auth/AuthProvider";
+import { useAuth } from "@/hooks/auth/AuthProvider";
 import { ConnectionHealthDot } from "@/components/connections/ConnectionHealthDot";
 import { VersionFooter } from "@/components/shell/VersionFooter";
 import { branding } from "@/lib/branding";
+import { GRUPO_NO_RODAPE, NAV_GROUPS, sidebarGroups } from "@/lib/navigation/registry";
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: PhosphorIcon;
-  permission?: string;
-  healthDot?: boolean;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { href: "/app/inbox", label: "Inbox", icon: Inbox },
-  { href: "/app/radar", label: "Radar", icon: ClockCountdown },
-  { href: "/app/connections", label: "Conexões", icon: PlugsConnected, healthDot: true },
-  { href: "/app/kanban", label: "Kanban", icon: Kanban },
-  { href: "/app/contacts", label: "Contatos", icon: Users },
-  { href: "/app/properties", label: "Imóveis", icon: Buildings },
-  { href: "/app/team", label: "Equipe", icon: UsersThree },
-  { href: "/app/metrics", label: "Desempenho", icon: ChartBar },
-  { href: "/app/templates", label: "Templates", icon: FileText },
-  { href: "/app/lgpd/requests", label: "LGPD", icon: ScalesSimple, permission: "lgpd.execute_redact" },
-  { href: "/app/ai/agents", label: "Agentes IA", icon: Robot, permission: "ai.agents.view" },
-  { href: "/app/ai/routers", label: "Roteadores", icon: Signpost, permission: "ai.routers.view" },
-  { href: "/app/ai/followups", label: "Follow-ups", icon: FlowArrow, permission: "ai.agents.view" },
-  { href: "/app/ai/memory", label: "Memória da IA", icon: Brain, permission: "ai.memory.view" },
-  { href: "/app/ai/skills", label: "Skills da IA", icon: PuzzlePiece, permission: "ai.skills.view" },
-  { href: "/app/ai/evolution", label: "Evolução da IA", icon: ChartLineUp, permission: "ai.evolution.view" },
-  { href: "/app/webhooks", label: "Webhooks", icon: WebhooksLogo, permission: "webhooks.manage" },
-  { href: "/app/settings", label: "Configurações", icon: Gear },
-];
-
+/**
+ * Navegação principal, agrupada por objetivo.
+ *
+ * Não decide nada: `sidebarGroups()` (lib/navigation/registry.ts) resolve quais
+ * grupos e destinos este papel vê, e este componente desenha. Antes, a lista de
+ * itens e sete `usePermission()` viviam aqui — e divergiam do hub de
+ * Configurações e das abas de IA, que mantinham suas próprias listas.
+ */
 export function Sidebar({ collapsed }: { collapsed: boolean }) {
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
-  const canLgpd = usePermission("lgpd.execute_redact");
-  const canAiAgents = usePermission("ai.agents.view");
-  const canAiRouters = usePermission("ai.routers.view");
-  const canAiMemory = usePermission("ai.memory.view");
-  const canAiSkills = usePermission("ai.skills.view");
-  const canAiEvolution = usePermission("ai.evolution.view");
-  const canWebhooks = usePermission("webhooks.manage");
+  const { user, activeOrg } = useAuth();
+  const todos = sidebarGroups(user.is_platform_admin, activeOrg?.role ?? null);
+  // Configurações sai da área que rola e vai para o rodapé fixo: medido em
+  // 1280x768, ele caía fora da dobra mesmo em telas de 1080px.
+  const grupos = todos.filter((g) => g.group.id !== GRUPO_NO_RODAPE);
+  const rodape = NAV_GROUPS.find((g) => g.id === GRUPO_NO_RODAPE)?.hub;
 
   const brand = branding();
 
@@ -84,43 +62,94 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
           </span>
         )}
       </div>
-      <nav className="flex-1 space-y-1 overflow-y-auto p-2" aria-label="Navegação principal">
-        {NAV_ITEMS.filter((item) => {
-          if (item.permission === "lgpd.execute_redact") return canLgpd;
-          if (item.permission === "ai.agents.view") return canAiAgents;
-          if (item.permission === "ai.routers.view") return canAiRouters;
-          if (item.permission === "ai.memory.view") return canAiMemory;
-          if (item.permission === "ai.skills.view") return canAiSkills;
-          if (item.permission === "ai.evolution.view") return canAiEvolution;
-          if (item.permission === "webhooks.manage") return canWebhooks;
-          return true;
-        }).map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-          const Icon = item.icon;
+      <nav className="flex-1 space-y-3 overflow-y-auto p-2" aria-label="Navegação principal">
+        {grupos.map(({ group, items }) => {
+          const tituloId = `nav-grupo-${group.id}`;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={collapsed ? item.label : undefined}
-              aria-current={isActive ? "page" : undefined}
-              className={cn(
-                "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                collapsed && "justify-center px-2",
+            <div key={group.id} className="space-y-1">
+              {/* Colapsado, o sidebar tem 64px: seis rótulos ali seriam ilegíveis.
+                  Vira um filete separador, que preserva o agrupamento sem texto. */}
+              {collapsed ? (
+                <div aria-hidden className="mx-2 border-t first:hidden" />
+              ) : (
+                <h2
+                  id={tituloId}
+                  className="px-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60"
+                >
+                  {group.label}
+                </h2>
               )}
-            >
-              <Icon size={18} weight={isActive ? "fill" : "regular"} aria-hidden />
-              {!collapsed && <span className="truncate">{item.label}</span>}
-              {item.healthDot && (
-                <ConnectionHealthDot
-                  className={cn(collapsed ? "absolute right-1.5 top-1.5" : "ml-auto")}
-                />
-              )}
-            </Link>
+              <ul aria-labelledby={collapsed ? undefined : tituloId} aria-label={collapsed ? group.label : undefined} className="space-y-1">
+                {items.map((item) => {
+                  const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                  const Icon = item.icon;
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        title={collapsed ? item.label : undefined}
+                        aria-current={isActive ? "page" : undefined}
+                        className={cn(
+                          "relative flex items-center gap-3 rounded-md px-3 py-1.5 text-sm transition-colors",
+                          isActive
+                            ? "bg-accent text-accent-foreground"
+                            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                          collapsed && "justify-center px-2",
+                        )}
+                      >
+                        <Icon size={18} weight={isActive ? "fill" : "regular"} aria-hidden />
+                        {!collapsed && <span className="truncate">{item.label}</span>}
+                        {item.healthDot && (
+                          <ConnectionHealthDot
+                            className={cn(collapsed ? "absolute right-1.5 top-1.5" : "ml-auto")}
+                          />
+                        )}
+                      </Link>
+                    </li>
+                  );
+                })}
+                {group.hub && (
+                  <li>
+                    <Link
+                      href={group.hub.href}
+                      title={collapsed ? group.hub.label : undefined}
+                      aria-current={pathname === group.hub.href ? "page" : undefined}
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-1.5 text-sm transition-colors",
+                        pathname === group.hub.href
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                        collapsed && "justify-center px-2",
+                      )}
+                    >
+                      <ArrowRight size={18} aria-hidden />
+                      {!collapsed && <span className="truncate">{group.hub.label}</span>}
+                    </Link>
+                  </li>
+                )}
+              </ul>
+            </div>
           );
         })}
       </nav>
       <div className="border-t p-2">
+        {rodape && (
+          <Link
+            href={rodape.href}
+            title={collapsed ? rodape.label : undefined}
+            aria-current={pathname.startsWith(rodape.href) ? "page" : undefined}
+            className={cn(
+              "mb-1 flex items-center gap-3 rounded-md px-3 py-1.5 text-sm transition-colors",
+              pathname.startsWith(rodape.href)
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              collapsed && "justify-center px-2",
+            )}
+          >
+            <Gear size={18} aria-hidden />
+            {!collapsed && <span className="truncate">{rodape.label}</span>}
+          </Link>
+        )}
         <VersionFooter collapsed={collapsed} />
         <button
           type="button"

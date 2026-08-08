@@ -56,9 +56,18 @@ export type AuditAction =
   | "conversation.closed"
   | "conversation.tags_changed"
   | "contact.tags_changed"
+  // Fila de confirmação (spec 17 §4b): a IA PROPÕE, uma pessoa decide. As três
+  // entram porque a proposta é intenção auditável mesmo quando nunca vira
+  // escrita — e "ninguém confirmou" é informação, não ausência dela.
+  | "contact.field_proposed"
+  | "contact.field_confirmed"
+  | "contact.field_rejected"
   | "lead.tags_changed"
   | "message.sent"
   | "message.received"
+  // Uma rodada do cron `recover-stuck-messages` que de fato marcou mensagem
+  // como falha (rodada vazia não vira linha — varredura não é mutação).
+  | "message.recover_stuck_run"
   | "contact.blocked"
   | "ai.handoff_triggered"
   | "ai.reactivated_by_agent"
@@ -124,16 +133,36 @@ export type AuditAction =
   | "ai.org_memory_published"
   | "ai.org_memory_entry_created"
   | "ai.org_memory_entry_updated"
+  /** Provedor/modelo de um ponto do sistema que usa IA foi trocado no painel. */
+  | "ai.purpose_binding_updated"
   | "ai_agent.run_started"
   | "ai_agent.run_completed"
   | "ai_agent.run_failed"
   | "channel.connected"
   | "channel.reconnected"
+  // Duas ações distintas de propósito: `deleted` apagou a linha (canal virgem),
+  // `archived` só a escondeu porque conversas/mensagens ainda a referenciam.
+  // A auditoria precisa distinguir o que sumiu do que continua no banco.
+  | "channel.deleted"
+  | "channel.archived"
+  // Contraparte de `archived`: a linha escondida voltou à vida (reconexão do
+  // canal oficial, retomada do pareamento). Sem ela o histórico registra a
+  // exclusão e cala sobre o canal ter voltado a receber e enviar. Emitida por
+  // `lib/channels/reactivate.ts` — o único caminho de volta, e é o que faz a
+  // frase acima valer para os DOIS casos em vez de para o que lembraram.
+  | "channel.reactivated"
   | "authz.denied"
   | "team.role_changed"
   | "leads.bulk_assigned"
   | "attendant.availability_changed"
   | "routing.config_changed"
+  // Mudar a régua do abandono (spec 16 §5.2) muda como TODO período passa a ser
+  // lido — é mutação relevante, não preferência de exibição.
+  | "metrics.atrito_regua_changed"
+  // O invariante 4 deixando de ser só leitura: quem marcou o próximo passo de
+  // uma demanda, e qual. Sem isto, a única mutação que fecha o vazamento seria
+  // a única sem rastro.
+  | "demanda.proximo_passo_definido"
   | "routing.worker_run"
   | "attendant.heartbeat_swept"
   | "webhook.source_created"
@@ -181,10 +210,20 @@ export type AuditAction =
   | "conversation.note_added"
   | "conversation.note_deleted"
   | "ai.case_replied"
+  // O agente participando do chamado — separado de `ai.case_replied` (a pessoa
+  // respondendo) porque juntar os dois apagaria justamente quem agiu.
+  | "ai.case_noted_by_agent"
+  | "ai.case_closed_by_agent"
   | "pipeline.agent_mapping_updated"
   | "pipeline.stage_created"
   | "pipeline.stage_updated"
   | "pipeline.stage_archived"
+  | "pipeline.created"
+  | "pipeline.updated"
+  | "pipeline.archived"
+  // Só existe para o funil que nunca recebeu negócio: com histórico, a operação
+  // vira `pipeline.archived` e a linha continua no banco.
+  | "pipeline.deleted"
   | "system.update_requested"
   | "system.update_finished"
   | "property.created"
@@ -193,4 +232,11 @@ export type AuditAction =
   | "property.media_added"
   | "property.media_removed"
   | "property.lead_linked"
-  | "property.lead_unlinked";
+  | "property.lead_unlinked"
+  // IA 360 · wave 2 — o retorno agendado deixou de ser exclusividade do motor e
+  // virou capacidade configurável. `followup_enrollment.*` é o motor de FLUXOS;
+  // estas duas são a PROMESSA avulsa (cron_jobs), que é outra coisa e precisava
+  // de código próprio para não somar duas grandezas no mesmo relatório.
+  | "followup.scheduled"
+  | "followup.cancelled"
+  | "lead.reactivation_proposed";

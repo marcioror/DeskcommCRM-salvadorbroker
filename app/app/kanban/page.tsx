@@ -1,63 +1,62 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
+
 import { Kanban } from "@/lib/ui/icons";
-import { Badge } from "@/components/ui/badge";
-import { EmptyPipeline } from "@/components/empty";
+import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
+import { ROLE_RANK } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
+import { FunisClient, type FunilDaLista } from "./_client";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * A lista de funis — e o lugar onde eles se gerenciam.
+ *
+ * ⚠️ O FILTRO DE `organization_id` NÃO É REDUNDANTE COM A RLS, e a falta dele era
+ * um bug visível: a policy `crm_pipelines_select` libera TODAS as organizações do
+ * usuário (`organization_id in fn_user_org_ids()`) e libera tudo para
+ * `fn_is_platform_admin()`. Quem participa de duas organizações via as duas
+ * listas misturadas — e como o gatilho `trg_seed_default_pipeline_for_org` semeia
+ * um funil "Pedidos" em toda organização nova, a tela mostrava várias linhas
+ * idênticas, indistinguíveis, cada uma levando a um quadro diferente. A RLS
+ * responde "pode ver?"; a tela precisa responder "quer ver agora?".
+ *
+ * ⚠️ A LEITURA É ABERTA, A ESCRITA É manager+. Ver a lista e abrir o quadro é
+ * trabalho de qualquer papel; criar, renomear, reordenar e arquivar é
+ * configuração — e é o que `requireRole("manager")` cobra nas rotas.
+ * `podeGerenciar` usa o MESMO critério delas (o papel na organização ativa, sem
+ * atalho de platform admin, que as rotas não concedem por padrão): mostrar um
+ * botão que o servidor recusaria seria prometer o que não se cumpre.
+ */
 export default async function KanbanPickerPage() {
+  const user = await requireAuth();
+  const activeOrg = await resolveActiveOrg(user);
+  if (!activeOrg) redirect("/app");
+
   const supabase = await createClient();
-  const { data: pipelines } = await supabase
+  const { data } = await supabase
     .from("crm_pipelines")
-    .select("id, name, slug, is_default, description")
+    .select("id, name, slug, description, position, is_default")
+    .eq("organization_id", activeOrg.orgId)
     .eq("is_archived", false)
     .order("position");
 
-  const list = pipelines ?? [];
+  const funis = (data ?? []) as FunilDaLista[];
+  const podeGerenciar = ROLE_RANK[activeOrg.role] >= ROLE_RANK.manager;
 
   return (
     <div className="flex h-full flex-col gap-4 p-6">
       <header className="flex items-center gap-3">
         <Kanban size={28} className="text-muted-foreground" weight="duotone" />
+        {/* ⚠️ O TÍTULO CONTINUA "Pipelines", e não é desatenção. Trocá-lo por
+            "Funis" — que é como a tela de Configurações chama a mesma coisa —
+            quebra `rbac-roles.spec.ts` e `invite-lifecycle.spec.ts`, que usam
+            este heading para provar que `agent` alcança o Kanban. Uniformizar o
+            vocabulário do produto é decisão de quem o mantém, vale para as duas
+            telas de uma vez, e não é carona de uma feature de CRUD. */}
         <h1 className="text-2xl font-semibold tracking-tight">Pipelines</h1>
       </header>
 
-      {list.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center">
-          <EmptyPipeline
-            primary={{ label: "Ir para Configurações", href: "/app/settings" }}
-          />
-        </div>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {list.map((p) => (
-            <li key={p.id}>
-              <Link
-                href={`/app/pipelines/${p.id}`}
-                className="flex items-center justify-between rounded-md border border-border bg-surface px-4 py-3 transition-colors hover:border-border-strong"
-              >
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{p.name}</span>
-                    {p.is_default && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        Default
-                      </Badge>
-                    )}
-                  </div>
-                  {p.description && (
-                    <span className="text-xs text-muted-foreground">
-                      {p.description}
-                    </span>
-                  )}
-                </div>
-                <span className="text-xs text-muted-foreground">/{p.slug}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <FunisClient funis={funis} podeGerenciar={podeGerenciar} />
     </div>
   );
 }

@@ -42,6 +42,12 @@ export interface RecipientInput {
   phoneNumber: string | null | undefined;
   /** `contacts.wa_identity` (migration 0027): 'phone:+E164' | 'lid:<digits>' | null. */
   waIdentity: string | null | undefined;
+  /**
+   * `contacts.wa_lid` (0122). Separado de `waIdentity` porque esta é GERADA com
+   * o telefone na frente: contato @lid que ganha número deixa de casar em
+   * `waIdentity.startsWith("lid:")` — justo o caso que a regra protege.
+   */
+  waLid?: string | null | undefined;
 }
 
 export interface OutboundEnvelope {
@@ -80,4 +86,36 @@ export interface ChannelAdapter {
    * de `lib/channels/`. Quem chama escreve o que o adapter disser.
    */
   readonly codes: { notConfigured: string; sendFailed: string; unknownError: string };
+
+  /**
+   * URL da foto de perfil do contato, ou null quando não há (sem foto,
+   * privacidade fechada, canal fora do ar).
+   *
+   * OPCIONAL de propósito: nem todo canal expõe isso. Quem chama testa a
+   * presença do método antes de usar, em vez de perguntar QUAL provider é —
+   * que é justamente o que o lint de canal proíbe fora daqui.
+   *
+   * A URL devolvida costuma ser ASSINADA E TEMPORÁRIA (no WhatsApp, ~9 dias
+   * medidos). Quem chama deve BAIXAR e persistir, nunca guardar a URL.
+   */
+  fetchProfilePictureUrl?(input: {
+    sessionRef: string;
+    recipient: string;
+  }): Promise<string | null>;
+
+  /**
+   * Todas as formas sob as quais ESTE canal pode ter registrado a MESMA mensagem
+   * que acabou de ser enviada — para reconhecer o eco do próprio envio quando ele
+   * volta pelo webhook.
+   *
+   * Existe porque alguns canais são assimétricos: a resposta do envio e o
+   * webhook do eco trazem pontas diferentes do mesmo identificador, e comparar
+   * as duas strings direto nunca casa. Que formas são essas é conhecimento do
+   * canal, não de quem envia — por isso mora aqui e não no handler, que é
+   * justamente o que o lint de canal impede.
+   *
+   * OPCIONAL: um canal simétrico (mesmo id nos dois lados) não implementa, e
+   * quem chama cai no próprio `externalId`.
+   */
+  echoExternalIds?(input: { externalId: string; recipient: string }): string[];
 }

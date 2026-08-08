@@ -29,6 +29,17 @@
 > **[👉 Assinar a VPS HostGator com desconto da parceria](https://www.hostgator.com.br/52708-141-3-52.html)** —
 > datacenter em São Paulo, ideal pro WhatsApp rodando 24/7. *(link de parceiro — assinar por ele apoia o projeto e sai mais barato)*
 >
+> **Ainda não tem servidor?** Rode isto **no seu computador** (macOS, Linux ou WSL). Ele diz
+> qual plano contratar — com os números do runbook, não um "depende" — e te devolve o
+> comando certo pro seu caso:
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/hostgator-setup-kit/comecar.sh | bash
+> ```
+>
+> *(prefere ler antes de executar? clone o repo e rode `bash hostgator-setup-kit/comecar.sh` —
+> ele não instala nada sem você confirmar.)*
+>
 > Já tem a VPS? Entre nela por SSH e rode:
 >
 > ```bash
@@ -91,9 +102,12 @@ cp .env.example .env.local
 # 4. WAHA local (opcional em dev sem WhatsApp)
 docker compose up -d
 
-# 5. Migrations Supabase
+# 5. Schema do banco — aplique o baseline, NÃO as migrations
+#    As migrations 0001-0009 e 0013 são stubs `SELECT 1;`: a cadeia não sobe do
+#    zero. O schema real vive no baseline.sql, que é o mesmo que o install.sh
+#    aplica na VPS. `supabase db push` "passa" e deixa o banco vazio.
 supabase link --project-ref <seu-ref>
-supabase db push
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f supabase/baseline.sql
 
 # 6. Sobe o app
 pnpm dev
@@ -120,7 +134,7 @@ App: <http://localhost:3000> · Health check: <http://localhost:3000/api/v1/heal
 | **Rate limit** | Upstash Redis (sliding window) | Serverless, free tier suficiente |
 | **AI** | Vercel AI SDK v7 (providers Anthropic/Google/OpenAI v4) via AI Gateway | Fallback automático, ZDR |
 | **Validação** | Zod | Input externo, env, payloads |
-| **Observability** | Sentry (com `beforeSend` sanitizado) | Sem PII no breadcrumb |
+| **Observability** | Sentry (scrub em erro, transação, span e breadcrumb) | Telemetria opt-in no install |
 | **Hospedagem** | Vercel (app) + Hostgator VPS Turing/SP (WAHA) | Edge + dedicado pra WhatsApp; datacenter Brasil |
 
 Detalhes: [`ARCHITECTURE.md`](ARCHITECTURE.md).
@@ -161,7 +175,7 @@ pnpm test:db       # Postgres efêmero + baseline install/update + invariantes
 pnpm test:e2e      # Playwright (requer dev server)
 ```
 
-O CI roda `typecheck`, `lint` e `test:unit` em todo PR. Um segundo job — **`invariants`** — sobe um Postgres limpo, aplica o `supabase/baseline.sql` em modo install (`ON_ERROR_STOP=1`) e depois em modo update (provando idempotência), e roda **364 testes de invariante** distribuídos em 56 arquivos, cobrindo RBAC, atribuição, escopo de visualização, roteamento, follow-up, webhooks e automações.
+O job **`verify`** roda `typecheck`, `lint`, `lint:channels`, `test:unit` e `test:shell` em todo PR. Um segundo job — **`invariants`** — sobe um Postgres limpo, aplica o `supabase/baseline.sql` em modo install (`ON_ERROR_STOP=1`) e depois em modo update (provando idempotência), e roda **364 testes de invariante** distribuídos em 56 arquivos, cobrindo RBAC, atribuição, escopo de visualização, roteamento, follow-up, webhooks e automações.
 
 Entre eles está o **teste de isolamento RLS**: cria 2 organizações, simula os claims JWT pelo mesmo caminho `auth.uid()` / `fn_user_org_ids()` que as policies de produção usam, e prova que um usuário da org A enxerga **zero linhas** da org B em `conversations`, `messages`, `contacts` e `crm_leads`. Antes disso, um caso de controle prova que as linhas da org B realmente existem no banco — sem ele, o teste passaria mesmo com a tabela vazia.
 
@@ -201,10 +215,15 @@ Esse projeto é open source pra comunidade. Toda contribuição é bem-vinda —
 ```bash
 git checkout -b feat/short-slug
 # implementa + testes
-pnpm typecheck && pnpm lint && pnpm test:unit
+pnpm typecheck && pnpm lint && pnpm lint:channels && pnpm test:unit && pnpm test:shell && pnpm build
+pnpm test:db   # precisa de Docker — é o job `invariants`, obrigatório no merge
 git commit -m "feat(escopo): descrição"
 # abre PR — o template já traz o checklist de Definition of Done
 ```
+
+Essa linha é a lista **completa** dos gates obrigatórios, de propósito: rodar só metade e descobrir o
+resto como surpresa vermelha depois de horas de espera é a pior primeira experiência que este
+repositório sabe entregar.
 
 **Definition of Done:** typecheck zero, lint zero, testes relevantes verdes, RLS testada se toca tabela tenant-aware, audit log emitido em mutações, migration versionada se muda schema. Detalhes em [`CLAUDE.md`](CLAUDE.md#definition-of-done).
 
@@ -273,12 +292,19 @@ Este é um projeto **self-host**: cada pessoa roda o CRM na **própria infraestr
   é com você.
 - **LGPD — atenção:** quem **hospeda** a instância é o **controlador** dos dados pessoais
   ali tratados (clientes, conversas, pedidos), com as obrigações legais decorrentes. Os
-  mantenedores do projeto **não têm acesso** aos seus dados e **não são** controladores
-  nem operadores da sua instância.
-- **Telemetria (Sentry):** por padrão, erros **anonimizados** (CPF/telefone/e-mail
-  removidos) são enviados ao Sentry da comunidade pra ajudar a corrigir bugs que afetam
-  todos. Para **desligar**, use `SENTRY_DSN=off` no `.env`; para enviar ao **seu** Sentry,
-  use `SENTRY_DSN=<seu-dsn>`. Ver [`lib/sentry/dsn.ts`](lib/sentry/dsn.ts).
+  mantenedores do projeto **não são** controladores nem operadores da sua instância, e não
+  têm acesso ao seu banco, ao seu WhatsApp nem ao seu storage. A única coisa que pode sair
+  da sua máquina para nós é o relatório de erro descrito abaixo — e só se você deixar.
+- **Telemetria (Sentry):** o `install.sh` **pergunta** durante a instalação e respeita a
+  sua resposta; em modo não-interativo, sem `SENTRY_DSN` definido, a telemetria fica
+  **desligada**. Se você aceitar o Sentry da comunidade, o que é enviado são **relatórios
+  de erro** (stack trace) com CPF, telefone e e-mail substituídos, cabeçalhos sensíveis
+  removidos, e token de webhook/convite redigido da URL — **sem** rastreamento de
+  performance e **sem** replay de sessão, que ficam em 0 nesse caminho. Para desligar a
+  qualquer momento: `SENTRY_DSN=off` no `.env`. Para mandar ao **seu** Sentry (aí sim com
+  performance e replay): `SENTRY_DSN=<seu-dsn>`. O que é redigido, e por quê, está em
+  [`lib/sentry/scrub.ts`](lib/sentry/scrub.ts); a resolução do DSN em
+  [`lib/sentry/dsn.ts`](lib/sentry/dsn.ts).
 
 ---
 

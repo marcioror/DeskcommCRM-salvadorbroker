@@ -14,7 +14,7 @@
  * `row.organization_id` (from the trusted event_log row, not user input).
  */
 
-import { generateText } from "ai";
+import { generateText, type LanguageModel } from "ai";
 
 import {
   DEFAULT_BOT_MODEL,
@@ -39,6 +39,7 @@ import type {
   SkipDecision,
 } from "@/lib/ai/types";
 import type { EventRow } from "@/lib/event-log/dispatcher";
+import { resolverModeloDoPonto } from "@/lib/ai/gateway-binding";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -127,8 +128,41 @@ export async function processMessageReceived(row: EventRow): Promise<ProcessResu
     return { status: "skipped", reason: "handoff_g4_stage" };
   }
 
+  // Mesma armadilha que quebrava o ai-sentiment-worker, e aqui ela é mais cara:
+  // este é o worker que RESPONDE O CLIENTE. `ctx.agent.model` é uma string vinda
+  // do banco (ai_agents.model), e no AI SDK string com barra é roteada pelo
+  // gateway da Vercel — que sem AI_GATEWAY_API_KEY aborta ANTES de emitir
+  // qualquer requisição ("Unauthenticated request to AI Gateway"). Numa
+  // instalação self-host padrão, que só tem ANTHROPIC_API_KEY, isso significava
+  // o bot mudo, uma vez por mensagem recebida.
+  //
+  // O guard fica DEPOIS de G1/G4 de propósito: pedido de humano e menção legal
+  // precisam gerar handoff mesmo numa instalação sem LLM atendível.
+  //
+  // Skip, não erro: modelo que nenhuma chave desta instalação atende é config,
+  // não falha transitória — retentar só repetiria o loop que este PR mata.
+  // O painel de provedores manda aqui também — ver lib/ai/gateway-binding.ts.
+  const resolvido = await resolverModeloDoPonto(
+    "bot_respond",
+    ctx.organization_id,
+    ctx.agent.model,
+  );
+  const model = resolvido?.model ?? null;
+  if (!model) {
+    logger.warn("[ai-response-worker] modelo do agente sem provider configurado", {
+      organization_id: ctx.organization_id,
+      agent_id: ctx.agent.id,
+      model: ctx.agent.model,
+    });
+    return {
+      status: "skipped",
+      reason: "ai_gateway_key_missing",
+      detail: `nenhuma chave configurada atende o modelo "${ctx.agent.model}"`,
+    };
+  }
+
   try {
-    const response = await invokeBot(ctx);
+    const response = await invokeBot(ctx, model);
     const post = postProcess(response.text);
 
     // ── G3 — bot's own response signals low confidence / uncertainty.
@@ -328,6 +362,38 @@ async function buildContext(input: BuildContextInput): Promise<GuardDecision> {
     .maybeSingle();
 
   if (!agent) return skip("agent_inactive_or_missing");
+
+  // O ENGINE É O DONO DA RESPOSTA QUANDO HÁ VERSÃO PUBLICADA (issue #129).
+  //
+  // `lib/waha/ingest.ts` emite, para cada inbound, `ai_agent.dispatch_requested`
+  // (drenado pelo agent-engine) E `message.received` (drenado por este worker),
+  // incondicionalmente — e até aqui não havia trava nenhuma entre os dois. Numa
+  // instalação padrão os dois agiam na MESMA mensagem: o engine respondia de
+  // verdade, e este worker chamava o LLM (custo real, cobrado duas vezes) e
+  // inseria uma outbound `sending` que nunca saía, porque
+  // `message.send_requested` nunca teve consumidor.
+  //
+  // O critério é o MESMO que o engine usa para se considerar dono
+  // (`lib/agent-engine/agent/agent-config.ts`: join em `published_version_id`,
+  // não arquivado). Usar o mesmo predicado é o que garante que não existe buraco
+  // entre os dois: ou o engine responde, ou este worker responde — nunca
+  // nenhum, nunca os dois.
+  //
+  // Quem NÃO publicou versão nenhuma continua caindo aqui, como antes: sem
+  // `published_version_id` o engine não seleciona agente e não age. Por isso a
+  // trava não pode ser "existe engine rodando" — essa pergunta não é
+  // respondível daqui, e errá-la significaria silenciar a IA de quem depende
+  // deste caminho.
+  const { data: publicado } = await admin
+    .from("ai_agents")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .not("published_version_id", "is", null)
+    .is("archived_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (publicado) return skip("engine_owns_reply");
+
   if (!agent.active_kb_version_id) return skip("kb_version_missing");
 
   // Budget guard (IA-02)
@@ -478,7 +544,10 @@ async function retrieveContext(input: RetrieveInput): Promise<RagHit[]> {
 // 3. invokeBot
 // ---------------------------------------------------------------------------
 
-async function invokeBot(ctx: BotContext): Promise<BotResponse> {
+// `model` chega resolvido de fora (ver o guard em processMessageReceived):
+// `ctx.agent.model` continua sendo a STRING canônica, porque é ela que vai para
+// o custo e para a auditoria em ai_invocations; o que executa é o provider.
+async function invokeBot(ctx: BotContext, model: LanguageModel): Promise<BotResponse> {
   const renderedSystem = renderSystemPrompt(ctx.agent.system_prompt, ctx);
   const cfg = gatewayConfig();
   const headers = cfg ? gatewayHeaders({ organizationId: ctx.organization_id }) : undefined;
@@ -498,7 +567,7 @@ async function invokeBot(ctx: BotContext): Promise<BotResponse> {
 
   const start = Date.now();
   const result = await generateText({
-    model: ctx.agent.model,
+    model,
     system: renderedSystem,
     messages,
     headers,
@@ -572,7 +641,7 @@ async function persistAndDispatch(
     direction: "outbound" as const,
     status: "sending",
     body: finalText,
-    sent_via: "bot" as const,
+    sent_via: "ai" as const,
     sent_at: new Date().toISOString(),
     metadata: {
       ai_generated: true,

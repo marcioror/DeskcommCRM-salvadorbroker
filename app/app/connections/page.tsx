@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
-import { ConnectionsClient } from "@/components/connections/ConnectionsClient";
+import { ConexoesShell } from "@/components/connections/ConexoesShell";
 
 export const dynamic = "force-dynamic";
 
@@ -24,10 +24,11 @@ export default async function ConnectionsPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Conexões</h1>
         <p className="text-sm text-muted-foreground">
-          Verifique a saúde dos seus números de WhatsApp, reconecte os que caíram e adicione novos.
+          Por onde seu negócio fala com o cliente. Conecte números por QR ou o número oficial
+          da Meta, e acompanhe a saúde de cada um.
         </p>
       </header>
-      <ConnectionsClient wahaConfigured={wahaConfigured} />
+      <ConexoesShell wahaConfigured={wahaConfigured} />
     </div>
   );
 }

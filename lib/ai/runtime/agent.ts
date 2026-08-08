@@ -275,7 +275,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       const { data: convRaw } = await admin
         .from("conversations")
         .select(
-          `id, group_chat_id, is_group, contacts:contact_id(phone_number, wa_identity), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS})`,
+          `id, group_chat_id, is_group, contacts:contact_id(phone_number, wa_identity, wa_lid), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS})`,
         )
         .eq("id", run.conversation_id)
         .eq("organization_id", run.organization_id)
@@ -284,7 +284,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         id: string;
         group_chat_id: string | null;
         is_group: boolean;
-        contacts: { phone_number: string | null; wa_identity: string | null } | null;
+        contacts: { phone_number: string | null; wa_identity: string | null; wa_lid: string | null } | null;
         channel_sessions: ChannelSessionRef | null;
       } | null;
       if (conv) {
@@ -296,6 +296,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
           groupChatId: conv.group_chat_id,
           phoneNumber: conv.contacts?.phone_number,
           waIdentity: conv.contacts?.wa_identity,
+          waLid: conv.contacts?.wa_lid,
         });
       }
     }
@@ -340,11 +341,18 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
 
     const auth: McpAuthResult = {
       organizationId: run.organization_id,
-      role: "agent",
+      role: "ai_operator",
       actor: {
         type: "ai_agent",
+        // `id` é o RUN — é o que correlaciona a chamada de tool com o turno no
+        // audit. `agent_id` é a linha em `ai_agents`, e é a única que pode ir
+        // para `crm_lead_activities.actor_agent_id` (FK). Enquanto só existia
+        // `id`, toda tool de escrita chamada por este runtime perdia a atividade
+        // na FK: o lead mudava e a timeline não registrava. Ver `Actor` em
+        // lib/api/handlers/types.ts.
         id: run.id,
-        role: "agent",
+        agent_id: run.agent_id,
+        role: "ai_operator",
         api_token_id: ephemeral.id,
       },
       apiTokenId: ephemeral.id,
@@ -353,12 +361,12 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         "mcp:write",
         "actor:ai_agent",
         `agent_run:${run.id}`,
-        "role:agent",
+        "role:ai_operator",
       ],
     };
     const ctx: McpContext = {
       organizationId: run.organization_id,
-      role: "agent",
+      role: "ai_operator",
       actor: auth.actor,
       apiTokenId: ephemeral.id,
       requestId: run.id,
@@ -371,6 +379,8 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       auth,
       toolIds: version.tool_ids ?? [],
       handoffToolEnabled: version.handoff_tool_enabled,
+      // `?? []` — o clone sem a coluna 0125 nasce FECHADO.
+      pipelineIds: (version as { pipeline_ids?: string[] }).pipeline_ids ?? [],
       handoffSignal,
     });
 
@@ -535,6 +545,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         supabase: admin,
         organizationId: run.organization_id,
         runId: run.id,
+        agentId: run.agent_id,
         conversationId: run.conversation_id,
         text: finalText,
         requestId: run.id,

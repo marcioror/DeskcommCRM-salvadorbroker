@@ -18,6 +18,7 @@ import { z } from "zod";
 
 import { computeCost } from "@/lib/ai/cost";
 import { DEFAULT_CLASSIFIER_MODEL, isAiGatewayConfigured } from "@/lib/ai/gateway";
+import { resolverModeloDoPonto } from "@/lib/ai/gateway-binding";
 import { logInvocation } from "@/lib/ai/log-invocation";
 import { SENTIMENT_SYSTEM_PROMPT } from "@/lib/ai/prompts/sentiment";
 import type { EventRow } from "@/lib/event-log/dispatcher";
@@ -27,9 +28,29 @@ const SENTIMENT_MODEL = DEFAULT_CLASSIFIER_MODEL; // "anthropic/claude-haiku-4-5
 const DEFAULT_SENTIMENT_THRESHOLD = 0.3;
 const CLASSIFY_TIMEOUT_MS = 5_000;
 
+// As descrições NÃO são decoração: viram o JSON Schema da ferramenta que o
+// provider manda ao modelo. Sem elas o `.max(100)` existia só no validador — o
+// modelo nunca ficava sabendo do limite e escrevia 223, 297, 340 caracteres
+// (medido com mensagens reais desta instalação). Com a descrição, o mesmo
+// conjunto caiu para 59–102.
+//
+// O teto do Zod é FOLGADO de propósito. Modelo não conta caractere: mesmo
+// avisado, uma amostra bateu 102. Reprovar a classificação inteira por 2
+// caracteres a mais seria péssimo negócio — ainda mais porque
+// `reasoning_short` é DESCARTADO (só `sentiment_score` e a latência vão para
+// messages.metadata). Ele existe para o modelo raciocinar antes de pontuar,
+// não para ser guardado. A descrição segura a verbosidade (e o custo); o teto
+// só impede resposta absurda.
 const sentimentSchema = z.object({
-  sentiment_score: z.number().min(0).max(1),
-  reasoning_short: z.string().max(100),
+  sentiment_score: z
+    .number()
+    .min(0)
+    .max(1)
+    .describe("0 = muito negativo, 0.5 = neutro, 1 = muito positivo"),
+  reasoning_short: z
+    .string()
+    .max(280)
+    .describe("Justificativa curta da nota, em NO MÁXIMO 100 caracteres"),
 });
 
 export interface SentimentResult {
@@ -44,6 +65,25 @@ export async function processSentiment(event: EventRow): Promise<SentimentResult
     if (!isAiGatewayConfigured()) {
       return { skipped: true, reason: "ai_gateway_key_missing" };
     }
+
+    // Passar SENTIMENT_MODEL como string cai no gateway da Vercel mesmo sem
+    // chave (plano anônimo) e devolve "Unauthenticated ... Configure
+    // AI_GATEWAY_API_KEY" — o que quebrava este worker em toda instalação que
+    // só tem ANTHROPIC_API_KEY, ou seja, o padrão do install.sh. O resolver
+    // devolve o provider certo para a chave que existir.
+    // O painel de provedores manda AQUI também. Sem esta linha, a tela
+    // oferecia "Medir o clima da conversa", aceitava a escolha e dizia
+    // "salvo" — e este worker seguia usando o modelo padrão. Botão que não
+    // controla nada é pior que botão ausente: gasta a confiança de quem clicou.
+    const resolvido = await resolverModeloDoPonto(
+      "sentiment_classify",
+      event.organization_id,
+      SENTIMENT_MODEL,
+    );
+    if (!resolvido) {
+      return { skipped: true, reason: "ai_gateway_key_missing" };
+    }
+    const sentimentModel = resolvido.model;
 
     const messageId = (event.payload?.["message_id"] as string | undefined) ?? event.entity_id ?? null;
     const conversationId = (event.payload?.["conversation_id"] as string | undefined) ?? null;
@@ -104,12 +144,20 @@ export async function processSentiment(event: EventRow): Promise<SentimentResult
 
     try {
       const generated = await generateObject({
-        model: SENTIMENT_MODEL,
+        model: sentimentModel,
         schema: sentimentSchema,
         system: SENTIMENT_SYSTEM_PROMPT,
         prompt: body,
         temperature: 0,
-        maxOutputTokens: 80,
+        // 80 era pequeno demais e nunca tinha sido exercitado (o worker morria
+        // antes, na autenticação). `generateObject` com Anthropic usa modo
+        // FERRAMENTA: o JSON vai dentro de um tool_use, que custa bem mais que
+        // texto puro. Medido com mensagens reais desta instalação: 2 de 3
+        // paravam em `stop_reason: max_tokens` com o JSON cortado no meio —
+        // daí o "No object generated: response did not match schema", que
+        // parecia erro de esquema e era truncamento. Pico observado: 146 sem
+        // as descrições, 84 com elas. 256 dá folga sem virar cheque em branco.
+        maxOutputTokens: 256,
         abortSignal: abortController.signal,
       });
 
@@ -155,16 +203,20 @@ export async function processSentiment(event: EventRow): Promise<SentimentResult
     // ── Log invocation (fire-and-forget) ──────────────────────────────────
     logInvocation({
       organization_id: event.organization_id,
-      agent_id: agent?.id ?? "",
+      // `null`, não `""` (issue #160): o worker roda mesmo sem agente ativo — lê
+      // o agente só para o threshold e cai no default —, e string vazia numa
+      // coluna uuid fazia o insert de auditoria falhar em silêncio. O custo
+      // existe; a linha precisa entrar.
+      agent_id: agent?.id ?? null,
       conversation_id: conversationId ?? message.conversation_id ?? null,
       message_id: messageId,
       invocation_kind: "sentiment_classify",
-      model: SENTIMENT_MODEL,
+      model: resolvido.modelId,
       prompt_tokens: promptTokens,
       completion_tokens: completionTokens,
       latency_ms: latencyMs,
       cost_cents: await computeCost({
-        model: SENTIMENT_MODEL,
+        model: resolvido.modelId,
         promptTokens,
         completionTokens,
       }),

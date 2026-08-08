@@ -120,23 +120,31 @@ Estes são achados de código/config verificados nesta auditoria, não relatos.
 
 ### 4.1 Os E2E quase não rodam no CI 🟠 — parcialmente resolvido em 2026-07-30
 
-> **Atualização (2026-07-30):** `e2e.yml` passou a rodar **3 das 19 specs** (`smoke`, `auth`,
-> `error-pages`) contra Supabase local com o `baseline.sql` aplicado. Não-obrigatório ainda.
-> A primeira execução real já pagou o job: achou a página `/500`, que `public-paths.ts`
-> declarava pública e **nunca havia sido criada**. As 16 restantes seguem sem gate — o texto
-> abaixo continua valendo para elas.
+> **Atualização (2026-08-05, issue #63):** `e2e.yml` roda **28 das 32 specs** contra Supabase
+> local com o `baseline.sql` aplicado. Não-obrigatório ainda. A primeira execução real já
+> pagou o job: achou a página `/500`, que `public-paths.ts` declarava pública e **nunca havia
+> sido criada**. A rodada de 2026-08-05 pagou de novo: as 12 specs do épico IA 360 nunca
+> tinham entrado no gate, e ao rodá-las apareceu um defeito de produto real
+> (`capacidades-do-agente` — o teto de 20 capacidades desabilita a crítica que o desenho manda
+> marcar à mão). As 4 restantes seguem sem gate — o texto abaixo continua valendo para elas.
 
 O gate de isolamento RLS **roda** — `ci.yml` tem o job `invariants` chamando `pnpm test:db`,
 que sobe `pgvector/pgvector:pg17`, aplica `baseline.sql` em modo install e update, e roda os
 56 arquivos de `tests/invariants/`. Esse buraco está fechado.
 
-O que continua fora: as **19 specs Playwright**. Entre elas
+O que continua fora: **4 das 32 specs Playwright**. A `vps-webhook-outbound-ssrf.spec.ts`,
+única prova automatizada do guard de SSRF, **passou a rodar** no `e2e.yml`. Mas a
 `vps-fresh-onboarding.spec.ts` — a jornada que a doutrina de QA Visual classifica como o
-caminho mais crítico do produto — e `vps-webhook-outbound-ssrf.spec.ts`, que é a única prova
-automatizada do guard de SSRF. Regressão em qualquer das duas passa sem detecção.
+caminho mais crítico do produto — continua fora, porque exige WAHA + Redis + Resend +
+Nuvemshop no runner. Regressão nela passa sem detecção (issue #63).
+
+O `e2e` também **ainda não é check obrigatório** na branch protection, que exige apenas
+`verify`, `build-and-size` e `invariants`. Enquanto for opcional, um PR que quebre o e2e
+entra na `main` assim mesmo.
 
 `vitest.config.ts:12` exclui `tests/invariants/**` e `tests/e2e/**` do `test:unit`. Para os
-invariantes isso é deliberado e correto (o job de CI os pega). Para os E2E, ninguém pega.
+invariantes isso é deliberado e correto (o job de CI os pega). Para os E2E, o `e2e.yml` pega
+metade.
 
 ### 4.2 `pnpm gov:verify` não é o comando único que aparenta ser 🟠
 

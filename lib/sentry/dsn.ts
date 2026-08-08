@@ -21,3 +21,16 @@ export function resolveSentryDsn(value: string | undefined | null): string | und
   if (v === "off" || v === "false" || v === "0") return undefined;
   return v.length > 0 ? v : DEFAULT_SENTRY_DSN;
 }
+
+/**
+ * Estamos mandando para o Sentry da COMUNIDADE (o nosso), e não para o do operador?
+ *
+ * Isso decide a amostragem (issue #100). No DSN da comunidade só vai ERRO:
+ * `tracesSampleRate` e `replaysSessionSampleRate` vão a 0. O que ajuda a corrigir
+ * "bug que afeta todo mundo" é o stack trace — não 100% das transações nem 10% das
+ * sessões de um CRM que não é nosso. Quem aponta para o próprio Sentry recebe tudo,
+ * porque aí o dado não sai da infraestrutura de quem é dono dele.
+ */
+export function isCommunityDsn(dsn: string | undefined): boolean {
+  return dsn === DEFAULT_SENTRY_DSN;
+}

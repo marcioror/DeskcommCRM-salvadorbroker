@@ -34,20 +34,22 @@ const REAL = {
 
 test.describe.configure({ mode: "serial" });
 
-test("o admin chega ao canal oficial pelo hub de configurações", async ({ page }) => {
-  await page.goto("/app/settings");
+test("o admin chega ao canal oficial pela área de Conexões", async ({ page }) => {
+  // A tela MUDOU DE LUGAR de propósito (2026-07-31): conectar canal — por QR ou
+  // oficial — vive em Conexões, e não mais espalhado em Configurações. Este caso
+  // acompanha a decisão em vez de fossilizar o caminho antigo; o redirect da rota
+  // velha e o card-ponte do hub são cobertos por `conexoes-abas.spec.ts`.
+  await page.goto("/app/connections");
 
-  // Foto ANTES da asserção: quando o card não aparece, o artefato de erro do
+  // Foto ANTES da asserção: quando a aba não aparece, o artefato de erro do
   // Playwright nem sempre traz o snapshot, e ler evidência indireta me levou a
   // três diagnósticos errados seguidos.
   await page.waitForLoadState("networkidle");
   await page.screenshot({ path: `${EVIDENCE}/00-hub-antes-da-assercao.png`, fullPage: true });
 
-  const card = page.getByRole("link", { name: /Canal oficial/i });
-  await expect(card).toBeVisible();
-  await card.click();
+  await page.getByRole("tab", { name: /API Oficial/i }).click();
 
-  await page.waitForURL(/\/app\/settings\/canal-oficial/, { timeout: 20_000 });
+  await page.waitForURL(/aba=oficial/, { timeout: 20_000 });
   await expect(page.getByTestId("canal-oficial-root")).toBeVisible({ timeout: 20_000 });
   await page.screenshot({ path: `${EVIDENCE}/01-tela-conexao.png`, fullPage: true });
 });
@@ -55,7 +57,7 @@ test("o admin chega ao canal oficial pelo hub de configurações", async ({ page
 test("credencial errada é RECUSADA com o motivo da Meta, e nada é gravado", async ({ page }) => {
   // É o caso que separa "validar" de "aceitar e torcer". Sem ele, o operador acharia
   // que conectou e só entenderia que não na primeira mensagem que não sai.
-  await page.goto("/app/settings/canal-oficial");
+  await page.goto("/app/connections?aba=oficial");
   await expect(page.getByTestId("canal-oficial-root")).toBeVisible({ timeout: 20_000 });
 
   await page.locator("#pnid").fill("000000000000000");
@@ -90,7 +92,7 @@ test("credencial errada é RECUSADA com o motivo da Meta, e nada é gravado", as
 test("credencial real conecta e a tela mostra o que colar na Meta", async ({ page }) => {
   test.skip(!REAL.token, "sem META_SYSTEM_USER_TOKEN no ambiente");
 
-  await page.goto("/app/settings/canal-oficial");
+  await page.goto("/app/connections?aba=oficial");
   await expect(page.getByTestId("canal-oficial-root")).toBeVisible({ timeout: 20_000 });
 
   await page.locator("#pnid").fill(REAL.phoneNumberId);

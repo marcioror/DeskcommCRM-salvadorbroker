@@ -19,10 +19,17 @@
  * Auth: mesmo contrato dos demais crons (Bearer INTERNAL_CRON_SECRET|
  * INTERNAL_SECRET, fail-closed).
  *
- * NOTA DE DEPLOY: não há `vercel.json` neste repo (self-host). O kit precisa
- * agendar esta rota no container `scheduler` — sugestão de cadência: a cada 15
- * min. Sem isso, nada esfria sozinho e a wave 7 volta a ser tela. A cadência não
- * precisa ser fina: a menor janela de estágio é medida em HORAS.
+ * DEPLOY: não há `vercel.json` neste repo (self-host). Esta rota é agendada no
+ * serviço `scheduler` do `docker-compose.prod.yml`, a cada 15 min — cadência
+ * grossa de propósito, porque a menor janela de estágio é medida em HORAS.
+ *
+ * ⚠️ Esta nota já pediu o agendamento no futuro do verbo ("o kit PRECISA
+ * agendar") e ficou assim por meses: a rota existia, tinha teste e tinha doc, e
+ * NINGUÉM A CHAMAVA num self-host — nada esfriava sozinho, nenhuma proposta
+ * nascia, e o modo de falha era silencioso ("nada esfriou" é indistinguível de
+ * "nada esfriou ainda"). Pedido em comentário não é agendamento. Hoje a garantia
+ * é mecânica: `tests/unit/cron-routes-scheduled.test.ts` compara o diretório de
+ * rotas com o crontab e fica VERMELHO se alguma rota ficar órfã dos dois lados.
  */
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";

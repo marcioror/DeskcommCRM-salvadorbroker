@@ -1151,3 +1151,74 @@ As duas últimas falhavam antes deste trabalho e não entram no gate de merge.
 **Estado:** typecheck 0 · lint 164 (0 nos arquivos tocados) · unit **1686/1686** ·
 test:db 399 · gate e2e do CI **20/20 em 3 corridas** · jornadas 7/7 sem WhatsApp
 (3 bloqueadas pela sessão WAHA `FAILED`, que precisa de QR).
+
+---
+
+## Conectar canal deixa de estar em três lugares (2026-07-31)
+
+Feedback do Rafael, ao procurar onde conectar a API oficial: *"achei, tá em Configurações.
+Tá péssimo isso. Tem que ter uma aba pra conectar api oficial na área de conexões, e os
+templates de disparo deveriam também estar em uma aba dentro das conexões"*.
+
+Ele está certo, e o defeito é de coerência: conectar por QR ficava em `/app/connections`,
+conectar o número **oficial** ficava em Configurações, e os templates numa terceira tela.
+Três lugares para uma coisa só — e o usuário precisava saber de antemão que "conectar meu
+WhatsApp" tinha resposta diferente dependendo de QUAL WhatsApp. Isso é conhecimento sobre o
+**nosso código**, não sobre o negócio dele.
+
+### O que ficou
+
+```
+/app/connections
+├── Números por QR        → ConnectionsClient (o que já existia)
+└── API Oficial (Meta)
+    ├── Conexão           → CanalOficialClient
+    └── Templates da Meta → TemplatesClient
+```
+
+Templates entra como **sub-aba do canal oficial**, não como item de topo, porque não existe
+fora dele: em canal por QR não há template a aprovar. Promovê-lo a primeiro nível sugeriria
+uma escolha que não existe.
+
+A aba vive na **URL** (`?aba=`, `?sub=`), não em `useState`: é o que faz link colado abrir
+onde deveria e o que permite as rotas antigas redirecionarem para o lugar certo.
+
+`/app/settings/canal-oficial` e `/app/settings/templates` viram **redirect**, e o card em
+Configurações passa a apontar para a aba. Não é gordura: é o que impede que todo link
+salvo, print de tutorial e aba aberta de quem já usava vire 404. O card fica como ponte —
+quem aprendeu a procurar em Configurações continua achando, e ninguém precisa aprender que
+a mesma pergunta tem dois destinos.
+
+### Uma colisão de vocabulário que a mudança expôs
+
+A barra lateral já tem um item **"Templates"** (`/app/templates`) que significa outra coisa:
+*"scripts salvos para responder mais rápido"* — respostas rápidas do atendente, não os
+templates aprovados da Meta. Dois conceitos com o mesmo rótulo fazem o operador clicar no
+errado e concluir que a tela está quebrada.
+
+A colisão é **anterior** a este trabalho. O que dava para fazer aqui era não agravá-la: a
+sub-aba chama-se **"Templates da Meta"**. Renomear o outro lado é decisão do Rafael — e há
+uma sessão trabalhando nele agora.
+
+### Um quase-acidente entre sessões
+
+Ao mover `TemplatesClient.tsx` para `components/connections/`, o Rafael avisou que
+"templates" estava sendo trabalhado em outra sessão. Parei antes de rodar qualquer coisa e
+listei o que já havia tocado — o `git mv` era o risco real: contra edições concorrentes ele
+**não produz conflito textual**, produz arquivo em dois lugares ou mudança perdida em
+silêncio.
+
+Confirmado com ele que a outra sessão mexe nas **respostas rápidas** (`/app/templates`), não
+no espelho da Meta (`settings/templates`) — sem sobreposição. A lição fica: antes de `git mv`
+em repo com várias sessões vivas, perguntar QUAL arquivo, não assumir pelo nome. Dois
+"Templates" diferentes tornam a confusão barata de cometer.
+
+**Prova pela tela:** `tests/journeys/conexoes-abas.spec.ts`, **6/6** — as duas formas de
+conectar lado a lado, a sub-aba de templates, a aba na URL, os dois redirects antigos, e o
+card de Configurações levando ao MESMO lugar (não a um segundo).
+
+| O que mostra | Evidência |
+|---|---|
+| as duas abas de canal na mesma tela | `evidence/canais/conexoes/01-abas.png` |
+| a aba oficial com a tela de conexão e o webhook a colar | `evidence/canais/conexoes/02-oficial-conexao.png` |
+| os templates da Meta como sub-aba, com parâmetros derivados | `evidence/canais/conexoes/03-oficial-templates.png` |

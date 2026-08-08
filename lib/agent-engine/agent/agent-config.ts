@@ -41,6 +41,27 @@ export interface PublishedAgentConfig {
   /** knobs de RAG do ai_agents.config (defaults do guardrails-schema: 5 / 0.72). */
   ragTopK: number;
   ragSimilarityThreshold: number;
+  /**
+   * O papel OPERADOR está ligado nesta versão (spec 16 §3.2)?
+   *
+   * Default do banco é FALSE: um papel que gasta uma chamada de modelo por turno
+   * na chave do self-hoster não se liga por migration, se liga na tela.
+   */
+  operatorEnabled: boolean;
+  /** modelo do papel Operador. `null` = herda `model` (o do Conversador). */
+  operatorModel: string | null;
+  /**
+   * Capacidades do papel Operador — INDEPENDENTES de `toolIds` (do Conversador).
+   * Vazio = o papel roda sem mão, que é estado legítimo e observável: ele ainda
+   * registra promessa em aberto. Herdar as do Conversador daria 20 capacidades a
+   * quem não escolheu nenhuma.
+   */
+  operatorToolIds: string[];
+  /**
+   * Funis em que o agente pode ESCREVER (spec 17 passo 3). Vazio = NENHUM.
+   * Lido pelo gate em `lib/leads/escopo-de-funil.ts`.
+   */
+  pipelineIds: string[];
   /** criadores (p/ mint do token efêmero de audit — padrão do runtime nativo). */
   versionCreatedBy: string | null;
   agentCreatedBy: string | null;
@@ -66,6 +87,10 @@ interface Row {
   tool_ids: string[] | null;
   active_kb_version_id: string | null;
   config: Record<string, unknown> | null;
+  operator_enabled: boolean | null;
+  operator_model: string | null;
+  operator_tool_ids: string[] | null;
+  pipeline_ids: string[] | null;
   version_created_by: string | null;
   agent_created_by: string | null;
 }
@@ -89,6 +114,10 @@ const SELECT_AGENT_CONFIG_COLUMNS = `a.id as agent_id,
             v.tool_ids,
             a.active_kb_version_id,
             a.config,
+            v.operator_enabled,
+            v.operator_model,
+            v.operator_tool_ids,
+            v.pipeline_ids,
             v.created_by as version_created_by,
             a.created_by as agent_created_by`;
 
@@ -126,6 +155,17 @@ function mapAgentConfigRow(r: Row): PublishedAgentConfig {
     activeKbVersionId: r.active_kb_version_id,
     ragTopK,
     ragSimilarityThreshold,
+    // `?? false` cobre o clone que ainda não aplicou a 0111: coluna ausente vem
+    // como null/undefined, e a direção segura é o papel DESLIGADO — nunca gastar
+    // modelo por causa de um schema desatualizado.
+    operatorEnabled: r.operator_enabled ?? false,
+    operatorModel: r.operator_model,
+    // `?? []` cobre o clone sem a 0112: sem coluna, o papel roda sem mão em vez
+    // de herdar a lista do Conversador — a direção segura é agir de menos.
+    operatorToolIds: r.operator_tool_ids ?? [],
+    // `?? []` = NENHUM funil. O clone que ainda não aplicou a 0125 nasce
+    // fechado — a direção segura é agir de menos (mesma decisão da linha acima).
+    pipelineIds: r.pipeline_ids ?? [],
     versionCreatedBy: r.version_created_by,
     agentCreatedBy: r.agent_created_by,
   };

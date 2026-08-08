@@ -10,6 +10,8 @@
 export {
   // navigation (inbox icon = Tray in Phosphor)
   Tray as Inbox,
+  ListChecks,
+  Plugs,
   PlugsConnected,
   QrCode,
   Kanban,
@@ -104,4 +106,10 @@ export {
   Signpost,
   // atualização de versão
   ArrowCircleUp,
+  // navegação agrupada (registro em lib/navigation/registry.ts)
+  Funnel,
+  BookOpen,
+  Key,
+  UserCircle,
+  ClockCounterClockwise,
 } from "@phosphor-icons/react/dist/ssr";

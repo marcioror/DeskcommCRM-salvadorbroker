@@ -30,21 +30,22 @@ fs.mkdirSync(EVIDENCE, { recursive: true });
 
 test.describe.configure({ mode: "serial" });
 
-test("o operador chega aos templates pelo hub de configurações", async ({ page }) => {
-
-  await page.goto("/app/settings");
-  const card = page.getByRole("link", { name: /Templates do WhatsApp/i });
-  await expect(card).toBeVisible();
+test("o operador chega aos templates pela aba do canal oficial", async ({ page }) => {
+  // MUDOU DE LUGAR de propósito (2026-07-31): template só existe por causa do
+  // canal oficial, então vive como sub-aba dele em Conexões — não como tela solta
+  // em Configurações. O redirect da rota antiga é coberto por `conexoes-abas.spec.ts`.
+  await page.goto("/app/connections?aba=oficial");
+  await page.waitForLoadState("networkidle");
   await page.screenshot({ path: `${EVIDENCE}/01-hub-settings.png`, fullPage: true });
 
-  await card.click();
-  await page.waitForURL(/\/app\/settings\/templates/, { timeout: 20_000 });
+  await page.getByRole("tab", { name: /Templates da Meta/i }).click();
+  await page.waitForURL(/sub=templates/, { timeout: 20_000 });
   await expect(page.getByTestId("templates-root")).toBeVisible({ timeout: 20_000 });
   await page.screenshot({ path: `${EVIDENCE}/02-tela-templates.png`, fullPage: true });
 });
 
 test("os parâmetros aparecem derivados, com o contexto como rótulo", async ({ page }) => {
-  await page.goto("/app/settings/templates");
+  await page.goto("/app/connections?aba=oficial&sub=templates");
   await expect(page.getByTestId("templates-root")).toBeVisible({ timeout: 20_000 });
 
   const cards = page.getByTestId("template-card");
@@ -72,7 +73,7 @@ test("os parâmetros aparecem derivados, com o contexto como rótulo", async ({ 
 });
 
 test("o botão Sincronizar fala com a Graph API de verdade", async ({ page }) => {
-  await page.goto("/app/settings/templates");
+  await page.goto("/app/connections?aba=oficial&sub=templates");
 
   const botao = page.getByTestId("btn-sync");
   await expect(botao).toBeEnabled({ timeout: 20_000 });

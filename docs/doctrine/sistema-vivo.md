@@ -2,6 +2,16 @@
 
 > Lei de arquitetura. Todo desenvolvimento neste repo obedece a isto — não é aspiração, é critério de aceite (ver o item "Living System Checklist" no Definition of Done, `CLAUDE.md`).
 
+**Este arquivo é a LEI: curta, verificável, cobrada pelo DoD e pelo CI.** O racional completo — por que cada invariante existe, qual armadilha ele evita, e como adotar a doutrina em outro sistema — vive no manual: [`sistema-vivo/`](sistema-vivo/README.md).
+
+| Se você quer… | Vá para |
+|---|---|
+| Saber o que precisa responder antes do merge | Este arquivo (§ invariantes + checklist) |
+| Entender *por quê*, ou aplicar isto em outro sistema | [`sistema-vivo/README.md`](sistema-vivo/README.md) |
+| O gate operacional numa sessão de código | `.claude/skills/sistema-vivo/SKILL.md` |
+
+Ao mudar um invariante aqui, atualize [`sistema-vivo/02-lei-dos-invariantes.md`](sistema-vivo/02-lei-dos-invariantes.md) na mesma sessão — ele é o espelho comentado desta lista, e dois textos que divergem deixam de ser consultados.
+
 ---
 
 ## O princípio-raiz
@@ -16,7 +26,7 @@ Onde a IA termina, começa uma continuidade contextualizada para o humano. Onde 
 
 ---
 
-## Os 5 invariantes (verificáveis)
+## Os 7 invariantes (verificáveis)
 
 Cada invariante é uma pergunta que uma feature responde **antes do merge**. Se não responde, ainda não está viva.
 
@@ -53,6 +63,31 @@ Os invariantes 3 e 5 cobrem o que **aconteceu** e o que se **vê**. Este cobre o
 - **Verificação:** para todo estado configurável existe (a) rota de leitura na UI, (b) rota de escrita na UI, e (c) falta de configuração vira item de inbox ou banner — nunca um `return` mudo no worker.
 - **Doutrina irmã:** [`restricao-de-canal.md`](./restricao-de-canal.md) aplica isto ao eixo dos canais externos (auto-restrição × hetero-restrição, contrato de parâmetros derivado).
 
+### 7. Todo laço se fecha — nada decide no vazio
+**Toda decisão automatizada tem um retorno mensurável que altera decisão futura.** Para cada decisão que o sistema toma sozinho — responder, escalar, agendar, priorizar, avançar estágio — existe um sinal de desfecho que volta e muda o comportamento seguinte: métrica que altera prioridade, caso que vira conhecimento, padrão que vira proposta.
+
+A armadilha é sutil: **os invariantes 1 a 6 podem estar todos satisfeitos num sistema que não aprende nada.** Toda peça com entrada e saída, todo log gravado, toda tela no lugar — e ainda assim uma esteira: a informação entra, atravessa, sai, e nada volta para mudar o amanhã. O invariante 1 garante *caminho*; este garante *ciclo*.
+
+A pergunta que expõe: **quando o sistema erra, o que muda nele?** Se a resposta é "fica no log", o log é estoque morto — memória sem leitor é custo de disco.
+
+- **Verificação:** para cada classe de decisão automatizada, nomeie o sinal de retorno e onde ele é consumido. "Nenhum" só vale com justificativa escrita — e é dívida declarada, não ausência de defeito.
+- **Não exige auto-modificação:** o laço pode terminar numa proposta que um humano aprova. O proibido é o laço que termina em lugar nenhum.
+- **Estado atual:** parcial. O flywheel fecha o laço do agente; as demais classes de decisão ainda não declaram retorno. Detalhe em [`sistema-vivo/02-lei-dos-invariantes.md`](sistema-vivo/02-lei-dos-invariantes.md).
+
+---
+
+## A regra do tempo
+
+A formulação anterior — *"todas as áreas do sistema devem funcionar em realtime"* — **está revogada.** Ela misturava duas coisas com exigências opostas, e o sistema nunca se comportou assim: throttle, janela horária e warm-up são atrasos deliberados, e estão certos.
+
+> **Observação em tempo real. Ação no tempo apropriado ao humano do outro lado.**
+
+Tempo real é direito do observador — painel, inbox, fila, falha de operação, conversa ao vivo — porque informação atrasada faz o mecanismo anti-morte (invariante 4) chegar atrasado junto. No canal de **ação**, delay é decisão de projeto: quanto mais irreversível o efeito, maior o intervalo entre decidir e consumar. Enviar mensagem a uma pessoa é irreversível e nunca é operação comum.
+
+**Corolário — interruptibilidade:** o sistema nunca deve ser mais rápido do que o humano consegue interromper. Se o efeito é irreversível antes que alguém consiga cancelar, a autoridade humana existe no organograma e não no relógio.
+
+Racional completo em [`sistema-vivo/06-tempo-do-sistema.md`](sistema-vivo/06-tempo-do-sistema.md).
+
 ---
 
 ## Living System Checklist
@@ -65,13 +100,27 @@ Living System Checklist — <nome da feature>
 [ ] Quem eu alimento?  (aresta de saída — a peça é um polvo, distribui)
 [ ] Que atividade/log eu emito?  (event_log / audit / crm_lead_activities)
 [ ] Onde eu apareço na tela?  (timeline/insight — não só no banco)
+[ ] Por qual porta se chega até mim?  (entrada em lib/navigation/registry.ts, ou allowlist justificada)
 [ ] Qual meu mecanismo anti-morte?  (próximo passo garantido, ou N/A justificado)
 [ ] Onde se CONFIGURA o que eu uso?  (tela de ver + tela de mudar; e o que aparece se faltar)
 [ ] Qual a continuidade IA↔humano?  (payload de handoff nas duas direções, se aplicável)
+[ ] Qual meu LAÇO DE RETORNO?  (o que muda no sistema quando eu erro — invariante 7)
 [ ] Atualizei o mapa vivo?  (docs/architecture/*.json + re-render archify se a arquitetura mudou)
 ```
 
+**Como se responde mal, e é o padrão:** respondendo o que a peça *poderia* fazer. A resposta válida **nomeia o artefato concreto** — o consumidor real, a tela real, o log real. "Vai aparecer no painel" não é resposta.
+
 Uma feature que responde "nenhum" a *quem eu alimento* ou *onde apareço na tela* é uma ilha. Desilhe antes do merge, ou registre explicitamente por que é uma exceção legítima.
+
+> **Por que a pergunta da porta foi acrescentada (2026-08-03).** Ter tela e ser alcançável são coisas diferentes, e o checklist só cobrava a primeira. Auditoria da navegação encontrou **sete telas alcançáveis apenas por dentro da própria seção** (Conhecimento, Credenciais, Uso, Casos, Alertas — só como aba dentro de `/app/ai/*`) e **duas sem link nenhum no app** (`/app/integrations/nuvemshop`, `/app/ai/proposals`). Todas tinham passado no gate respondendo "tenho tela". Uma feature sem porta é uma ilha alcançável só por quem já sabe a URL — que é ninguém, num produto self-host.
+
+### Regras de navegação que a doutrina passa a exigir
+
+- **Todo destino declara seu grupo** em `lib/navigation/registry.ts`. Sem grupo, sem merge.
+- **Configuração e observabilidade são grupos diferentes.** Desenhar como o sistema funciona (Agentes, Roteadores) não é a mesma atividade que olhar o sistema funcionando (Evolução da IA, Desempenho) — e quem procura uma não está procurando a outra.
+- **Hub a partir de 5 telas.** Abaixo disso o grupo cabe inteiro no sidebar; um hub de 3 itens é só um clique a mais para chegar onde já dava.
+- **O sidebar carrega o uso diário; o hub carrega o inventário.** Na dúvida, `sidebar: false` — o hub e o ⌘K já garantem a descoberta.
+- **Mudar o lugar na navegação não exige mudar a URL.** Rota só se renomeia quando o path mente sobre o conteúdo, e cada renomeação paga um redirect permanente.
 
 ---
 
@@ -96,7 +145,7 @@ Primeira passada ancorada no grafo (`graphify`) + `docs/architecture/`. A doutri
 - Atendentes com status/carga/capacidade/horário/disponibilidade + **Performance por Atendente** (ganhos, perdidos, conversas, 1ª resposta média).
 - **IA como assignee de 1ª classe** (`assignee_kind user|ai`) + Modo de Roteamento — handoff IA→humano existe.
 - Flywheel de auto-aprimoramento com gate humano; `createFollowupTurnHandler` (follow-up conduzido pelo agente).
-- 7 gates before-send com veto instrutivo de volta ao modelo (continuidade IA→modelo).
+- 10 gates before-send com veto instrutivo de volta ao modelo (continuidade IA→modelo). *(Este número já dizia "7" quando a cadeia tinha 9 — corrigido junto com a entrada do gate `internal_vocabulary`, que a levou a 10. A lista viva é `BEFORE_SEND_GATES`, travada por `tests/unit/before-send-chain-shape.test.ts`.)*
 
 **Verificado em código (2026-07-24):**
 1. ✅ **Timeline de `crm_lead_activities` renderizada** — VIVO. `components/inbox/CRMSidePanel.tsx` busca `crm_lead_activities` e renderiza como feed no inbox (API `app/api/v1/contacts/[id]/timeline/route.ts`). *Nuance:* o feed vive no inbox, não no card do pipeline — desilhar o card seria o próximo passo se o operador trabalhar direto do Kanban. (invariante 3)
@@ -115,5 +164,10 @@ Primeira passada ancorada no grafo (`graphify`) + `docs/architecture/`. A doutri
 | Gate de sessão | Item "Living System Checklist" no DoD (`CLAUDE.md`) | Nenhuma task fecha sem responder o checklist |
 | Contexto persistente | Memória de projeto | Sessões futuras carregam a doutrina |
 | Mapa vivo | archify + graphify | Peça nova aparece com ≥2 arestas |
+| **CI (mecânico)** | `tests/unit/navegacao-completude.test.ts` | **Tela sem porta reprova o build** |
 
 **Rung futuro (opcional, não construído):** enforcement mecânico via CI/hook — ex.: teste que exige que toda tabela tenant-aware nova declare sua estratégia de activity log. Gates de *mentalidade* vivem melhor em skill+DoD (hábito) do que em hook frágil (ruído). Adicionar só se a doutrina começar a vazar na prática.
+
+**Acionado em 2026-08-03 — para a pergunta da porta.** A condição acima ("se a doutrina começar a vazar na prática") se cumpriu: nove telas sem porta, todas aprovadas por um gate de hábito. `navegacao-completude.test.ts` varre `app/app/**/page.tsx` e cruza com o registro nos dois sentidos — tela sem porta e destino apontando para rota inexistente. A allowlist exige justificativa escrita por entrada, e um teste cobra que a justificativa exista.
+
+O caso é instrutivo sobre o limite do gate de hábito: **o próprio teste achou duas telas órfãs que três varreduras manuais nesta sessão não acharam** — incluindo uma (`/app/ai/proposals`) que eu havia declarado, com convicção, não ser uma tela. A varredura por arquivo não tem opinião. Onde a propriedade a garantir é *enumerável a partir do repositório*, o teste ganha do hábito; onde ela exige julgamento (a peça faz sentido? o log é útil?), o hábito continua sendo o instrumento certo.

@@ -28,7 +28,7 @@ verificados por leitura de arquivo, config e workflow.
 | H2 — Reproduzível | ✅ | Quickstart no README, `docs/SETUP.md`, `.nvmrc` (22), `packageManager` fixo, `pnpm-lock.yaml`, `docker-compose.yml`, `install.sh` do kit self-host, `baseline.sql` |
 | H3 — Verificável | ✅ | `lint` + `typecheck` + `test:unit` + `build`; CI roda os 3 primeiros em PR |
 | H4 — Preparado para agentes | ✅ | `CLAUDE.md` doutrinal forte; `AGENTS.md` **criado nesta auditoria**; documentação técnica extensa; **e o CI roda o gate de isolamento RLS** (job `invariants` → `pnpm test:db`) |
-| H5 — Automação avançada | ⚠️ **parcial** | CI confiável e ambiente isolado ✅ (Postgres efêmero pg17, worktrees, gov-loop com maker≠checker e hash-check). Faltam: **16 das 19 specs E2E fora do CI** (3 rodam via `e2e.yml` desde 2026-07-30, não-obrigatório), `format:check` fora do CI, e o comando único local (`gov:verify`) não cobre `test:db`/`test:e2e` |
+| H5 — Automação avançada | ⚠️ **parcial** | CI confiável e ambiente isolado ✅ (Postgres efêmero pg17, worktrees, gov-loop com maker≠checker e hash-check). Faltam: **4 das 32 specs E2E fora do CI** (28 rodam via `e2e.yml`, ainda não-obrigatório — e enquanto for opcional um PR que o quebre entra na `main`), `format:check` fora do CI, e o comando único local (`gov:verify`) não cobre `test:db`/`test:e2e` |
 
 **Por que H4 e não H5:** a instrução da auditoria é explícita — não atribuir nível só
 porque os arquivos existem, avaliar se o processo está implementado. Aqui está: o gate de
@@ -68,7 +68,7 @@ Legenda: ✅ existente e funcional · ⚠️ existente mas incompleto · ❌ nã
 | 10 | Checagem de tipos | ✅ | `pnpm typecheck` (`tsc --noEmit`, TS 6 estrito), roda no CI |
 | 11 | Testes unitários | ✅ | 221 arquivos `*.test.ts(x)`; `pnpm test:unit` no CI |
 | 12 | Testes de integração | ✅ | **56 arquivos** de invariantes em `tests/invariants/` + `tests/api/`. Excluídos do `test:unit` de propósito (`vitest.config.ts:12`) e rodados pelo job `invariants` do CI via `pnpm test:db` |
-| 13 | Testes E2E | ⚠️ | 19 specs Playwright. **3 rodam no CI** (`e2e.yml`, não-obrigatório); os P0 `vps-fresh-onboarding` e `vps-webhook-outbound-ssrf` ainda não |
+| 13 | Testes E2E | ⚠️ | 20 specs Playwright. **10 rodam no CI** (`e2e.yml`, ainda não-obrigatório), incluindo o P0 `vps-webhook-outbound-ssrf`; o P0 `vps-fresh-onboarding` continua fora (issue #63) |
 | 14 | Comando único de verificação | ⚠️ | `pnpm gov:verify` = `typecheck && lint && test:unit`. **Omite `test:db` e `test:e2e`** — verde localmente não significa verificado. O CI cobre `test:db`, mas só depois do push |
 | 15 | CI executando verificações | ✅ | `ci.yml` tem 2 jobs: `verify` (typecheck + lint + test:unit) e **`invariants` (`pnpm test:db` — isolamento RLS + invariantes de governança, em job paralelo com timeout de 20min)**. Falta E2E e `format:check`. `perf.yml` faz build + bundle size; `publish-image.yml` publica no GHCR |
 | 16 | Proteção contra secrets | ⚠️ | `.gitignore` cobre `.env*` (exceção só para os `.example`) e o Sentry tem `beforeSend` que higieniza PII. **Sem** gitleaks/trufflehog no CI, **sem** pre-commit hook |

@@ -116,11 +116,23 @@ export async function listContactsHandler(
       // zero resultados para um contato que EXISTE, e desistiu — a demanda
       // morreria por uma coluna faltando no OR.
       `display_name.ilike.%${s}%`,
-      `email.ilike.%${s}%`,
-      `phone_number.ilike.%${s}%`,
     ];
-    if (digits.length === 11) {
-      orParts.push(`cpf_hash.eq.${hashCpf(digits)}`);
+    // C4 (revisão final): busca por telefone/e-mail/cpf é ORÁCULO DE CONFIRMAÇÃO
+    // pra quem não pode ver esses dados — um corretor sem acesso ao telefone de
+    // um lead que não cadastrou consegue colar o número aqui e ver se "bate"
+    // (ou caçar dígito a dígito), o que devolve o dado protegido por um caminho
+    // lateral que `protegerContato` não cobre (a busca em si, não a resposta).
+    // manager/admin e atores não-humanos (bot, webhook) continuam buscando por
+    // tudo — só quem `podeVerContatoSensivel` recusaria por padrão perde essas
+    // 3 colunas do OR.
+    const actorRank =
+      ctx.actor.type === "user" ? (ctx.actor.role ? (ROLE_RANK[ctx.actor.role] ?? 0) : 0) : null;
+    const podeBuscarPorDadoSensivel = actorRank === null || actorRank >= ROLE_RANK.manager!;
+    if (podeBuscarPorDadoSensivel) {
+      orParts.push(`email.ilike.%${s}%`, `phone_number.ilike.%${s}%`);
+      if (digits.length === 11) {
+        orParts.push(`cpf_hash.eq.${hashCpf(digits)}`);
+      }
     }
     query = query.or(orParts.join(","));
   }

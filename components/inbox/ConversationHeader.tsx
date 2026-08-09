@@ -13,6 +13,7 @@ import { ReassignDialog } from "@/components/inbox/ReassignDialog";
 import { SnoozeButton } from "@/components/inbox/SnoozeButton";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { ContatoProtegido } from "@/components/contacts/ContatoProtegido";
 
 interface Props {
   conversation: ConversationWithContact;
@@ -87,9 +88,10 @@ export function ConversationHeader({ conversation }: Props) {
             </Badge>
           )}
         </div>
-        {phone && (
+        {(phone || c?.contact_protected) && (
           <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-            <Phone size={11} weight="regular" aria-hidden /> {phone}
+            <Phone size={11} weight="regular" aria-hidden />
+            <ContatoProtegido valor={phone} protegido={Boolean(c?.contact_protected)} />
           </p>
         )}
       </div>

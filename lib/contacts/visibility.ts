@@ -54,3 +54,26 @@ export function protegerTelefoneDoContatoEmbutido<T extends ContatoComTelefone>(
   }
   return { ...contact, phone_number: null, contact_protected: true };
 }
+
+/**
+ * Campos de `contact_field_proposals` que carregam contato direto. `name` fica
+ * de fora de propósito: esconder o nome tiraria a utilidade da fila sem
+ * proteger ninguém.
+ */
+export const CAMPOS_SENSIVEIS_DA_PROPOSTA = ["email", "phone_number"] as const;
+
+/**
+ * Some com as propostas de telefone/e-mail para quem não pode ver o dado bruto
+ * daquele contato — senão a fila da IA entrega o que o resto da feature
+ * esconde. Quem pode ver continua vendo tudo.
+ */
+export function filtrarPropostasVisiveis<T extends { campo: string }>(
+  propostas: T[],
+  actor: Actor,
+  contactCreatedByUserId: string | null,
+): T[] {
+  if (podeVerContatoSensivel(actor, contactCreatedByUserId)) return propostas;
+  return propostas.filter(
+    (p) => !(CAMPOS_SENSIVEIS_DA_PROPOSTA as readonly string[]).includes(p.campo),
+  );
+}

@@ -136,7 +136,9 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   try {
     await patchContactHandler(
       supabase,
-      { organization_id: orgId, actor: { type: "user", id: userId }, requestId },
+      // `role` é obrigatório aqui: sem ele a guarda de contato protegido
+      // (patchContactHandler) avalia rank 0 e recusaria até para admin.
+      { organization_id: orgId, actor: { type: "user", id: userId, role: guard.org.role }, requestId },
       contactId,
       {
         [p.campo]: p.valor_proposto,

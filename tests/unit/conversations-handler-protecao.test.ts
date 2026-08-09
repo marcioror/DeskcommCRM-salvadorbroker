@@ -3,10 +3,16 @@
  * docs/superpowers/specs/2026-08-09-protecao-contato-corretor-design.md.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { listConversationsHandler, getConversationHandler } from "@/app/api/v1/conversations/_handler";
+import {
+  listConversationsHandler,
+  getConversationHandler,
+  patchConversationHandler,
+} from "@/app/api/v1/conversations/_handler";
 import type { HandlerCtx, Actor } from "@/lib/api/handlers/types";
+
+vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => {}) }));
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const CRIADOR = "22222222-2222-4222-8222-222222222222";
@@ -118,5 +124,40 @@ describe("getConversationHandler — proteção do telefone embutido", () => {
     );
     const conv = result as unknown as { contacts: { phone_number: string | null } };
     expect(conv.contacts.phone_number).toBe("+5531988887777");
+  });
+});
+
+function makeSupabaseForPatch(updatedRow: ReturnType<typeof conversationRow>) {
+  const client = {
+    from(table: string) {
+      if (table !== "conversations") throw new Error(`fake_supabase: tabela inesperada '${table}'`);
+      return {
+        update: () => ({
+          eq: () => ({
+            eq: () => ({
+              select: () => ({
+                maybeSingle: async () => ({ data: updatedRow, error: null }),
+              }),
+            }),
+          }),
+        }),
+      };
+    },
+  };
+  return client as unknown as SupabaseClient;
+}
+
+describe("patchConversationHandler — proteção do telefone embutido", () => {
+  it("agent que não cadastrou o contato recebe telefone nulo na conversa retornada pelo PATCH", async () => {
+    const supabase = makeSupabaseForPatch(conversationRow());
+    const result = await patchConversationHandler(
+      supabase,
+      ctxFor({ type: "user", id: OUTRO_USER, role: "agent" }),
+      CONV_ID,
+      { status: "claimed" },
+    );
+    const conv = result as unknown as { contacts: { phone_number: string | null; contact_protected: boolean } };
+    expect(conv.contacts.phone_number).toBeNull();
+    expect(conv.contacts.contact_protected).toBe(true);
   });
 });

@@ -10722,6 +10722,22 @@ insert into storage.buckets (id, name, public, file_size_limit)
 values ('property-media', 'property-media', false, 52428800)
 on conflict (id) do update set file_size_limit = excluded.file_size_limit;
 
+-- ---- crm_leads.title deixa de guardar telefone (migration 0141) ----
+-- Achado I2 da revisão final da proteção de contato ao corretor. O forward-fix
+-- (lib/leads/nascimento-do-lead.ts) para de gravar telefone em título novo;
+-- este bloco corrige linhas que já nasceram assim, em QUALQUER clone.
+--
+-- Predicado conservador — mesmo piso que `ehIdentificadorTecnico` usa em
+-- lib/contacts/rotulo-do-contato.ts (`^\d{9,}$`), com `+` opcional porque o
+-- telefone é gravado em E.164 e nunca reformatado. Ancorado do início ao fim:
+-- um nome que só CONTÉM dígitos ("Loja 24h") nunca casa. Detalhe completo em
+-- supabase/migrations/20260809120000_0141_lead_title_sem_telefone.sql.
+--
+-- Idempotente: título já corrigido não bate mais no predicado.
+update public.crm_leads
+   set title = 'Novo contato pelo WhatsApp'
+ where title ~ '^\+?[0-9]{9,}$';
+
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
 -- ⚠️ ESTE BLOCO É, DE PROPÓSITO, O ÚLTIMO DO ARQUIVO. Apêndice novo entra ANTES

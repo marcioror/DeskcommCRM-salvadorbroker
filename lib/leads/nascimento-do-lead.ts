@@ -43,7 +43,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "@/lib/logger";
 
-import { ehIdentificadorTecnico, rotuloDoContato, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
+import { ehIdentificadorTecnico, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
 
 import { emitLeadActivity } from "./activity-emitter";
 
@@ -166,13 +166,27 @@ export async function garantirLeadDaConversa(
   // ⚠️ E o comentário que estava aqui MENTIA: dizia que "o chamador garante" que
   // o nome não é identificador técnico. O chamador (a ingestão do canal) passava
   // o payload cru, sem guarda nenhuma. Typecheck e testes passavam com a
-  // afirmação falsa gravada no código. Quem garante agora é `rotuloDoContato` —
-  // a MESMA função que as telas usam, para que o título do card e o nome no
-  // inbox não possam divergir.
+  // afirmação falsa gravada no código. Quem garante agora é a mesma regra de
+  // nome que as telas usam (`ehIdentificadorTecnico`), para que o título do
+  // card e o nome no inbox não possam divergir.
   //
   // O payload entra só como reforço: o upsert do contato roda ANTES deste ponto,
   // então o cadastro já incorporou o `pushName` desta mensagem.
-  const doCadastro = rotuloDoContato(contato);
+  //
+  // ⚠️ (achado I2 da revisão final) NÃO chamamos `rotuloDoContato` aqui. Ela cai
+  // para o telefone quando não há nome usável — certo para EXIBIÇÃO (ver o
+  // cabeçalho daquele módulo), errado para PERSISTÊNCIA: este valor vira
+  // `crm_leads.title`, uma coluna de texto plano que `app/api/v1/leads/route.ts`
+  // devolve a QUALQUER viewer, inclusive quem não devia ver o telefone deste
+  // contato. A proteção per-viewer do contato não alcança uma cópia solta numa
+  // outra tabela — uma vez gravado ali, o número está exposto para sempre.
+  // Por isso replicamos só a metade "nome" da função, sem o fallback de
+  // telefone: se não há `display_name`/`name` usável, o card cai no ramo de
+  // "sem nome" abaixo, nunca no número.
+  const nomeCadastrado = [contato?.display_name, contato?.name]
+    .map((bruto) => (bruto ?? "").trim())
+    .find((v) => v !== "" && !ehIdentificadorTecnico(v));
+  const doCadastro = nomeCadastrado ?? SEM_NOME;
   const doPayload = (dados.nomeDoContato ?? "").trim();
   const titulo =
     doCadastro !== SEM_NOME

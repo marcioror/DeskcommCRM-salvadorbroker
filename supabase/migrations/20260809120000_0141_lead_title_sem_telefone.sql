@@ -1,0 +1,42 @@
+-- 0141: crm_leads.title deixa de guardar telefone (achado I2 da revisão final
+-- da proteção de contato ao corretor).
+--
+-- `lib/leads/nascimento-do-lead.ts` usava `rotuloDoContato` para o título do
+-- card do kanban. Aquela função cai para o telefone quando o contato não tem
+-- `display_name`/`name` usável — decisão CERTA para EXIBIÇÃO (ver o
+-- cabeçalho de `lib/contacts/rotulo-do-contato.ts`), mas ERRADA aqui: o
+-- retorno virava `crm_leads.title`, uma coluna de texto plano que
+-- `app/api/v1/leads/route.ts` devolve a QUALQUER viewer — inclusive um
+-- corretor que não pode ver o telefone deste contato porque não foi ele quem
+-- cadastrou. A proteção per-viewer de contato não alcança uma cópia solta
+-- numa outra tabela: uma vez gravado ali, o número já vazou por uma porta
+-- diferente da que a feature fechou.
+--
+-- O forward-fix (mesmo commit, `lib/leads/nascimento-do-lead.ts`) para de
+-- gravar o telefone em títulos novos. Esta migration corrige as linhas que já
+-- nasceram assim, em QUALQUER banco de clone — sem hardcode de organização.
+--
+-- ═══ O PREDICADO, E POR QUE É CONSERVADOR ═══
+--
+-- `title ~ '^\+?[0-9]{9,}$'` — do início ao fim, um `+` opcional seguido só
+-- de dígitos, com 9 ou mais. Duas garantias:
+--
+--   1. É o MESMO piso que `ehIdentificadorTecnico` usa em
+--      lib/contacts/rotulo-do-contato.ts (`^\d{9,}$`) pra decidir que uma
+--      string é identificador e não nome de gente — aqui só estendido com um
+--      `+` opcional porque o telefone é gravado em E.164 e NUNCA reformatado
+--      (mesmo arquivo, comentário de `rotuloDoContato`), então o título
+--      vazado é ou dígitos crus ou `+` seguido de dígitos.
+--   2. É ancorado (`^...$`), então um nome legítimo que só CONTÉM dígitos
+--      ("Loja 24h", "Contato 2 da obra", "Sala 302") nunca casa: sobra
+--      caractere não-numérico no título inteiro. Só casa o que é E.164 ou um
+--      identificador puramente numérico do início ao fim — exatamente a
+--      mesma régua que o app já usa para recusar um "nome".
+--
+-- Idempotente: depois de rodar, todo título afetado vira o literal abaixo,
+-- que não bate mais no predicado — reexecutar não encontra linha nenhuma.
+-- Portável em psql puro: sem BEGIN/COMMIT (o runner já envolve em
+-- transação), sem tabela temporária.
+update public.crm_leads
+   set title = 'Novo contato pelo WhatsApp'
+ where title ~ '^\+?[0-9]{9,}$';

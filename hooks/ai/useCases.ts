@@ -34,6 +34,7 @@ export interface CaseListItem {
   conversation_id: string;
   contact_name: string | null;
   contact_phone: string | null;
+  contact_protected: boolean;
 }
 
 export interface CaseListData {
@@ -63,6 +64,7 @@ export interface CaseDetailData {
   conversation_id: string;
   contact_name: string | null;
   contact_phone: string | null;
+  contact_protected: boolean;
   events: CaseEvent[];
 }
 

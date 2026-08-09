@@ -116,10 +116,14 @@ export const crmListHumanCases: McpToolDefinition<typeof listaChamadosInputShape
   requiresRole: "agent",
   requiresScope: "mcp:read",
   handler: async (input, ctx) => {
-    const { chamados, abertos } = await listarChamados(ctx.supabase, ctx.organizationId, {
-      estado: input.state,
-      limite: input.limit,
-    });
+    const { chamados, abertos } = await listarChamados(
+      ctx.supabase,
+      ctx.organizationId,
+      { estado: input.state, limite: input.limit },
+      // ctx.actor aqui é quase sempre `ai_agent` — `podeVerContatoSensivel`
+      // nunca mascara ator não-humano, então o agente continua vendo tudo.
+      ctx.actor,
+    );
     return { cases: chamados, open_count: abertos };
   },
 };
@@ -143,7 +147,7 @@ export const crmGetHumanCase: McpToolDefinition<typeof chamadoInputShape> = {
   requiresRole: "agent",
   requiresScope: "mcp:read",
   handler: async (input, ctx) => {
-    const chamado = await lerChamado(ctx.supabase, ctx.organizationId, input.case_id);
+    const chamado = await lerChamado(ctx.supabase, ctx.organizationId, input.case_id, ctx.actor);
     if (!chamado) throw new Error("case_not_found");
 
     const continuidade = await lerContinuidadeHumana(

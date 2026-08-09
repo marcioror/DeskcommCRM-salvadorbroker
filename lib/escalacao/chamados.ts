@@ -10,8 +10,18 @@
  * Só leitura aqui. A máquina de estados do chamado é
  * `lib/agent-engine/agent/human-cases.ts` (transições sobre `pg`, atômicas) —
  * duplicá-la em PostgREST daria dois donos para a mesma regra.
+ *
+ * PROTEÇÃO DE CONTATO (C2 da revisão final): estas duas consultas rodam com o
+ * client SERVICE-ROLE (RLS bypassada) e o gate de rota é só `agent`, então sem
+ * aplicar `podeVerContatoSensivel` aqui QUALQUER agente enxergaria o telefone
+ * de um lead que não cadastrou — a mesma porta que o resto da feature fecha em
+ * /api/v1/contacts. O ator entra por parâmetro (o CHAMADOR resolve o role via
+ * `requireRole`, esta função não sabe nada de HTTP).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+import type { Actor } from "@/lib/api/handlers/types";
+import { podeVerContatoSensivel } from "@/lib/contacts/visibility";
 
 export const ESTADOS_ABERTOS = ["awaiting_human", "awaiting_lead"] as const;
 export const ESTADOS_FECHADOS = ["resolved", "escalated", "cancelled"] as const;
@@ -26,6 +36,8 @@ export interface ChamadoDaLista {
   conversation_id: string;
   contact_name: string | null;
   contact_phone: string | null;
+  /** `true` quando `contact_phone` veio nulado por proteção de contato. */
+  contact_protected: boolean;
 }
 
 export interface EventoDoChamado {
@@ -46,11 +58,11 @@ export interface ChamadoDetalhado extends ChamadoDaLista {
 
 const COLUNAS_LISTA =
   "id, title, summary, blocker, status, opened_at, conversation_id, " +
-  "conversations:conversation_id(contacts:contact_id(name, phone_number))";
+  "conversations:conversation_id(contacts:contact_id(name, phone_number, created_by_user_id))";
 
 const COLUNAS_DETALHE =
   "id, title, summary, blocker, status, source, opened_at, closed_at, conversation_id, " +
-  "conversations:conversation_id(contacts:contact_id(name, phone_number))";
+  "conversations:conversation_id(contacts:contact_id(name, phone_number, created_by_user_id))";
 
 interface LinhaComContato {
   id: string;
@@ -62,10 +74,14 @@ interface LinhaComContato {
   conversation_id: string;
   source?: string;
   closed_at?: string | null;
-  conversations: { contacts: { name: string | null; phone_number: string | null } | null } | null;
+  conversations: {
+    contacts: { name: string | null; phone_number: string | null; created_by_user_id: string | null } | null;
+  } | null;
 }
 
-function achatarContato(r: LinhaComContato): ChamadoDaLista {
+function achatarContato(r: LinhaComContato, actor: Actor): ChamadoDaLista {
+  const contato = r.conversations?.contacts ?? null;
+  const podeVer = podeVerContatoSensivel(actor, contato?.created_by_user_id ?? null);
   return {
     id: r.id,
     title: r.title,
@@ -74,8 +90,9 @@ function achatarContato(r: LinhaComContato): ChamadoDaLista {
     status: r.status,
     opened_at: r.opened_at,
     conversation_id: r.conversation_id,
-    contact_name: r.conversations?.contacts?.name ?? null,
-    contact_phone: r.conversations?.contacts?.phone_number ?? null,
+    contact_name: contato?.name ?? null,
+    contact_phone: podeVer ? (contato?.phone_number ?? null) : null,
+    contact_protected: !podeVer,
   };
 }
 
@@ -89,6 +106,7 @@ export async function listarChamados(
   supabase: SupabaseClient,
   organizationId: string,
   opts: { estado: "abertos" | "fechados"; limite?: number },
+  actor: Actor,
 ): Promise<ResultadoDaLista> {
   const estados = opts.estado === "abertos" ? ESTADOS_ABERTOS : ESTADOS_FECHADOS;
 
@@ -109,7 +127,7 @@ export async function listarChamados(
     .in("status", ESTADOS_ABERTOS as unknown as string[]);
 
   return {
-    chamados: ((data ?? []) as unknown as LinhaComContato[]).map(achatarContato),
+    chamados: ((data ?? []) as unknown as LinhaComContato[]).map((r) => achatarContato(r, actor)),
     abertos: count ?? 0,
   };
 }
@@ -119,6 +137,7 @@ export async function lerChamado(
   supabase: SupabaseClient,
   organizationId: string,
   caseId: string,
+  actor: Actor,
 ): Promise<ChamadoDetalhado | null> {
   const { data: caseRow, error: caseErr } = await supabase
     .from("agent_cases")
@@ -139,7 +158,7 @@ export async function lerChamado(
 
   const linha = caseRow as unknown as LinhaComContato;
   return {
-    ...achatarContato(linha),
+    ...achatarContato(linha, actor),
     source: linha.source ?? "agent",
     closed_at: linha.closed_at ?? null,
     events: (events ?? []) as EventoDoChamado[],

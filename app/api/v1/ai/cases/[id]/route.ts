@@ -23,12 +23,18 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<R
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "agent_cases" });
   if (!authz.ok) return authz.response;
-  const { org } = authz;
+  const { org, user } = authz;
   const { id } = await params;
 
   let chamado;
   try {
-    chamado = await lerChamado(createAdminClient(), org.orgId, id);
+    // C2 (revisão final): mesmo motivo do GET de lista — client service-role
+    // sem o ator não teria como proteger o telefone do lead.
+    chamado = await lerChamado(createAdminClient(), org.orgId, id, {
+      type: "user",
+      id: user.id,
+      role: org.role,
+    });
   } catch {
     return fail("internal_error", "Falha ao carregar o caso.", 500, { requestId });
   }

@@ -5,7 +5,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 
-import { listContactsHandler, getContactHandler } from "@/app/api/v1/contacts/_handler";
+import { listContactsHandler, getContactHandler, createContactHandler } from "@/app/api/v1/contacts/_handler";
 import { patchContactHandler } from "@/app/api/v1/contacts/_handler";
 import type { HandlerCtx, Actor } from "@/lib/api/handlers/types";
 
@@ -186,5 +186,50 @@ describe("patchContactHandler — proteção de telefone/email", () => {
     expect(result.phone_number).toBeNull();
     expect(result.email).toBeNull();
     expect(result.contact_protected).toBe(true);
+  });
+});
+
+function makeSupabaseForCreate(insertedRow: Record<string, unknown>) {
+  const client = {
+    from(table: string) {
+      if (table !== "contacts") throw new Error(`fake_supabase: tabela inesperada '${table}'`);
+      return {
+        insert: () => ({
+          select: () => ({
+            single: async () => ({ data: insertedRow, error: null }),
+          }),
+        }),
+      };
+    },
+    rpc: async () => ({ error: null }),
+  };
+  return client as unknown as SupabaseClient;
+}
+
+describe("createContactHandler — proteção de telefone/email", () => {
+  it("manager criando um contato recebe phone_number/email reais", async () => {
+    const created = contactRow({ created_by_user_id: OUTRO_USER });
+    const supabase = makeSupabaseForCreate(created);
+    const result = await createContactHandler(
+      supabase,
+      ctxFor({ type: "user", id: OUTRO_USER, role: "manager" }),
+      { name: "Maria", email: "maria@example.com", phone_number: "+5531988887777", source: "webhook" },
+    );
+    expect(result.contact.phone_number).toBe("+5531988887777");
+    expect(result.contact.email).toBe("maria@example.com");
+    expect(result.contact.contact_protected).toBe(false);
+  });
+
+  it("agent criando um contato recebe phone_number/email reais (é o criador)", async () => {
+    const created = contactRow({ created_by_user_id: CRIADOR });
+    const supabase = makeSupabaseForCreate(created);
+    const result = await createContactHandler(
+      supabase,
+      ctxFor({ type: "user", id: CRIADOR, role: "agent" }),
+      { name: "Maria", email: "maria@example.com", phone_number: "+5531988887777", source: "webhook" },
+    );
+    expect(result.contact.phone_number).toBe("+5531988887777");
+    expect(result.contact.email).toBe("maria@example.com");
+    expect(result.contact.contact_protected).toBe(false);
   });
 });

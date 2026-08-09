@@ -136,12 +136,19 @@ function makeSupabaseForPatch(existingRow: Record<string, unknown>, updatedRow: 
     from(table: string) {
       if (table !== "contacts") throw new Error(`fake_supabase: tabela inesperada '${table}'`);
       return {
+        // I4: patchContactHandler agora encadeia DOIS .eq() (id + organization_id)
+        // tanto no select do `existing` quanto no update — o fake precisa dos
+        // dois níveis, senão o segundo .eq() quebra a cadeia.
         select: () => ({
-          eq: () => ({ maybeSingle: async () => ({ data: existingRow, error: null }) }),
+          eq: () => ({
+            eq: () => ({ maybeSingle: async () => ({ data: existingRow, error: null }) }),
+          }),
         }),
         update: () => ({
           eq: () => ({
-            select: () => ({ maybeSingle: async () => ({ data: updatedRow, error: null }) }),
+            eq: () => ({
+              select: () => ({ maybeSingle: async () => ({ data: updatedRow, error: null }) }),
+            }),
           }),
         }),
       };

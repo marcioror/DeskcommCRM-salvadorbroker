@@ -356,6 +356,12 @@ export async function patchContactHandler(
     // anterior.
     .select("id, organization_id, created_by_user_id, is_anonymized, tags, email, phone_number, name, display_name, consent")
     .eq("id", contactId)
+    // I4 (revisão final, anti-pattern #10 do CLAUDE.md): este client pode ser
+    // service-role — sem o filtro, um `contactId` de OUTRA org resolvia aqui
+    // (RLS bypassada), e a leitura de `created_by_user_id` que decide a
+    // proteção de telefone/e-mail (podeVerContatoSensivel logo abaixo) rodava
+    // sobre uma linha que nem pertence ao tenant do ator.
+    .eq("organization_id", ctx.organization_id)
     .maybeSingle();
 
   if (selErr) {
@@ -445,6 +451,10 @@ export async function patchContactHandler(
     .from("contacts")
     .update(patch)
     .eq("id", contactId)
+    // I4: mesmo motivo do select acima — sem isto, um UPDATE com client
+    // service-role e `contactId` de outra org escreveria fora do tenant do
+    // ator, RLS bypassada.
+    .eq("organization_id", ctx.organization_id)
     .select(SELECT_COLS)
     .maybeSingle();
 

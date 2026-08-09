@@ -207,20 +207,7 @@ function makeSupabaseForCreate(insertedRow: Record<string, unknown>) {
 }
 
 describe("createContactHandler — proteção de telefone/email", () => {
-  it("manager criando um contato recebe phone_number/email reais", async () => {
-    const created = contactRow({ created_by_user_id: OUTRO_USER });
-    const supabase = makeSupabaseForCreate(created);
-    const result = await createContactHandler(
-      supabase,
-      ctxFor({ type: "user", id: OUTRO_USER, role: "manager" }),
-      { name: "Maria", email: "maria@example.com", phone_number: "+5531988887777", source: "webhook" },
-    );
-    expect(result.contact.phone_number).toBe("+5531988887777");
-    expect(result.contact.email).toBe("maria@example.com");
-    expect(result.contact.contact_protected).toBe(false);
-  });
-
-  it("agent criando um contato recebe phone_number/email reais (é o criador)", async () => {
+  it("agent criando um contato recebe phone_number/email reais (contrato cotidiano: é o criador)", async () => {
     const created = contactRow({ created_by_user_id: CRIADOR });
     const supabase = makeSupabaseForCreate(created);
     const result = await createContactHandler(
@@ -231,5 +218,21 @@ describe("createContactHandler — proteção de telefone/email", () => {
     expect(result.contact.phone_number).toBe("+5531988887777");
     expect(result.contact.email).toBe("maria@example.com");
     expect(result.contact.contact_protected).toBe(false);
+  });
+
+  it("forward-guard: se um fluxo futuro grava created_by_user_id diferente do ator, o retorno é protegido", async () => {
+    // Hoje, createContactHandler sempre grava created_by_user_id = ator.id, então este estado não existe.
+    // O teste existe para o dia em que um fluxo de atribuição/importação/migração parar de fazer isso —
+    // a proteção já tem de estar de pé nesse dia, e sem este teste ninguém perceberia que ela sumiu.
+    const created = contactRow({ created_by_user_id: CRIADOR });
+    const supabase = makeSupabaseForCreate(created);
+    const result = await createContactHandler(
+      supabase,
+      ctxFor({ type: "user", id: OUTRO_USER, role: "agent" }),
+      { name: "Maria", email: "maria@example.com", phone_number: "+5531988887777", source: "webhook" },
+    );
+    expect(result.contact.phone_number).toBeNull();
+    expect(result.contact.email).toBeNull();
+    expect(result.contact.contact_protected).toBe(true);
   });
 });

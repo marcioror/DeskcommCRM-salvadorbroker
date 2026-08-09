@@ -27,6 +27,7 @@ export const ApiErrorCodes = {
   forbidden_role: "forbidden_role",
   forbidden_tenant: "forbidden_tenant",
   lgpd_anonymization_irreversible: "lgpd_anonymization_irreversible",
+  contact_protected: "contact_protected", // ator não cadastrou este contato — telefone/email protegidos (não editáveis por ele)
 
   // 404
   not_found: "not_found",

@@ -10,8 +10,15 @@
 import { z } from "zod";
 import { VALID_TOOL_IDS } from "@/lib/mcp/tools/catalog";
 import { TETO_TOOLS_POR_AGENTE } from "@/lib/mcp/tools/selecao-por-pacote";
+import { IDS_DE_PROVEDOR } from "@/lib/ai/pontos/provedores";
 
-export const PROVIDERS = ["anthropic", "openai", "google"] as const;
+/**
+ * Derivado de `lib/ai/pontos/provedores.ts` (a lista única desde a 0127). Como
+ * cópia à mão, esta constante mantinha `agent_turn`/`operator_turn` fora do
+ * alcance da OpenRouter — justamente os dois pontos que a abertura do
+ * vocabulário existia para atender.
+ */
+export const PROVIDERS = IDS_DE_PROVEDOR;
 export type Provider = (typeof PROVIDERS)[number];
 
 const UUID = z.string().uuid();

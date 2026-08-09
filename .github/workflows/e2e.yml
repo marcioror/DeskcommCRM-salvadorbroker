@@ -178,6 +178,11 @@ jobs:
           pnpm exec tsx scripts/seed-e2e-escalacao.ts
           pnpm exec tsx --env-file=.env.local scripts/seed-e2e-capacidades-ausentes.ts
           pnpm exec tsx scripts/seed-e2e-followup-agent.ts
+          # O catálogo da OpenRouter não existe em banco fresco (o baseline
+          # semeia só anthropic/openai/google; os demais vêm do cron diário, que
+          # busca na internet). Sem esta linha, `prova-painel-provedores` mede a
+          # sorte do ambiente em vez da tela.
+          pnpm exec tsx scripts/seed-e2e-catalogo-openrouter.ts
 
       # O que ficou DE FORA (e por quê) é declarado no passo de summary —
       # cobertura parcial silenciosa se lê como cobertura total.
@@ -240,7 +245,8 @@ jobs:
             distribuicao-atendimento.spec.ts followup-journey.spec.ts \
             webhooks.spec.ts \
             capacidades-do-agente.spec.ts \
-            escopo-de-funil-do-agente.spec.ts
+            escopo-de-funil-do-agente.spec.ts \
+            prova-painel-provedores.spec.ts
         env:
           # Só o que NÃO vem do `.env.e2e`: isto é ajuste de CI, não config do
           # produto. CI = 1 IP para todos os specs, e o teto de produção
@@ -254,18 +260,25 @@ jobs:
           {
             echo "## E2E — cobertura deste job"
             echo ""
-            echo "**Rodou (32 de 33 specs):** smoke, auth, error-pages, password-recovery,"
-            echo "signup-journey, rbac-roles, inbox-scope, reset-password-mfa,"
-            echo "degradacao-silenciosa, vps-webhook-outbound-ssrf, kanban-owner-filter,"
-            echo "queue-assign, risk-radar, invite-lifecycle, system-update,"
+            echo "**Rodou (37 de 39 specs no disco):** smoke, auth, error-pages,"
+            echo "password-recovery, signup-journey, rbac-roles, inbox-scope,"
+            echo "reset-password-mfa, degradacao-silenciosa, vps-webhook-outbound-ssrf,"
+            echo "kanban-owner-filter, queue-assign, conversa-vira-lead, contato-salva-email,"
+            echo "confirmar-dado-do-contato, risk-radar, invite-lifecycle, system-update,"
             echo "agente-novo-e-uso, agente-organiza-operacao, central-de-avisos-capacidades,"
             echo "escalacao-ciclo, navegacao, olhar-telas-do-epico, pipelines-gestao,"
             echo "qa-agente-usa-as-maos, qa-selo-no-funil-usado, qa-telas-descobertas-w4,"
             echo "retorno-anti-morte, followup-builder, followup-queue,"
-            echo "distribuicao-atendimento, followup-journey, capacidades-do-agente, webhooks."
+            echo "distribuicao-atendimento, followup-journey, capacidades-do-agente,"
+            echo "escopo-de-funil-do-agente, prova-painel-provedores, webhooks."
             echo ""
-            echo "**Não rodou (1):**"
+            echo "**Não rodou (2):**"
             echo "- precisa de WAHA + Redis + Resend + Nuvemshop: vps-fresh-onboarding (P0)"
+            echo "- agente-papeis-operador"
+            echo ""
+            echo "A contagem sai de \`ls tests/e2e/*.spec.ts\` contra as duas invocações do"
+            echo "playwright acima — o texto anterior dizia \"32 de 33\" com 39 specs no disco,"
+            echo "e cobertura declarada a mais é pior que cobertura parcial declarada."
             echo ""
             echo "Expandir é trabalho de seguimento — issue #63."
           } >> "$GITHUB_STEP_SUMMARY"

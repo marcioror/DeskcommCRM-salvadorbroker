@@ -8421,17 +8421,78 @@ alter table public.channel_sessions
 
 alter table public.channel_sessions alter column waha_session_name drop not null;
 
-do $$ begin
-  alter table public.channel_sessions add constraint channel_sessions_provider_check
-    check (provider = any (array['waha'::text, 'meta_cloud'::text]));
-exception when duplicate_object then null; end $$;
+-- (constraints channel_sessions_provider_check e channel_sessions_provider_ref_check:
+--  definidas uma vez só, no fim deste arquivo, com o vocabulário FINAL — regra de
+--  `tests/unit/baseline-constraint-reconstruida.test.ts`. Reconstruí-las aqui com a
+--  lista de dois providers faria o `update.sh` de um clone que já tem o terceiro
+--  falhar ao re-aplicar, e deixaria a tabela sem constraint entre o drop e o add
+--  que funciona.)
 
-do $$ begin
-  alter table public.channel_sessions add constraint channel_sessions_provider_ref_check check (
+-- ---- vocabulário do terceiro canal (migration 0131) ----
+-- Espelho idempotente da 0116. Racional completo no arquivo da migration; o que
+-- importa aqui é POR QUE os dois CHECKs são recriados em vez de criados com
+-- `exception when duplicate_object`: os blocos acima já os criaram na versão de
+-- DOIS providers, e num clone que roda `update.sh` eles JÁ EXISTEM. O
+-- `duplicate_object` engoliria a versão nova em silêncio e o banco ficaria
+-- recusando a sessão do canal novo com o script tendo passado verde — a
+-- falha-em-verde que a doutrina do self-host proíbe.
+--
+-- Ordem importa: a coluna nasce ANTES do CHECK que a referencia, e nullable,
+-- então nenhuma linha existente a viola. Toda linha pré-existente tem provider
+-- 'waha' ou 'meta_cloud' e já satisfaz o ramo correspondente — nada a
+-- deduplicar antes das constraints.
+alter table public.channel_sessions
+  add column if not exists zernio_account_id text;
+
+alter table public.channel_sessions
+  drop constraint if exists channel_sessions_provider_check;
+
+alter table public.channel_sessions
+  add constraint channel_sessions_provider_check
+  check (provider = any (array['waha'::text, 'meta_cloud'::text, 'zernio'::text]));
+
+alter table public.channel_sessions
+  drop constraint if exists channel_sessions_provider_ref_check;
+
+alter table public.channel_sessions
+  add constraint channel_sessions_provider_ref_check check (
     (provider = 'waha'       and waha_session_name    is not null) or
-    (provider = 'meta_cloud' and meta_phone_number_id is not null)
+    (provider = 'meta_cloud' and meta_phone_number_id is not null) or
+    (provider = 'zernio'     and zernio_account_id    is not null)
   );
-exception when duplicate_object then null; end $$;
+
+comment on column public.channel_sessions.zernio_account_id is
+  'Identificador da conta conectada NO INTERMEDIÁRIO (accountId), não o phone_number_id da Meta. É o que endereça envio e webhook. Espelhado em lib/channels/session-ref.ts.';
+
+-- ---- o que falta para o terceiro canal ENVIAR (migration 0132) ----
+-- Espelho idempotente da 0117. Racional completo no arquivo da migration.
+--
+-- `provider_conversation_id`: os dois canais existentes DERIVAM o destinatário
+-- do contato (chatId ou E.164). Este não — quem endereça é um id de 24 hex que
+-- o intermediário inventa e devolve pelo webhook. Sem guardá-lo não há como
+-- responder dentro da janela de 24h, porque o endpoint que aceita telefone
+-- exige template. Nome genérico: é o mesmo conceito para qualquer provider que
+-- enderece por thread própria, e carimbar nome de provider numa tabela que hoje
+-- não tem nenhum seria dívida gratuita.
+--
+-- As duas colunas nascem NULLABLE e sem constraint nova: nenhuma linha
+-- existente as viola, então não há dado a corrigir antes — o `update.sh` de um
+-- clone com dados aplica isto sem tocar em nada.
+alter table public.conversations
+  add column if not exists provider_conversation_id text;
+
+comment on column public.conversations.provider_conversation_id is
+  'Id que o PROVIDER dá a esta thread, quando ele endereça por thread própria em vez de por telefone. Chega pelo webhook de mensagem recebida. NULL = provider endereça por telefone (WAHA, oficial) ou ainda não houve primeiro contato.';
+
+create index if not exists idx_conversations_provider_conversation_id
+  on public.conversations (organization_id, provider_conversation_id)
+  where provider_conversation_id is not null;
+
+alter table public.channel_sessions
+  add column if not exists zernio_token_encrypted bytea;
+
+comment on column public.channel_sessions.zernio_token_encrypted is
+  'API key do intermediário, cifrada por fn_encrypt_oauth. Por SESSÃO (não por instalação) — mesma decisão da 0087 para o canal oficial.';
 
 comment on column public.channel_sessions.provider is
   'Canal desta sessão. Vocabulário espelhado em lib/channels/types.ts → ChannelProvider (cobrado por tests/invariants/vocabulario-banco-x-typescript.test.ts).';
@@ -8558,6 +8619,14 @@ create trigger trg_llm_calls_budget
   after insert on public.llm_calls
   for each row execute function public.fn_update_budget_consumption();
 
+-- ESTE RECOMPUTO NÃO É O QUE VALE, e não dá para consertá-lo aqui. Desde a 0130
+-- as linhas de `ai_invocations` são copiadas para `llm_calls`, então somar as
+-- duas tabelas inteiras conta a MESMA linha duas vezes; a correção precisa da
+-- coluna `legacy_invocation_id`, que só nasce lá embaixo, no bloco da 0130 —
+-- referenciá-la aqui derruba o install com `column c2.legacy_invocation_id does
+-- not exist` (medido). Quem dá a última palavra é o bloco da migration 0140,
+-- depois do backfill: ele ATRIBUI o gasto real do mês, contando cada linha uma
+-- vez só, e o valor deste bloco é sobrescrito.
 insert into public.ai_budgets (organization_id, current_month_consumed_cents)
 select o.id,
        coalesce((select sum(cost_cents) from public.llm_calls c
@@ -8993,6 +9062,17 @@ on conflict (model) do update set
 -- mas o aviso ia só para o log do worker, que numa VPS ninguém abre. Este kind
 -- é o que faz o defeito aparecer na Central de avisos. Idempotente: a lista só
 -- cresce, nenhuma linha existente viola a constraint nova.
+--
+-- ESTE É O BLOCO ÚNICO desta constraint, e a migration 0139 não acrescenta
+-- outro DE PROPÓSITO. A 0129 reconstruiu a constraint na CADEIA DE MIGRATIONS
+-- com 15 valores enquanto esta lista já tinha 18, apagando lá (e só lá)
+-- 'contact_proposal_expired', 'promise_unfulfilled' e 'other'. Quem instala
+-- pelo kit nunca viu o defeito — recebe este arquivo, que está correto —, e é
+-- por isso que a 0139 é uma migration SEM apêndice: um segundo bloco aqui seria
+-- exatamente o padrão da issue #159 que `baseline-constraint-reconstruida.test.ts`
+-- proíbe. Quem acrescentar um `kind` mexe em DOIS lugares: esta lista e a última
+-- migration que reconstrói a constraint. `kind-check-migration-x-baseline.test.ts`
+-- reprova quando as duas divergem.
 
 alter table public.agent_inbox_items
   drop constraint if exists agent_inbox_items_kind_check;
@@ -9990,6 +10070,20 @@ create index if not exists ai_purpose_bindings_lookup_idx
 create index if not exists ai_purpose_bindings_credential_idx
   on public.ai_purpose_bindings (credential_id) where credential_id is not null;
 
+-- (migration 0141) A FK da credencial nasceu `on delete cascade`, e isso fazia
+-- rotacionar uma chave — apagar a antiga, cadastrar a nova — APAGAR a linha
+-- inteira do binding, levando junto provider, model_id e base_url. A tela
+-- passava a dizer "Usando o padrão da organização", frase verdadeira sobre um
+-- estado que ninguém escolheu. `set null` desvincula sem apagar: NULL já
+-- significa "use a chave da instalação", que é como todo binding nasce.
+-- Reescrita incondicional (drop + add) para o clone que já tem o CASCADE.
+alter table public.ai_purpose_bindings
+  drop constraint if exists ai_purpose_bindings_credential_id_fkey;
+alter table public.ai_purpose_bindings
+  add constraint ai_purpose_bindings_credential_id_fkey
+  foreign key (credential_id) references public.ai_provider_credentials(id)
+  on delete set null;
+
 alter table public.ai_purpose_bindings enable row level security;
 
 drop policy if exists tenant_isolation_ai_purpose_bindings_all on public.ai_purpose_bindings;
@@ -10165,6 +10259,38 @@ comment on table public.ai_invocations is
   'DEPRECIADA na migration 0130 — a telemetria de IA vive em llm_calls. Mantida como histórico '
   '(a doutrina do repo é depreciar, não deletar) e porque as linhas antigas são a prova do que foi '
   'gasto. Nada escreve mais aqui; leituras novas usam llm_calls.';
+
+-- ---- o orçamento do mês não conta o backfill como gasto novo (migration 0140) ----
+--
+-- Este bloco tem de vir DEPOIS do backfill da 0130, e é por isso que ele está
+-- aqui e não junto do trigger da 0095. `fn_update_budget_consumption` soma
+-- `NEW.cost_cents` sem olhar a data, e o backfill é um INSERT: cada linha
+-- migrada — inclusive as de meses passados — era somada ao consumo do mês
+-- corrente. Medido em pg17: gasto real do mês 1600, contador em 3000 depois de
+-- um `update.sh` e estabilizando em 2600, nunca em 1600. Numa organização sem
+-- gasto no mês, o contador saltava de 0 para o histórico inteiro — 200% do
+-- limite padrão no caso medido — e a IA do clone podia parar sem nenhuma
+-- chamada nova.
+--
+-- A correção é dar a ÚLTIMA PALAVRA a um recomputo que ATRIBUI (não incrementa)
+-- o gasto real do mês, contando cada linha uma vez só. Vale qualquer que tenha
+-- sido o estado deixado pelo trigger, e a re-aplicação chega no mesmo número.
+-- Racional completo em supabase/migrations/20260808050000_0140_*.sql.
+insert into public.ai_budgets (organization_id, current_month_consumed_cents)
+select o.id,
+       coalesce((select sum(c.cost_cents) from public.llm_calls c
+                 where c.organization_id = o.id
+                   and c.created_at >= date_trunc('month', now())), 0)
+     + coalesce((select sum(i.cost_cents) from public.ai_invocations i
+                 where i.organization_id = o.id
+                   and i.created_at >= date_trunc('month', now())
+                   and not exists (
+                     select 1 from public.llm_calls c2 where c2.legacy_invocation_id = i.id
+                   )), 0)
+from public.organizations o
+on conflict (organization_id) do update
+set current_month_consumed_cents = excluded.current_month_consumed_cents,
+    updated_at = now();
 -- ---- telefone do contato @lid (migration 0122) ----
 -- O kit self-host aplica SÓ este arquivo — no install (banco novo, ON_ERROR_STOP)
 -- e no update (banco existente, SEM a flag). Tudo abaixo é idempotente e

@@ -228,6 +228,13 @@ db_ok "sem URL respondida ainda: não há o que comparar"   pass \
 
 echo "chaves de IA e senha"
 ok "rejeita chave Anthropic com prefixo errado" reject v_anthropic "sk-proj-abc123" "começa com 'sk-ant-'"
+# `v_openrouter` foi referenciada como validador do campo da OpenRouter sem
+# nunca ter sido definida — e a suíte não tinha uma linha sequer que a
+# mencionasse. Este caso é o que faz a AUSÊNCIA da função ser vermelha: um nome
+# inexistente devolve 127, que `ok` lê como rejeição, então o par (rejeita por
+# prefixo / aceita vazio-não) é o que separa "existe e valida" de "não existe".
+ok "rejeita chave OpenRouter com prefixo errado" reject v_openrouter "sk-ant-abc123" "começa com 'sk-or-'"
+ok "rejeita chave OpenRouter vazia"              reject v_openrouter ""              "começa com 'sk-or-'"
 ok "rejeita chave OpenAI com prefixo errado"    reject v_openai    "minha-chave"    "começa com 'sk-'"
 ok "aceita OpenAI vazia (é opcional)"           pass   v_openai    ""
 ok "rejeita senha curta"                        reject v_password  "1234567"        "muito curta"
@@ -1000,6 +1007,80 @@ STUB
 ) || fail=1
 rm -rf "$TMP3B"
 
+echo "integração: os TRÊS provedores de IA que o instalador oferece"
+# A pergunta "qual IA vai atender" tem três respostas, e até aqui só uma delas
+# era exercitada: todo cenário desta suíte responde Enter, e Enter é [2]
+# Anthropic. As outras duas estavam quebradas, cada uma de um jeito, e a suíte
+# inteira ficava verde:
+#
+#   [1] OpenRouter → `v_openrouter` era declarada como validador do campo e
+#       nunca definida. `ask_one` despacha o validador pelo NOME, então o nome
+#       inexistente vira exit 127: no modo interativo o laço repete a pergunta
+#       para sempre, e no `--yes` vira "OPENROUTER_API_KEY inválido / corrija o
+#       .env" com o .env certo.
+#   [3] OpenAI    → quem escolhe OpenAI nunca passa pelo campo da Anthropic, e
+#       o bloco que escreve o .env fazia `envq ANTHROPIC_API_KEY
+#       "$ANTHROPIC_API_KEY"` sem default. Sob `set -u` isso aborta o `{ … } >
+#       .env` no meio: arquivo pela metade, instalação sem como continuar.
+#
+# O caminho medido é o `--yes`, porque é o que o `update.sh` e a 2ª execução
+# usam, e porque nele a escolha vem do .env — que é como uma instalação que já
+# existe chega aqui. A asserção é a MESMA das outras rodadas: a última linha do
+# bloco tem de estar presente, senão o .env saiu pela metade.
+provedor_ok() {  # provedor_ok <descrição> <VAR da chave> <valor> <AI_PROVIDER esperado>
+  local desc="$1" var="$2" val="$3" esperado="$4" raiz env_ia
+  raiz="$(mktemp -d)"
+  (
+    montar_vps "$raiz" "crmia" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DOCKER_LOG"
+case "$1" in
+  compose) case "$*" in *" exec "*) printf 'healthy\n{"data":{"status":"healthy"}}\n' ;; esac; exit 0 ;;
+esac
+exit 0
+STUB
+    # O .env de quem escolheu ESTE provedor: a chave dele, e NENHUMA outra. É o
+    # ponto todo — um .env com as três chaves esconderia os dois defeitos.
+    env_ia="$(printf '%s\n' "$BASE_ENV" | grep -v '^ANTHROPIC_API_KEY=')"
+    printf '%s\n%s=%s\n' "$env_ia" "$var" "'$val'" > "$raiz/crmia/.env"
+    : > "$raiz/docker.log"
+    saida="$(cd "$raiz/crmia" && env PATH="$raiz/bin:$PATH" DOCKER_LOG="$raiz/docker.log" \
+      CRONTAB_SANDBOX="$CRONTAB_SANDBOX" bash "$raiz/install.sh" --yes 2>&1 || true \
+      | sed -E 's/\x1b\[[0-9;]*m//g')"
+    if printf '%s' "$saida" | grep -q 'comando não encontrado\|command not found'; then
+      printf '  ✗ %s — o instalador chamou um comando que não existe:\n' "$desc"
+      printf '%s\n' "$saida" | grep 'comando não encontrado\|command not found' | head -2 | sed 's/^/       /'
+      exit 1
+    fi
+    if ! grep -qE "^OWNER_PASSWORD='" "$raiz/crmia/.env"; then
+      printf '  ✗ %s — o .env saiu pela metade (parou antes da última linha do bloco)\n' "$desc"
+      printf '     últimas chaves gravadas: %s\n' \
+        "$(grep -oE '^[A-Z_]+=' "$raiz/crmia/.env" | tail -3 | tr '\n' ' ')"
+      exit 1
+    fi
+    # A escolha precisa SOBREVIVER no .env, senão a 2ª execução re-adivinha —
+    # e re-adivinhar é como uma instalação só-OpenRouter volta a ser tratada
+    # como Anthropic.
+    if ! grep -qx "AI_PROVIDER='$esperado'" "$raiz/crmia/.env"; then
+      printf '  ✗ %s — AI_PROVIDER não foi gravado como %s: %s\n' "$desc" "$esperado" \
+        "$(grep -E '^AI_PROVIDER=' "$raiz/crmia/.env" || echo '(ausente)')"
+      exit 1
+    fi
+    # E a chave que a pessoa tinha continua lá, com o valor dela.
+    if ! grep -qx "$var='$val'" "$raiz/crmia/.env"; then
+      printf '  ✗ %s — %s não sobreviveu: %s\n' "$desc" "$var" \
+        "$(grep -E "^$var=" "$raiz/crmia/.env" || echo '(ausente)')"
+      exit 1
+    fi
+    printf '  ✓ %s\n' "$desc"
+  ) || fail=1
+  rm -rf "$raiz"
+}
+provedor_ok "OpenRouter: instala e o .env sai inteiro"  OPENROUTER_API_KEY sk-or-v1-teste openrouter
+provedor_ok "OpenAI: instala e o .env sai inteiro"      OPENAI_API_KEY     sk-teste       openai
+provedor_ok "Anthropic: instala e o .env sai inteiro"   ANTHROPIC_API_KEY  sk-ant-teste   anthropic
+
+
 echo "integração: instalação NOVA numa VPS com Traefik em modo host"
 # O install.sh roda contra um `docker` dublê que imita a Hostinger: 80/443
 # ocupadas, NINGUÉM publicando, um Traefik em `--network host`, e a rede do
@@ -1259,6 +1340,48 @@ reexec_ok() {
   rm -rf "$raiz"
   if [ "${achou:-0}" -gt 0 ]; then printf '  ✓ %s (%s vars)\n' "$desc" "$achou"
   else printf '  ✗ %s — o kit não se encontra depois do cd; a 2ª execução morre\n' "$desc"; fail=1; fi
+}
+# O CONTROLE NEGATIVO. Ele foi PROMETIDO por escrito no comentário acima e
+# chamado aqui, mas nunca definido — `reexec_neg` era um comando inexistente,
+# que sob um script sem `set -e` só imprime "command not found" no stderr e
+# segue em frente. A suíte então terminava em "todos os validadores passaram"
+# tendo executado uma asserção a menos do que dizia.
+#
+# Sem ele, `reexec_ok` sozinho não prova nada: uma sonda que devolvesse "achei
+# vars" em qualquer circunstância também ficaria verde. Este caso roda a MESMA
+# linha extraída do install.sh, trocando só `$KIT_DIR/install.sh` por `"$0"` —
+# a forma que o kit tinha antes do conserto — e exige que ela FALHE. Se ela
+# passar, a sonda não distingue o defeito da correção e o caso de cima é
+# decorativo.
+reexec_neg() {
+  local dir raiz linha achou
+  raiz="$(mktemp -d)"; dir="$raiz/deskcommcrm"; mkdir -p "$dir"
+  cp ./install.sh "$raiz/install.sh"
+  linha="$(grep -n 'CONHECIDAS=' "$raiz/install.sh" | head -1 | cut -d: -f2-)"
+  if [ -z "$linha" ]; then
+    printf '  ✗ controle negativo — não achei a linha CONHECIDAS= no install.sh (o teste ficou cego)\n'; fail=1; rm -rf "$raiz"; return
+  fi
+  # A checagem de alvo vem ANTES da substituição, e olha a linha ORIGINAL. Se
+  # ela olhasse a linha já reescrita, um install.sh sabotado de volta para `"$0"`
+  # deixaria este caso VERDE — ele estaria medindo exatamente o que o caso de
+  # cima mede, e um controle negativo que ecoa o positivo não controla nada.
+  # (Medido: previ 2 vermelhos ao sabotar o fonte e observei 1, e foi assim que
+  # esta vacuidade apareceu.)
+  case "$linha" in
+    *'"$KIT_DIR/install.sh"'*) ;;
+    *) printf '  ✗ controle negativo — a linha CONHECIDAS= não usa mais $KIT_DIR; o defeito voltou ou o caso perdeu o alvo\n'; fail=1; rm -rf "$raiz"; return;;
+  esac
+  # A forma ANTIGA, reconstruída a partir da linha real: o `$KIT_DIR/install.sh`
+  # vira `"$0"`, e nada mais muda.
+  linha="${linha//\"\$KIT_DIR\/install.sh\"/\"\$0\"}"
+  achou="$(cd "$dir" && KIT_DIR="$raiz" bash -c "
+    set +e
+    $linha
+    printf '%s' \"\$CONHECIDAS\" | grep -c .
+  " install.sh 2>/dev/null)"
+  rm -rf "$raiz"
+  if [ "${achou:-0}" -eq 0 ]; then printf '  ✓ controle negativo: com "$0" relativo depois do cd, o kit NÃO se acha\n'
+  else printf '  ✗ controle negativo FALHOU — a sonda achou %s vars mesmo com o defeito; ela não distingue nada\n' "$achou"; fail=1; fi
 }
 reexec_neg
 reexec_ok "o bloco de variáveis conhecidas acha o kit depois do cd"

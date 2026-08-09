@@ -173,6 +173,31 @@ export async function processSentiment(event: EventRow): Promise<SentimentResult
         | undefined;
       promptTokens = usage?.inputTokens ?? usage?.promptTokens ?? 0;
       completionTokens = usage?.outputTokens ?? usage?.completionTokens ?? 0;
+    } catch (err) {
+      // A FALHA também vira linha em `llm_calls`. A 0128 fez isso para o seam do
+      // agent-engine, e este worker não passa por lá — então, até aqui, escolher
+      // no painel um modelo que não existe fazia toda classificação falhar sem
+      // deixar rastro nenhum: a tela de Execuções, cuja razão de existir é
+      // responder "por que falhou", não mostrava nada para este ponto, com o
+      // painel dizendo que estava configurado.
+      //
+      // O `throw` mantém o desfecho de antes — quem decide o retorno continua
+      // sendo o catch global, que nunca deixa este worker derrubar o bot.
+      logInvocation({
+        organization_id: event.organization_id,
+        agent_id: agent?.id ?? null,
+        conversation_id: conversationId ?? message.conversation_id ?? null,
+        message_id: messageId,
+        invocation_kind: "sentiment_classify",
+        model: resolvido.modelId,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        latency_ms: Date.now() - start,
+        cost_cents: 0,
+        finish_reason: "error",
+        error_payload: { message: err instanceof Error ? err.message : String(err) },
+      });
+      throw err;
     } finally {
       clearTimeout(timeout);
     }

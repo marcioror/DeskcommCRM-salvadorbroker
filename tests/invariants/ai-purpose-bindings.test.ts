@@ -145,32 +145,53 @@ describe("ai_purpose_bindings — uma escolha por ponto", () => {
 describe("ai_purpose_bindings — o que acontece quando a chave some", () => {
   beforeEach(semear);
 
-  it("apagar a credencial leva o binding junto, em vez de deixá-lo órfão", () => {
-    // Binding apontando para credencial que não existe mais falharia em TODA
-    // chamada daquele ponto, em silêncio. Voltar ao padrão é recuperável.
+  it("apagar a credencial NÃO apaga a configuração do ponto", () => {
+    // ── Este caso foi INVERTIDO (migration 0141), e a razão está medida ──────
     //
-    // A contagem é da LINHA (por organização), não da referência. Contar
-    // `where credential_id = CRED_A` parece equivalente e não é: sob
-    // `ON DELETE SET NULL` a coluna vira nula e essa contagem também cai a
-    // zero — ou seja, o teste passaria exatamente no cenário que ele existe
-    // para proibir, o binding órfão. Medido: trocar o CASCADE por SET NULL não
-    // reprovava nada até esta linha mudar.
+    // Ele exigia `ON DELETE CASCADE`, com a justificativa de que um binding com
+    // credencial nula "falharia em TODA chamada daquele ponto, em silêncio".
+    // Essa premissa é FALSA, e o código diz isso:
+    // `lib/agent-engine/edge/llm/credentials.ts:137` — sem `credentialId`, a
+    // resolução cai na credencial mais recente ATIVA E VALIDADA do provider e,
+    // se não houver nenhuma, na chave da instalação (`cfg.anthropicApiKey` /
+    // `cfg.openaiApiKey`). `credential_id is null` não é órfão: é o valor com
+    // que TODO binding nasce (`app/api/v1/ai/providers/route.ts:183`,
+    // `credential_id` opcional) e o que a tela mostra como "da instalação".
+    //
+    // O que o CASCADE fazia de fato era APAGAR A LINHA INTEIRA — provider,
+    // model_id, base_url e is_enabled junto. O caminho é banal e recomendado:
+    // rotacionar uma chave (apagar a antiga, cadastrar a nova) zerava a
+    // configuração de todos os pontos que a usavam, e a tela passava a dizer
+    // "Usando o padrão da organização" — frase verdadeira sobre um estado que
+    // ninguém escolheu, sem nada indicando que houve perda.
+    //
+    // O que este caso guarda agora: a linha SOBREVIVE, com a escolha de
+    // provider/modelo intacta e a credencial desvinculada.
     const bindingsDaOrgA = () =>
       sql(
         `select count(*) from public.ai_purpose_bindings where organization_id = '${ORG_A}'`,
       );
     expect(bindingsDaOrgA()).toBe("1");
     sql(`delete from public.ai_provider_credentials where id = '${CRED_A}'`);
-    expect(bindingsDaOrgA()).toBe("0");
+    expect(
+      bindingsDaOrgA(),
+      "o binding foi APAGADO junto com a credencial — rotacionar a chave zera a configuração dos pontos",
+    ).toBe("1");
 
-    // E não pode existir binding com credencial nula sobrando para esta org —
-    // que é a forma exata do órfão sob SET NULL.
+    // A referência some (é o que `set null` faz), mas a ESCOLHA fica.
     expect(
       sql(
         `select count(*) from public.ai_purpose_bindings
           where organization_id = '${ORG_A}' and credential_id is null`,
       ),
-    ).toBe("0");
+    ).toBe("1");
+    expect(
+      sql(
+        `select provider || '|' || model_id from public.ai_purpose_bindings
+          where organization_id = '${ORG_A}'`,
+      ),
+      "a escolha de provedor/modelo não sobreviveu à remoção da chave",
+    ).toBe("openai|SEGREDO-DA-ORG-A");
 
     // E não levou junto o binding da OUTRA organização.
     expect(

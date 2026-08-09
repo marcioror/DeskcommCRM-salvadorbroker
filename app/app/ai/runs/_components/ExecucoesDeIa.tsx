@@ -19,6 +19,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
+/** O MESMO formato da tela de Uso — as duas leem `llm_calls.cost_cents`. */
+const brl = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+  // 4 casas porque uma execução isolada custa fração de centavo, e arredondar
+  // para 2 mostraria "R$ 0,00" para todas elas — o zero que não é zero.
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
 interface Execucao {
   id: string;
   purpose: string;
@@ -205,7 +215,12 @@ export function ExecucoesDeIa() {
                 <p className="mt-2 text-xs text-muted-foreground">
                   {e.input_tokens + e.output_tokens} tokens
                   {e.latency_ms !== null ? ` · ${e.latency_ms} ms` : ""}
-                  {e.cost_cents !== null ? ` · ${(e.cost_cents / 100).toFixed(4)} centavos` : ""}
+                  {/* `cost_cents` está em CENTAVOS: dividir por 100 dá REAIS, e o
+                      rótulo dizia "centavos" — uma execução de 25 centavos
+                      aparecia como "0.2500 centavos", 100× menor que o mesmo
+                      evento na tela de Uso, sem nenhuma das duas dizer qual
+                      estava certa. Aqui vale o mesmo formato de lá: reais. */}
+                  {e.cost_cents !== null ? ` · ${brl.format(e.cost_cents / 100)}` : ""}
                 </p>
               )}
 

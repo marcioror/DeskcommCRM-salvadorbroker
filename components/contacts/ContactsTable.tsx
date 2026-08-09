@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import type { Contact } from "@/lib/types/contacts";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { ContatoProtegido } from "@/components/contacts/ContatoProtegido";
 
 interface Props {
   contacts: Contact[];
@@ -46,10 +47,10 @@ export function ContactsTable({ contacts }: Props) {
               </Link>
             </TableCell>
             <TableCell className="text-muted-foreground">
-              {c.email ?? "—"}
+              <ContatoProtegido valor={c.email} protegido={c.contact_protected} />
             </TableCell>
             <TableCell className="text-muted-foreground">
-              {c.phone_number ?? "—"}
+              <ContatoProtegido valor={c.phone_number} protegido={c.contact_protected} />
             </TableCell>
             <TableCell>
               <div className="flex flex-wrap gap-1">

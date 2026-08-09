@@ -1,0 +1,56 @@
+/**
+ * Proteção de telefone/e-mail do lead: só quem cadastrou o contato (ou
+ * gerente/admin) enxerga o dado bruto. Corretor atende pelo chat do CRM sem
+ * nunca ver o número.
+ *
+ * Ver docs/superpowers/specs/2026-08-09-protecao-contato-corretor-design.md.
+ */
+import type { Actor } from "@/lib/api/handlers/types";
+import { ROLE_RANK, type Role } from "@/lib/auth/types";
+
+/**
+ * Só atores humanos (`type: "user"`) são avaliados por regra de cadastro —
+ * o agente de IA autônomo e chamadas de webhook nunca são um corretor tentando
+ * "levar" o cliente, e o bot PRECISA do número real para mandar mensagem
+ * (que ele resolve por um caminho totalmente separado, sem passar por aqui).
+ */
+export function podeVerContatoSensivel(
+  actor: Actor,
+  contactCreatedByUserId: string | null,
+): boolean {
+  if (actor.type !== "user") return true;
+  const rank = actor.role ? (ROLE_RANK[actor.role as Role] ?? 0) : 0;
+  if (rank >= ROLE_RANK.manager) return true;
+  return contactCreatedByUserId !== null && contactCreatedByUserId === actor.id;
+}
+
+interface ContatoComTelefone {
+  created_by_user_id: string | null;
+  phone_number: string | null;
+}
+
+interface ContatoComTelefoneEEmail extends ContatoComTelefone {
+  email: string | null;
+}
+
+/** Contato completo (API /contacts, MCP) — protege telefone E e-mail. */
+export function protegerContato<T extends ContatoComTelefoneEEmail>(
+  contact: T,
+  actor: Actor,
+): T & { contact_protected: boolean } {
+  if (podeVerContatoSensivel(actor, contact.created_by_user_id)) {
+    return { ...contact, contact_protected: false };
+  }
+  return { ...contact, phone_number: null, email: null, contact_protected: true };
+}
+
+/** Contato embutido em conversas — só telefone (esse formato não seleciona email). */
+export function protegerTelefoneDoContatoEmbutido<T extends ContatoComTelefone>(
+  contact: T,
+  actor: Actor,
+): T & { contact_protected: boolean } {
+  if (podeVerContatoSensivel(actor, contact.created_by_user_id)) {
+    return { ...contact, contact_protected: false };
+  }
+  return { ...contact, phone_number: null, contact_protected: true };
+}

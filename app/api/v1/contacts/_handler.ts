@@ -12,6 +12,7 @@ import { ApiError } from "@/lib/api/types";
 import type { Actor, HandlerCtx } from "@/lib/api/handlers/types";
 import { audit } from "@/lib/audit";
 import { hashCpf, encryptCpfSql } from "@/lib/contacts/cpf";
+import { protegerContato } from "@/lib/contacts/visibility";
 import type { Contact } from "@/lib/types/contacts";
 import type {
   ContactCreate,
@@ -22,7 +23,7 @@ import type {
 type SB = SupabaseClient;
 
 const SELECT_COLS =
-  "id, organization_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, created_at, updated_at, last_activity_at";
+  "id, organization_id, created_by_user_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, created_at, updated_at, last_activity_at";
 
 const ROLE_RANK: Record<string, number> = {
   viewer: 1,
@@ -142,8 +143,9 @@ export async function listContactsHandler(
   }
 
   const rows = (data ?? []) as Contact[];
-  const hasMore = rows.length > q.limit;
-  const page = hasMore ? rows.slice(0, q.limit) : rows;
+  const protegidos = rows.map((r) => protegerContato(r, ctx.actor));
+  const hasMore = protegidos.length > q.limit;
+  const page = hasMore ? protegidos.slice(0, q.limit) : protegidos;
   const last = page[page.length - 1];
   const nextCursor =
     hasMore && last
@@ -191,6 +193,7 @@ export async function getContactHandler(
     throw new ApiError(404, "not_found", undefined, ctx.requestId, "Contato não encontrado.");
   }
   const contact = data as Contact;
+  const protegido = protegerContato(contact, ctx.actor);
 
   let cpfDecrypted: string | null = null;
   let cpfDecryptDenied = false;
@@ -235,7 +238,7 @@ export async function getContactHandler(
   }
 
   return {
-    ...contact,
+    ...protegido,
     cpf_available: !!contact.cpf_hash,
     cpf_decrypted: cpfDecrypted,
     cpf_decrypt_denied: cpfDecryptDenied || undefined,
@@ -317,7 +320,7 @@ export async function createContactHandler(
     metadata: { ...a.metadataActor, source: contact.source },
   });
 
-  return { contact, action: "created" };
+  return { contact: protegerContato(contact, ctx.actor), action: "created" };
 }
 
 // ---------------------------------------------------------------------------

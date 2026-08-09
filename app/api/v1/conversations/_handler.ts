@@ -8,6 +8,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { ApiError } from "@/lib/api/types";
 import type { Actor, HandlerCtx } from "@/lib/api/handlers/types";
 import { audit } from "@/lib/audit";
+import { protegerTelefoneDoContatoEmbutido } from "@/lib/contacts/visibility";
 import { CONVERSATION_TERMINAL_STATUSES } from "@/lib/schemas";
 import type {
   ListConversationsQuery,
@@ -24,8 +25,24 @@ const SELECT_COLS = `
   unread_count_for_assignee, is_group, group_chat_id, tags, metadata,
   snooze_until, created_at, updated_at,
   bot_silenced_until, last_handoff_at,
-  contacts:contact_id (id, display_name, name, phone_number, is_anonymized, tags, is_blocked, avatar_storage_path, force_human)
+  contacts:contact_id (id, display_name, name, phone_number, is_anonymized, tags, is_blocked, avatar_storage_path, force_human, created_by_user_id)
 `;
+
+type ConversationComContato = Conversation & {
+  contacts?: {
+    created_by_user_id: string | null;
+    phone_number: string | null;
+    [key: string]: unknown;
+  } | null;
+};
+
+function protegerConversaComContato(
+  conv: ConversationComContato,
+  actor: Actor,
+): ConversationComContato {
+  if (!conv.contacts) return conv;
+  return { ...conv, contacts: protegerTelefoneDoContatoEmbutido(conv.contacts, actor) };
+}
 
 interface CursorPayload {
   sort: string | null;
@@ -153,9 +170,10 @@ export async function listConversationsHandler(
     throw new ApiError(500, "internal_error", undefined, ctx.requestId, error.message);
   }
 
-  const rows = (data ?? []) as unknown as Conversation[];
-  const hasMore = rows.length > q.limit;
-  const page = hasMore ? rows.slice(0, q.limit) : rows;
+  const rows = (data ?? []) as unknown as ConversationComContato[];
+  const protegidas = rows.map((r) => protegerConversaComContato(r, ctx.actor));
+  const hasMore = protegidas.length > q.limit;
+  const page = hasMore ? protegidas.slice(0, q.limit) : protegidas;
   const last = page[page.length - 1];
   const cursor =
     hasMore && last
@@ -187,7 +205,7 @@ export async function getConversationHandler(
   if (!data) {
     throw new ApiError(404, "not_found", undefined, ctx.requestId, "Conversa não encontrada.");
   }
-  return data as unknown as Conversation;
+  return protegerConversaComContato(data as unknown as ConversationComContato, ctx.actor);
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +249,7 @@ export async function patchConversationHandler(
     throw new ApiError(404, "not_found", undefined, ctx.requestId, "Conversa não encontrada.");
   }
 
-  const conv = data as unknown as Conversation;
+  const conv = data as unknown as ConversationComContato;
   const a = actorAuditPayload(ctx.actor);
 
   if (input.status !== undefined) {
@@ -263,5 +281,5 @@ export async function patchConversationHandler(
     });
   }
 
-  return conv;
+  return protegerConversaComContato(conv, ctx.actor);
 }

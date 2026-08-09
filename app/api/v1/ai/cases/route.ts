@@ -26,7 +26,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "agent_cases" });
   if (!authz.ok) return authz.response;
-  const { org } = authz;
+  const { org, user } = authz;
 
   const parsed = querySchema.safeParse(
     Object.fromEntries(new URL(req.url).searchParams.entries()),
@@ -39,9 +39,15 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   try {
-    const { chamados, abertos } = await listarChamados(createAdminClient(), org.orgId, {
-      estado: parsed.data.status === "open" ? "abertos" : "fechados",
-    });
+    const { chamados, abertos } = await listarChamados(
+      createAdminClient(),
+      org.orgId,
+      { estado: parsed.data.status === "open" ? "abertos" : "fechados" },
+      // C2 (revisão final): a lista de casos usa client service-role (RLS
+      // bypassada) — sem passar o ator, listarChamados não teria como aplicar
+      // podeVerContatoSensivel e o telefone do lead vazaria pra qualquer agent.
+      { type: "user", id: user.id, role: org.role },
+    );
     return ok({ cases: chamados, open_count: abertos }, { requestId });
   } catch {
     return fail("internal_error", "Falha ao carregar os casos.", 500, { requestId });

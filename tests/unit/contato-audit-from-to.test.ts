@@ -53,12 +53,18 @@ function clienteFalso(): unknown {
   return {
     from: () => ({
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: estadoAtual, error: null }) }),
+        // I4 (revisão final): patchContactHandler agora encadeia DOIS .eq()
+        // (id + organization_id) no select de pré-condição e no update.
+        eq: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: estadoAtual, error: null }) }),
+        }),
       }),
       update: (patch: Record<string, unknown>) => ({
         eq: () => ({
-          select: () => ({
-            maybeSingle: async () => ({ data: { ...estadoAtual, ...patch }, error: null }),
+          eq: () => ({
+            select: () => ({
+              maybeSingle: async () => ({ data: { ...estadoAtual, ...patch }, error: null }),
+            }),
           }),
         }),
       }),
@@ -83,6 +89,7 @@ beforeEach(() => {
   estadoAtual = {
     id: CONTATO,
     organization_id: ORG,
+    created_by_user_id: USUARIO,
     is_anonymized: false,
     tags: [],
     email: "velho@exemplo.com",

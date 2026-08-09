@@ -39,10 +39,15 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
       return { type: "create_or_move_lead", status: "success", detail: { moved: lead.id } };
     }
     if (contact) {
+      // Sem fallback pro telefone (achado I2 da revisão final, 2ª rodada):
+      // `title` é coluna de texto plano que `app/api/v1/leads/route.ts`
+      // devolve a QUALQUER viewer. Uma vez gravado o telefone aqui, não há
+      // como mascará-lo depois por espectador — a proteção per-viewer do
+      // contato nunca alcança essa cópia solta.
       const created = await createLeadHandler(ctx.admin, handlerCtx, {
         pipeline_id: pipelineId,
         stage_id: stageId,
-        title: contact.name ?? contact.display_name ?? contact.phone_number ?? "Lead da automação",
+        title: contact.name ?? contact.display_name ?? "Lead da automação",
         contact_id: contact.id,
         source: "automation",
       } as Parameters<typeof createLeadHandler>[2]);

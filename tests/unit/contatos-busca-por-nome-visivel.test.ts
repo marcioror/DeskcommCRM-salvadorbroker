@@ -41,11 +41,16 @@ function supabaseEspiao() {
   return { client: { from: () => chain } as never, filtros };
 }
 
+// C4 (revisão final): a partir daqui a busca só inclui telefone/e-mail/cpf
+// pra quem PODE ver esse dado (manager+) — ver contatos-busca-restrita-role.test.ts
+// para a cobertura da restrição em si. Este arquivo é sobre QUAIS colunas
+// entram no filtro, então o ator aqui precisa ser manager: sem isso, os testes
+// que checam `email.ilike`/`phone_number.ilike` testariam a coluna errada.
 async function filtroDaBusca(termo: string): Promise<string> {
   const { client, filtros } = supabaseEspiao();
   await listContactsHandler(
     client,
-    { organization_id: ORG, actor: { type: "user", id: "u-1" }, requestId: "req" },
+    { organization_id: ORG, actor: { type: "user", id: "u-1", role: "manager" }, requestId: "req" },
     { search: termo, limit: 20 },
   );
   return filtros[0] ?? "";

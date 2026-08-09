@@ -44,7 +44,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
       supabase,
       {
         organization_id: activeOrg.orgId,
-        actor: { type: "user", id: user.id },
+        actor: { type: "user", id: user.id, role: activeOrg.role },
         requestId,
       },
       id,
@@ -87,7 +87,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
       supabase,
       {
         organization_id: activeOrg.orgId,
-        actor: { type: "user", id: user.id },
+        actor: { type: "user", id: user.id, role: activeOrg.role },
         requestId,
       },
       id,

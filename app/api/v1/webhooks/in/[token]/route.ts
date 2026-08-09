@@ -239,7 +239,11 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
   } = {
     pipeline_id: source.default_pipeline_id,
     stage_id: source.default_stage_id,
-    title: mapped.name ?? mapped.phone ?? mapped.email ?? "Lead sem nome",
+    // Sem fallback pro telefone/e-mail (achado I2 da revisão final, 2ª
+    // rodada): `title` é coluna de texto plano que
+    // `app/api/v1/leads/route.ts` devolve a QUALQUER viewer, e uma vez
+    // gravado ali um dado de contato não há como mascará-lo por espectador.
+    title: mapped.name ?? "Lead sem nome",
     contact_id: contactId,
     currency: "BRL",
     tags: [],

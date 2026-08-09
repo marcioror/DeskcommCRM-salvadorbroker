@@ -95,11 +95,17 @@ export function EditContactDialog({ contact, open, onOpenChange }: Props) {
           </div>
           <div className="space-y-2">
             <Label htmlFor="ec-email">Email</Label>
-            <Input id="ec-email" type="email" {...form.register("email")} />
+            <Input id="ec-email" type="email" disabled={contact.contact_protected} {...form.register("email")} />
+            {contact.contact_protected && (
+              <p className="text-xs text-muted-foreground">Protegido — você não cadastrou este contato.</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="ec-phone">Telefone (E.164)</Label>
-            <Input id="ec-phone" {...form.register("phone_number")} />
+            <Input id="ec-phone" disabled={contact.contact_protected} {...form.register("phone_number")} />
+            {contact.contact_protected && (
+              <p className="text-xs text-muted-foreground">Protegido — você não cadastrou este contato.</p>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="ec-tags">Tags</Label>

@@ -24,6 +24,7 @@ import type { ListMessagesQuery, SendMessageInput } from "@/lib/schemas";
 import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Message } from "@/lib/types/messaging";
+import { bareWaMessageId } from "@/lib/waha/message-id";
 
 type SB = SupabaseClient;
 
@@ -153,6 +154,25 @@ export interface ListMessagesResult {
   has_more: boolean;
 }
 
+/**
+ * C3 (revisão final): o id composto do WAHA (`{fromMe}_{chatId}_{bareId}`)
+ * carrega o telefone dentro do próprio `chatId` (`5531988887777@c.us`) — e
+ * `external_id` não passa por `protegerContato`/`podeVerContatoSensivel`
+ * nenhum, porque não é campo de contato. Sem normalizar aqui, o telefone que o
+ * resto da feature protege (list/get de /contacts) vazava de volta pela caixa
+ * de entrada do próprio corretor, embutido num campo que ninguém olharia como
+ * "dado de contato".
+ *
+ * Só a RESPOSTA muda. O que fica GRAVADO em `messages.external_id` continua o
+ * id completo — ingest (`lib/waha/ingest.ts`) e o dedup do ack dependem da
+ * forma exata que o webhook manda; normalizar na escrita quebraria a
+ * correlação. `bareWaMessageId` é o mesmo helper que a ingestão já usa para
+ * casar as duas formas — reaproveitado aqui, não reimplementado.
+ */
+function comExternalIdNormalizado(m: Message): Message {
+  return m.external_id ? { ...m, external_id: bareWaMessageId(m.external_id) } : m;
+}
+
 export async function listMessagesHandler(
   supabase: SB,
   ctx: HandlerCtx,
@@ -211,7 +231,7 @@ export async function listMessagesHandler(
   // A RESPOSTA continua cronológica (antigo → novo), igual a antes: o consumidor
   // renderiza de cima para baixo sem mudar nada. O que mudou foi QUAIS mensagens
   // entram na página, não a ordem em que saem.
-  return { messages: page.slice().reverse(), cursor, has_more: hasMore };
+  return { messages: page.slice().reverse().map(comExternalIdNormalizado), cursor, has_more: hasMore };
 }
 
 // ---------------------------------------------------------------------------

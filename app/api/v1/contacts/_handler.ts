@@ -12,6 +12,7 @@ import { ApiError } from "@/lib/api/types";
 import type { Actor, HandlerCtx } from "@/lib/api/handlers/types";
 import { audit } from "@/lib/audit";
 import { hashCpf, encryptCpfSql } from "@/lib/contacts/cpf";
+import { podeVerContatoSensivel, protegerContato } from "@/lib/contacts/visibility";
 import type { Contact } from "@/lib/types/contacts";
 import type {
   ContactCreate,
@@ -22,7 +23,7 @@ import type {
 type SB = SupabaseClient;
 
 const SELECT_COLS =
-  "id, organization_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, created_at, updated_at, last_activity_at";
+  "id, organization_id, created_by_user_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, created_at, updated_at, last_activity_at";
 
 const ROLE_RANK: Record<string, number> = {
   viewer: 1,
@@ -115,11 +116,23 @@ export async function listContactsHandler(
       // zero resultados para um contato que EXISTE, e desistiu — a demanda
       // morreria por uma coluna faltando no OR.
       `display_name.ilike.%${s}%`,
-      `email.ilike.%${s}%`,
-      `phone_number.ilike.%${s}%`,
     ];
-    if (digits.length === 11) {
-      orParts.push(`cpf_hash.eq.${hashCpf(digits)}`);
+    // C4 (revisão final): busca por telefone/e-mail/cpf é ORÁCULO DE CONFIRMAÇÃO
+    // pra quem não pode ver esses dados — um corretor sem acesso ao telefone de
+    // um lead que não cadastrou consegue colar o número aqui e ver se "bate"
+    // (ou caçar dígito a dígito), o que devolve o dado protegido por um caminho
+    // lateral que `protegerContato` não cobre (a busca em si, não a resposta).
+    // manager/admin e atores não-humanos (bot, webhook) continuam buscando por
+    // tudo — só quem `podeVerContatoSensivel` recusaria por padrão perde essas
+    // 3 colunas do OR.
+    const actorRank =
+      ctx.actor.type === "user" ? (ctx.actor.role ? (ROLE_RANK[ctx.actor.role] ?? 0) : 0) : null;
+    const podeBuscarPorDadoSensivel = actorRank === null || actorRank >= ROLE_RANK.manager!;
+    if (podeBuscarPorDadoSensivel) {
+      orParts.push(`email.ilike.%${s}%`, `phone_number.ilike.%${s}%`);
+      if (digits.length === 11) {
+        orParts.push(`cpf_hash.eq.${hashCpf(digits)}`);
+      }
     }
     query = query.or(orParts.join(","));
   }
@@ -142,8 +155,9 @@ export async function listContactsHandler(
   }
 
   const rows = (data ?? []) as Contact[];
-  const hasMore = rows.length > q.limit;
-  const page = hasMore ? rows.slice(0, q.limit) : rows;
+  const protegidos = rows.map((r) => protegerContato(r, ctx.actor));
+  const hasMore = protegidos.length > q.limit;
+  const page = hasMore ? protegidos.slice(0, q.limit) : protegidos;
   const last = page[page.length - 1];
   const nextCursor =
     hasMore && last
@@ -191,6 +205,7 @@ export async function getContactHandler(
     throw new ApiError(404, "not_found", undefined, ctx.requestId, "Contato não encontrado.");
   }
   const contact = data as Contact;
+  const protegido = protegerContato(contact, ctx.actor);
 
   let cpfDecrypted: string | null = null;
   let cpfDecryptDenied = false;
@@ -235,7 +250,7 @@ export async function getContactHandler(
   }
 
   return {
-    ...contact,
+    ...protegido,
     cpf_available: !!contact.cpf_hash,
     cpf_decrypted: cpfDecrypted,
     cpf_decrypt_denied: cpfDecryptDenied || undefined,
@@ -317,7 +332,7 @@ export async function createContactHandler(
     metadata: { ...a.metadataActor, source: contact.source },
   });
 
-  return { contact, action: "created" };
+  return { contact: protegerContato(contact, ctx.actor), action: "created" };
 }
 
 // ---------------------------------------------------------------------------
@@ -339,8 +354,14 @@ export async function patchContactHandler(
     // e-mail foi substituído não tinha onde olhar. `consent` vem junto porque o
     // patch dele passou a ser MERGE (ver abaixo), e merge precisa do estado
     // anterior.
-    .select("id, organization_id, is_anonymized, tags, email, phone_number, name, display_name, consent")
+    .select("id, organization_id, created_by_user_id, is_anonymized, tags, email, phone_number, name, display_name, consent")
     .eq("id", contactId)
+    // I4 (revisão final, anti-pattern #10 do CLAUDE.md): este client pode ser
+    // service-role — sem o filtro, um `contactId` de OUTRA org resolvia aqui
+    // (RLS bypassada), e a leitura de `created_by_user_id` que decide a
+    // proteção de telefone/e-mail (podeVerContatoSensivel logo abaixo) rodava
+    // sobre uma linha que nem pertence ao tenant do ator.
+    .eq("organization_id", ctx.organization_id)
     .maybeSingle();
 
   if (selErr) {
@@ -356,6 +377,22 @@ export async function patchContactHandler(
       undefined,
       ctx.requestId,
       "Contato anonimizado — edição bloqueada (LGPD).",
+    );
+  }
+
+  if (
+    (input.email !== undefined || input.phone_number !== undefined) &&
+    !podeVerContatoSensivel(
+      ctx.actor,
+      (existing as { created_by_user_id: string | null }).created_by_user_id,
+    )
+  ) {
+    throw new ApiError(
+      403,
+      "contact_protected",
+      undefined,
+      ctx.requestId,
+      "Você não cadastrou este contato — telefone e e-mail são protegidos.",
     );
   }
 
@@ -414,6 +451,10 @@ export async function patchContactHandler(
     .from("contacts")
     .update(patch)
     .eq("id", contactId)
+    // I4: mesmo motivo do select acima — sem isto, um UPDATE com client
+    // service-role e `contactId` de outra org escreveria fora do tenant do
+    // ator, RLS bypassada.
+    .eq("organization_id", ctx.organization_id)
     .select(SELECT_COLS)
     .maybeSingle();
 
@@ -501,5 +542,5 @@ export async function patchContactHandler(
     metadata: { ...a.metadataActor, fields, ...sensiveis },
   });
 
-  return contact;
+  return protegerContato(contact, ctx.actor);
 }

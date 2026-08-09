@@ -25,10 +25,12 @@ import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
+import type { Actor } from "@/lib/api/handlers/types";
 import { requireRole } from "@/lib/auth/require-role";
 import { situacaoDoRetorno } from "@/lib/followup/retorno";
 import { createClient } from "@/lib/supabase/server";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { podeVerContatoSensivel } from "@/lib/contacts/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -65,11 +67,22 @@ interface ContactRow {
   name: string | null;
   display_name: string | null;
   phone_number: string | null;
+  created_by_user_id: string | null;
 }
 
-function resolveContactName(c: ContactRow | null): string {
+/**
+ * I1 (revisão final): `rotuloDoContato` cai pro telefone de propósito quando
+ * não há nome — mas essa queda não sabe nada de proteção de contato. Pra um
+ * lead sem nome que o ator NÃO cadastrou, a fila virava o único lugar da
+ * feature que ainda escrevia o telefone puro num título — a mesma
+ * informação que /api/v1/contacts já nula na resposta. `podeVerContatoSensivel`
+ * decide; quem não pode ver recebe o contato com `phone_number: null`, e o
+ * rótulo degrada pra SEM_NOME (nunca pro dado protegido).
+ */
+function resolveContactName(c: ContactRow | null, actor: Actor): string {
   if (!c) return "Contato removido";
-  return rotuloDoContato(c);
+  const podeVer = podeVerContatoSensivel(actor, c.created_by_user_id);
+  return rotuloDoContato(podeVer ? c : { ...c, phone_number: null });
 }
 
 function embedded<T>(v: T | T[] | null): T | null {
@@ -90,24 +103,27 @@ export interface QueueRow {
 }
 
 /** Linha de enrollment (com embeds de contato/fluxo/agente) → QueueRow. Pura p/ teste. */
-export function enrollmentToQueueRow(e: {
-  id: string;
-  contact_id: string;
-  current_node_id: string;
-  next_eval_at: string | null;
-  status: string;
-  outcome: string | null;
-  contacts: ContactRow | ContactRow[] | null;
-  followup_flow_pointers: { name: string } | { name: string }[] | null;
-  ai_agents: { name: string } | { name: string }[] | null;
-}): QueueRow {
+export function enrollmentToQueueRow(
+  e: {
+    id: string;
+    contact_id: string;
+    current_node_id: string;
+    next_eval_at: string | null;
+    status: string;
+    outcome: string | null;
+    contacts: ContactRow | ContactRow[] | null;
+    followup_flow_pointers: { name: string } | { name: string }[] | null;
+    ai_agents: { name: string } | { name: string }[] | null;
+  },
+  actor: Actor,
+): QueueRow {
   const contact = embedded(e.contacts);
   const pointer = embedded(e.followup_flow_pointers);
   const agent = embedded(e.ai_agents);
   return {
     source: "enrollment",
     id: e.id,
-    contact: { id: e.contact_id, name: resolveContactName(contact) },
+    contact: { id: e.contact_id, name: resolveContactName(contact, actor) },
     flow_name: pointer?.name ?? null,
     agent_name: agent?.name ?? null,
     node_or_reason: e.current_node_id,
@@ -132,7 +148,12 @@ export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
   const authz = await requireRole("viewer", { requestId, resource: "followup_queue" });
   if (!authz.ok) return authz.response;
-  const { org: activeOrg } = authz;
+  const { org: activeOrg, user } = authz;
+  // I1 (revisão final): threadeado pra `resolveContactName`/`enrollmentToQueueRow`
+  // decidirem, via podeVerContatoSensivel, se o telefone pode aparecer no
+  // rótulo de um lead sem nome — mesmo padrão do resto da branch (actor.role
+  // vem do resultado de requireRole, nunca do body).
+  const actor: Actor = { type: "user", id: user.id, role: activeOrg.role };
 
   const sp = req.nextUrl.searchParams;
   const status = sp.get("status");
@@ -185,7 +206,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     .from("followup_enrollments")
     .select(
       `id, pointer_id, contact_id, status, current_node_id, next_eval_at, outcome, updated_at, agent_id,
-       contacts:contact_id(id, name, display_name, phone_number),
+       contacts:contact_id(id, name, display_name, phone_number, created_by_user_id),
        followup_flow_pointers:pointer_id(name),
        ai_agents:agent_id(name)`,
     )
@@ -209,7 +230,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   let promiseQuery = supabase
     .from("cron_jobs")
     .select(
-      "id, contact_id, next_run_at, enabled, cancelled_at, payload, contacts:contact_id(id, name, display_name, phone_number)",
+      "id, contact_id, next_run_at, enabled, cancelled_at, payload, contacts:contact_id(id, name, display_name, phone_number, created_by_user_id)",
     )
     .eq("organization_id", activeOrg.orgId)
     .eq("kind", "at")
@@ -235,7 +256,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (promiseRes.error) return fail("internal_error", promiseRes.error.message, 500, { requestId });
 
   const enrollRows: QueueRow[] = (enrollRes.data ?? []).map((e) =>
-    enrollmentToQueueRow(e as Parameters<typeof enrollmentToQueueRow>[0]),
+    enrollmentToQueueRow(e as Parameters<typeof enrollmentToQueueRow>[0], actor),
   );
 
   const promiseRows: QueueRow[] = (promiseRes.data ?? []).map((j) => {
@@ -244,7 +265,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     return {
       source: "promise",
       id: j.id,
-      contact: { id: j.contact_id, name: resolveContactName(contact) },
+      contact: { id: j.contact_id, name: resolveContactName(contact, actor) },
       flow_name: null,
       agent_name: null,
       node_or_reason: payload.reason ?? "—",

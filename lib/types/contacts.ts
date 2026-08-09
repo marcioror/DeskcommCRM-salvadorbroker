@@ -5,6 +5,8 @@
 export interface Contact {
   id: string;
   organization_id: string;
+  /** Quem cadastrou este contato — null quando entrou sozinho (webhook/IA). */
+  created_by_user_id: string | null;
   name: string | null;
   display_name: string | null;
   email: string | null;
@@ -25,6 +27,8 @@ export interface Contact {
   created_at: string;
   updated_at: string;
   last_activity_at: string | null;
+  /** true quando phone_number/email vieram nulos por proteção (ver lib/contacts/visibility.ts). */
+  contact_protected: boolean;
 }
 
 /**

@@ -27,6 +27,7 @@ const BASE_CASE = {
   conversation_id: "conv-1",
   contact_name: "Maria Silva",
   contact_phone: "+5511999990000",
+  contact_protected: false,
   events: [
     {
       id: "ev-1",
@@ -80,5 +81,18 @@ describe("CaseDetail", () => {
     });
     render(wrap(<CaseDetail caseId="case-1" />));
     expect(screen.getByText("Aberto automaticamente")).toBeInTheDocument();
+  });
+
+  // C2 (revisão final): a rota já devolve contact_phone nulo + contact_protected
+  // pra quem não cadastrou o lead — este teste prova que a TELA respeita isso e
+  // nunca imprime um telefone cru quando o caso vem marcado como protegido.
+  it("caso protegido mostra o badge Protegido e nunca o telefone cru", () => {
+    useCaseMock.mockReturnValue({
+      isLoading: false,
+      data: { ...BASE_CASE, contact_phone: null, contact_protected: true },
+    });
+    render(wrap(<CaseDetail caseId="case-1" />));
+    expect(screen.getByText("Protegido")).toBeInTheDocument();
+    expect(screen.queryByText(BASE_CASE.contact_phone)).not.toBeInTheDocument();
   });
 });

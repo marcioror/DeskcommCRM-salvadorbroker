@@ -24,7 +24,7 @@ import type { ListMessagesQuery, SendMessageInput } from "@/lib/schemas";
 import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Message } from "@/lib/types/messaging";
-import { bareWaMessageId, chatIdFromWaMessageId } from "@/lib/waha/message-id";
+import { externalIdParaResposta } from "@/lib/channels/external-id-publico";
 
 type SB = SupabaseClient;
 
@@ -155,33 +155,24 @@ export interface ListMessagesResult {
 }
 
 /**
- * C3 (revisão final): o id composto do WAHA (`{fromMe}_{chatId}_{bareId}`)
- * carrega o telefone dentro do próprio `chatId` (`5531988887777@c.us`) — e
- * `external_id` não passa por `protegerContato`/`podeVerContatoSensivel`
- * nenhum, porque não é campo de contato. Sem normalizar aqui, o telefone que o
- * resto da feature protege (list/get de /contacts) vazava de volta pela caixa
- * de entrada do próprio corretor, embutido num campo que ninguém olharia como
- * "dado de contato".
+ * C3 (revisão final): há transporte cujo id de mensagem embute o ENDEREÇO do
+ * contato — o telefone, em texto plano — e `external_id` não passa por
+ * `protegerContato`/`podeVerContatoSensivel` nenhum, porque não é campo de
+ * contato. Sem normalizar, o número que o resto da feature protege (list/get de
+ * /contacts) voltava pela caixa de entrada do próprio corretor, dentro de um
+ * campo que ninguém olharia como "dado de contato".
  *
- * Só a RESPOSTA muda. O que fica GRAVADO em `messages.external_id` continua o
- * id completo — ingest (`lib/waha/ingest.ts`) e o dedup do ack dependem da
- * forma exata que o webhook manda; normalizar na escrita quebraria a
- * correlação. `bareWaMessageId` é o mesmo helper que a ingestão já usa para
- * casar as duas formas — reaproveitado aqui, não reimplementado.
+ * A forma concreta de cada transporte é assunto de `lib/channels/` — esta
+ * camada é feature e não pode conhecê-la (doutrina de restrição de canal,
+ * invariante 1; foi o `lint:channels` que apontou a versão anterior, que
+ * importava o helper do transporte direto para cá).
  *
- * O corte é CONDICIONADO à forma composta do WAHA (`chatIdFromWaMessageId`
- * devolve não-nulo só quando o miolo tem `@`). A primeira versão cortava tudo
- * depois do último `_` em QUALQUER id, e isso passou a estar errado quando o
- * terceiro canal (migration 0132) chegou: o `externalId` dele é o `messageId`
- * opaco do provedor, que não carrega telefone nenhum — cortá-lo não esconderia
- * nada e devolveria na resposta um id que não existe no provedor. Esconder o
- * telefone é o objetivo; mutilar id de canal que não tem telefone dentro é só
- * dano. Sem chatId no id, não há o que esconder.
+ * Só a RESPOSTA muda: o que fica GRAVADO em `messages.external_id` continua
+ * intacto, porque ingestão e dedup do ack dependem da forma exata recebida.
  */
 function comExternalIdNormalizado(m: Message): Message {
-  if (!m.external_id) return m;
-  if (chatIdFromWaMessageId(m.external_id) === null) return m;
-  return { ...m, external_id: bareWaMessageId(m.external_id) };
+  const publico = externalIdParaResposta(m.external_id);
+  return publico === m.external_id ? m : { ...m, external_id: publico };
 }
 
 export async function listMessagesHandler(

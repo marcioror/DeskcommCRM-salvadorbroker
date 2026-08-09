@@ -43,7 +43,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { logger } from "@/lib/logger";
 
-import { ehIdentificadorTecnico, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
+import { ehIdentificadorTecnico, nomeCadastradoDoContato, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
 
 import { emitLeadActivity } from "./activity-emitter";
 
@@ -180,13 +180,12 @@ export async function garantirLeadDaConversa(
   // devolve a QUALQUER viewer, inclusive quem não devia ver o telefone deste
   // contato. A proteção per-viewer do contato não alcança uma cópia solta numa
   // outra tabela — uma vez gravado ali, o número está exposto para sempre.
-  // Por isso replicamos só a metade "nome" da função, sem o fallback de
-  // telefone: se não há `display_name`/`name` usável, o card cai no ramo de
+  // Por isso usamos `nomeCadastradoDoContato` — a metade "nome" de
+  // `rotuloDoContato`, extraída para não duplicar a regra aqui (achado da
+  // revisão final: duplicação sem source of truth declarado é anti-pattern
+  // #2 deste repo). Sem `display_name`/`name` usável, o card cai no ramo de
   // "sem nome" abaixo, nunca no número.
-  const nomeCadastrado = [contato?.display_name, contato?.name]
-    .map((bruto) => (bruto ?? "").trim())
-    .find((v) => v !== "" && !ehIdentificadorTecnico(v));
-  const doCadastro = nomeCadastrado ?? SEM_NOME;
+  const doCadastro = nomeCadastradoDoContato(contato) ?? SEM_NOME;
   const doPayload = (dados.nomeDoContato ?? "").trim();
   const titulo =
     doCadastro !== SEM_NOME

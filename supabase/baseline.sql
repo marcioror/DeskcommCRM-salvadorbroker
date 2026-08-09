@@ -10727,16 +10727,28 @@ on conflict (id) do update set file_size_limit = excluded.file_size_limit;
 -- (lib/leads/nascimento-do-lead.ts) para de gravar telefone em título novo;
 -- este bloco corrige linhas que já nasceram assim, em QUALQUER clone.
 --
--- Predicado conservador — mesmo piso que `ehIdentificadorTecnico` usa em
--- lib/contacts/rotulo-do-contato.ts (`^\d{9,}$`), com `+` opcional porque o
--- telefone é gravado em E.164 e nunca reformatado. Ancorado do início ao fim:
--- um nome que só CONTÉM dígitos ("Loja 24h") nunca casa. Detalhe completo em
+-- Match EXATO contra `contacts.phone_number`, não regex — a primeira versão
+-- deste bloco usava `title ~ '^\+?[0-9]{9,}$'` e a revisão apontou que isso é
+-- destrutivo: casa CPF sem formatação (11 dígitos), CNPJ (14), número de
+-- pedido/contrato/imóvel — títulos LEGÍTIMOS num produto multi-nicho onde o
+-- clone de e-commerce renomeia `deal` para "Pedido". E como `update.sh`
+-- reaplica `baseline.sql` em TODO update, não seria limpeza de uma vez só:
+-- viraria regra permanente apagando esses títulos para sempre, sem erro.
+--
+-- `rotuloDoContato` nunca reformata telefone (gravado em E.164, devolvido
+-- cru) — então o título vazado é, verbatim, `contacts.phone_number` do
+-- próprio contato vinculado. Comparar com ESSE valor específico não pode
+-- acertar por acaso um CPF/CNPJ/pedido de outra origem. Detalhe completo em
 -- supabase/migrations/20260809120000_0141_lead_title_sem_telefone.sql.
 --
--- Idempotente: título já corrigido não bate mais no predicado.
-update public.crm_leads
+-- Idempotente: título já corrigido deixa de ser igual ao telefone, não bate
+-- mais no predicado. Sem hardcode de organização.
+update public.crm_leads l
    set title = 'Novo contato pelo WhatsApp'
- where title ~ '^\+?[0-9]{9,}$';
+  from public.contacts c
+ where c.id = l.contact_id
+   and c.organization_id = l.organization_id
+   and l.title = c.phone_number;
 
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --

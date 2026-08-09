@@ -56,6 +56,36 @@ export function ehIdentificadorTecnico(valor: string): boolean {
   return false;
 }
 
+/** O que basta para resolver o nome que a pessoa escolheu (sem o telefone). */
+export interface ContatoComNome {
+  display_name?: string | null;
+  name?: string | null;
+}
+
+/**
+ * SÓ o nome que uma pessoa escolheu, sem cair para o telefone — `null` quando
+ * não há nada apresentável nessa metade.
+ *
+ * Extraída de `rotuloDoContato` (achado da revisão final da proteção de
+ * contato ao corretor): `lib/leads/nascimento-do-lead.ts` precisa da MESMA
+ * regra de "isto é nome de gente?" para o título do card, mas SEM o fallback
+ * de telefone — ali o valor vira `crm_leads.title`, coluna de texto plano que
+ * não tem máscara per-viewer, então gravar o telefone ali é vazá-lo por outra
+ * porta. Duas cópias da cadeia `display_name`/`name` já causaram divergência
+ * antes (ver cabeçalho deste arquivo); esta função é o único lugar que decide
+ * "qual é o nome cadastrado" — quem quer o telefone como fallback chama
+ * `rotuloDoContato`, quem não quer chama esta.
+ */
+export function nomeCadastradoDoContato(c: ContatoComNome | null | undefined): string | null {
+  if (!c) return null;
+  const candidatos = [c.display_name, c.name];
+  for (const bruto of candidatos) {
+    const v = (bruto ?? "").trim();
+    if (v !== "" && !ehIdentificadorTecnico(v)) return v;
+  }
+  return null;
+}
+
 /**
  * O rótulo. Primeiro o que uma pessoa escolheu, depois o que o canal informou,
  * depois o número — e só então a admissão de que não se sabe o nome.
@@ -67,11 +97,8 @@ export function ehIdentificadorTecnico(valor: string): boolean {
 export function rotuloDoContato(c: ContatoNomeavel | null | undefined): string {
   if (!c) return SEM_NOME;
 
-  const candidatos = [c.display_name, c.name];
-  for (const bruto of candidatos) {
-    const v = (bruto ?? "").trim();
-    if (v !== "" && !ehIdentificadorTecnico(v)) return v;
-  }
+  const nome = nomeCadastradoDoContato(c);
+  if (nome) return nome;
 
   const tel = (c.phone_number ?? "").trim();
   // O telefone escapa da recusa acima de propósito: "5531988887777" é

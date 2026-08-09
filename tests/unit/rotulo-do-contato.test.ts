@@ -4,7 +4,12 @@ import * as path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { ehIdentificadorTecnico, rotuloDoContato, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
+import {
+  ehIdentificadorTecnico,
+  nomeCadastradoDoContato,
+  rotuloDoContato,
+  SEM_NOME,
+} from "@/lib/contacts/rotulo-do-contato";
 
 /**
  * COMO SE CHAMA ESTA PESSOA NA TELA.
@@ -79,6 +84,30 @@ describe("rotuloDoContato", () => {
     expect(rotuloDoContato({ display_name: "Contato 543134@lid", name: null, phone_number: null })).toBe(
       SEM_NOME,
     );
+  });
+});
+
+describe("nomeCadastradoDoContato — a metade sem telefone, para PERSISTÊNCIA", () => {
+  // Extraída de `rotuloDoContato` (achado da revisão final): quem grava em
+  // coluna sem máscara per-viewer (ex.: `crm_leads.title`) precisa da regra
+  // de nome SEM o fallback de telefone — cair no telefone ali é vazamento,
+  // não conveniência.
+  it("devolve o nome cadastrado, igual à metade de rotuloDoContato", () => {
+    expect(nomeCadastradoDoContato({ display_name: "Kaio Gomes", name: "Kaio G" })).toBe("Kaio Gomes");
+    expect(nomeCadastradoDoContato({ display_name: "Contato 543134@lid", name: "Zeca" })).toBe("Zeca");
+  });
+
+  it("null quando não há nome usável — NUNCA cai para telefone (não recebe o campo nem por engano)", () => {
+    expect(nomeCadastradoDoContato({ display_name: null, name: null })).toBeNull();
+    expect(nomeCadastradoDoContato({ display_name: "Contato 543134@lid", name: null })).toBeNull();
+    expect(nomeCadastradoDoContato(null)).toBeNull();
+    expect(nomeCadastradoDoContato(undefined)).toBeNull();
+  });
+
+  it("rotuloDoContato é a mesma regra + fallback de telefone — não diverge", () => {
+    const semNome = { display_name: null, name: null, phone_number: "+5531988887777" };
+    expect(nomeCadastradoDoContato(semNome)).toBeNull();
+    expect(rotuloDoContato(semNome)).toBe("+5531988887777");
   });
 });
 

@@ -16,6 +16,7 @@ import { EditContactDialog } from "@/components/contacts/EditContactDialog";
 import { AnonymizeDialog } from "@/components/contacts/AnonymizeDialog";
 import { PropostasDeDado } from "@/components/contacts/PropostasDeDado";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { ContatoProtegido } from "@/components/contacts/ContatoProtegido";
 
 interface Props {
   contactId: string;
@@ -77,9 +78,15 @@ export function ContactDetailClient({ contactId }: Props) {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{displayName}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            {contact.email && <span>{contact.email}</span>}
-            {contact.email && contact.phone_number && <span>•</span>}
-            {contact.phone_number && <span>{contact.phone_number}</span>}
+            {contact.contact_protected ? (
+              <ContatoProtegido valor={null} protegido />
+            ) : (
+              <>
+                {contact.email && <span>{contact.email}</span>}
+                {contact.email && contact.phone_number && <span>•</span>}
+                {contact.phone_number && <span>{contact.phone_number}</span>}
+              </>
+            )}
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             {contact.tags.map((t) => (
@@ -129,11 +136,15 @@ export function ContactDetailClient({ contactId }: Props) {
               </div>
               <div>
                 <dt className="text-xs uppercase text-muted-foreground">Email</dt>
-                <dd className="mt-1">{contact.email ?? "—"}</dd>
+                <dd className="mt-1">
+                  <ContatoProtegido valor={contact.email} protegido={contact.contact_protected} />
+                </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase text-muted-foreground">Telefone</dt>
-                <dd className="mt-1">{contact.phone_number ?? "—"}</dd>
+                <dd className="mt-1">
+                  <ContatoProtegido valor={contact.phone_number} protegido={contact.contact_protected} />
+                </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase text-muted-foreground">Origem</dt>

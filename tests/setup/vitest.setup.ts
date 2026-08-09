@@ -11,7 +11,13 @@ for (const envFile of [".env", ".env.local"]) {
       if (!trimmed || trimmed.startsWith("#")) continue;
       const [key, ...rest] = trimmed.split("=");
       if (key && !process.env[key]) {
-        process.env[key] = rest.join("=");
+        // Aceita valor entre aspas simples OU duplas: o `.env.local` gerado
+        // pelo kit self-host (docker-compose --env-file) envolve todo valor
+        // em aspas simples, e sem o strip aqui o Zod recebe `'https://...'`
+        // (URL inválida) ou `'false'` (não bate no enum "true"|"false") — a
+        // suíte de teste inteira cai em cascata em qualquer arquivo que
+        // importe lib/env.ts, mesmo transitivamente.
+        process.env[key] = rest.join("=").replace(/^['"](.*)['"]$/, "$1");
       }
     }
   } catch {

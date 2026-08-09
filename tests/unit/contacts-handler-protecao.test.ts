@@ -180,5 +180,11 @@ describe("patchContactHandler — proteção de telefone/email", () => {
       { tags: ["quente"] },
     );
     expect(result.tags).toEqual(["quente"]);
+    // A resposta do PATCH também vem protegida: sem isto, um PATCH inofensivo
+    // (só tags) devolveria telefone/email reais de um contato que este ator
+    // não cadastrou — a porta dos fundos que esta task existe para fechar.
+    expect(result.phone_number).toBeNull();
+    expect(result.email).toBeNull();
+    expect(result.contact_protected).toBe(true);
   });
 });

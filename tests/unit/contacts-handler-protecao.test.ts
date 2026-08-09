@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 
 import { listContactsHandler, getContactHandler } from "@/app/api/v1/contacts/_handler";
+import { patchContactHandler } from "@/app/api/v1/contacts/_handler";
 import type { HandlerCtx, Actor } from "@/lib/api/handlers/types";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -120,5 +121,64 @@ describe("getContactHandler — proteção de telefone/email", () => {
     expect(result.phone_number).toBeNull();
     expect(result.email).toBeNull();
     expect(result.contact_protected).toBe(true);
+  });
+});
+
+function makeSupabaseForPatch(existingRow: Record<string, unknown>, updatedRow: Record<string, unknown>) {
+  const client = {
+    from(table: string) {
+      if (table !== "contacts") throw new Error(`fake_supabase: tabela inesperada '${table}'`);
+      return {
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: existingRow, error: null }) }),
+        }),
+        update: () => ({
+          eq: () => ({
+            select: () => ({ maybeSingle: async () => ({ data: updatedRow, error: null }) }),
+          }),
+        }),
+      };
+    },
+    rpc: async () => ({ error: null }),
+  };
+  return client as unknown as SupabaseClient;
+}
+
+describe("patchContactHandler — proteção de telefone/email", () => {
+  it("agent que não cadastrou o contato NÃO pode alterar phone_number/email (403 contact_protected)", async () => {
+    const existing = { id: CONTACT_ID, organization_id: ORG, created_by_user_id: CRIADOR, is_anonymized: false, tags: [], email: "maria@example.com", phone_number: "+5531988887777", name: "Maria", display_name: null, consent: {} };
+    const supabase = makeSupabaseForPatch(existing, contactRow());
+    await expect(
+      patchContactHandler(
+        supabase,
+        ctxFor({ type: "user", id: OUTRO_USER, role: "agent" }),
+        CONTACT_ID,
+        { phone_number: "+5531900000000" },
+      ),
+    ).rejects.toMatchObject({ status: 403, code: "contact_protected" });
+  });
+
+  it("agent que cadastrou o próprio contato PODE alterar phone_number", async () => {
+    const existing = { id: CONTACT_ID, organization_id: ORG, created_by_user_id: CRIADOR, is_anonymized: false, tags: [], email: "maria@example.com", phone_number: "+5531988887777", name: "Maria", display_name: null, consent: {} };
+    const supabase = makeSupabaseForPatch(existing, contactRow({ phone_number: "+5531900000000" }));
+    const result = await patchContactHandler(
+      supabase,
+      ctxFor({ type: "user", id: CRIADOR, role: "agent" }),
+      CONTACT_ID,
+      { phone_number: "+5531900000000" },
+    );
+    expect(result.phone_number).toBe("+5531900000000");
+  });
+
+  it("editar só as tags (sem tocar phone/email) não é bloqueado mesmo sem ser o criador", async () => {
+    const existing = { id: CONTACT_ID, organization_id: ORG, created_by_user_id: CRIADOR, is_anonymized: false, tags: [], email: "maria@example.com", phone_number: "+5531988887777", name: "Maria", display_name: null, consent: {} };
+    const supabase = makeSupabaseForPatch(existing, contactRow({ tags: ["quente"] }));
+    const result = await patchContactHandler(
+      supabase,
+      ctxFor({ type: "user", id: OUTRO_USER, role: "agent" }),
+      CONTACT_ID,
+      { tags: ["quente"] },
+    );
+    expect(result.tags).toEqual(["quente"]);
   });
 });

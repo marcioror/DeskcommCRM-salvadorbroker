@@ -83,6 +83,7 @@ beforeEach(() => {
   estadoAtual = {
     id: CONTATO,
     organization_id: ORG,
+    created_by_user_id: USUARIO,
     is_anonymized: false,
     tags: [],
     email: "velho@exemplo.com",

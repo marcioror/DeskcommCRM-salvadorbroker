@@ -12,7 +12,7 @@ import { ApiError } from "@/lib/api/types";
 import type { Actor, HandlerCtx } from "@/lib/api/handlers/types";
 import { audit } from "@/lib/audit";
 import { hashCpf, encryptCpfSql } from "@/lib/contacts/cpf";
-import { protegerContato } from "@/lib/contacts/visibility";
+import { podeVerContatoSensivel, protegerContato } from "@/lib/contacts/visibility";
 import type { Contact } from "@/lib/types/contacts";
 import type {
   ContactCreate,
@@ -342,7 +342,7 @@ export async function patchContactHandler(
     // e-mail foi substituído não tinha onde olhar. `consent` vem junto porque o
     // patch dele passou a ser MERGE (ver abaixo), e merge precisa do estado
     // anterior.
-    .select("id, organization_id, is_anonymized, tags, email, phone_number, name, display_name, consent")
+    .select("id, organization_id, created_by_user_id, is_anonymized, tags, email, phone_number, name, display_name, consent")
     .eq("id", contactId)
     .maybeSingle();
 
@@ -359,6 +359,22 @@ export async function patchContactHandler(
       undefined,
       ctx.requestId,
       "Contato anonimizado — edição bloqueada (LGPD).",
+    );
+  }
+
+  if (
+    (input.email !== undefined || input.phone_number !== undefined) &&
+    !podeVerContatoSensivel(
+      ctx.actor,
+      (existing as { created_by_user_id: string | null }).created_by_user_id,
+    )
+  ) {
+    throw new ApiError(
+      403,
+      "contact_protected",
+      undefined,
+      ctx.requestId,
+      "Você não cadastrou este contato — telefone e e-mail são protegidos.",
     );
   }
 
@@ -504,5 +520,5 @@ export async function patchContactHandler(
     metadata: { ...a.metadataActor, fields, ...sensiveis },
   });
 
-  return contact;
+  return protegerContato(contact, ctx.actor);
 }

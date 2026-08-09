@@ -24,7 +24,7 @@ import type { ListMessagesQuery, SendMessageInput } from "@/lib/schemas";
 import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Message } from "@/lib/types/messaging";
-import { bareWaMessageId } from "@/lib/waha/message-id";
+import { bareWaMessageId, chatIdFromWaMessageId } from "@/lib/waha/message-id";
 
 type SB = SupabaseClient;
 
@@ -168,9 +168,20 @@ export interface ListMessagesResult {
  * forma exata que o webhook manda; normalizar na escrita quebraria a
  * correlação. `bareWaMessageId` é o mesmo helper que a ingestão já usa para
  * casar as duas formas — reaproveitado aqui, não reimplementado.
+ *
+ * O corte é CONDICIONADO à forma composta do WAHA (`chatIdFromWaMessageId`
+ * devolve não-nulo só quando o miolo tem `@`). A primeira versão cortava tudo
+ * depois do último `_` em QUALQUER id, e isso passou a estar errado quando o
+ * terceiro canal (migration 0132) chegou: o `externalId` dele é o `messageId`
+ * opaco do provedor, que não carrega telefone nenhum — cortá-lo não esconderia
+ * nada e devolveria na resposta um id que não existe no provedor. Esconder o
+ * telefone é o objetivo; mutilar id de canal que não tem telefone dentro é só
+ * dano. Sem chatId no id, não há o que esconder.
  */
 function comExternalIdNormalizado(m: Message): Message {
-  return m.external_id ? { ...m, external_id: bareWaMessageId(m.external_id) } : m;
+  if (!m.external_id) return m;
+  if (chatIdFromWaMessageId(m.external_id) === null) return m;
+  return { ...m, external_id: bareWaMessageId(m.external_id) };
 }
 
 export async function listMessagesHandler(

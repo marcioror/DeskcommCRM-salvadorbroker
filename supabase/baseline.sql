@@ -10760,7 +10760,7 @@ create trigger trg_ai_agent_versions_content_immutable
 
 notify pgrst, 'reload schema';
 
--- ---- properties + properties_media + bucket property-media (migration 0139) ----
+-- ---- properties + properties_media + bucket property-media (migration 0142) ----
 create table if not exists public.properties (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -10843,12 +10843,12 @@ insert into storage.buckets (id, name, public, file_size_limit)
 values ('property-media', 'property-media', false, 10485760)
 on conflict (id) do update set file_size_limit = excluded.file_size_limit;
 
--- ---- bucket property-media file_size_limit 10MB -> 50MB (migration 0140) ----
+-- ---- bucket property-media file_size_limit 10MB -> 50MB (migration 0143) ----
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('property-media', 'property-media', false, 52428800)
 on conflict (id) do update set file_size_limit = excluded.file_size_limit;
 
--- ---- crm_leads.title deixa de guardar telefone (migration 0141) ----
+-- ---- crm_leads.title deixa de guardar telefone (migration 0144) ----
 -- Achado I2 da revisão final da proteção de contato ao corretor. O forward-fix
 -- (lib/leads/nascimento-do-lead.ts) para de gravar telefone em título novo;
 -- este bloco corrige linhas que já nasceram assim, em QUALQUER clone.
@@ -10865,7 +10865,7 @@ on conflict (id) do update set file_size_limit = excluded.file_size_limit;
 -- cru) — então o título vazado é, verbatim, `contacts.phone_number` do
 -- próprio contato vinculado. Comparar com ESSE valor específico não pode
 -- acertar por acaso um CPF/CNPJ/pedido de outra origem. Detalhe completo em
--- supabase/migrations/20260809120000_0141_lead_title_sem_telefone.sql.
+-- supabase/migrations/20260809120000_0144_lead_title_sem_telefone.sql.
 --
 -- Idempotente: título já corrigido deixa de ser igual ao telefone, não bate
 -- mais no predicado. Sem hardcode de organização.

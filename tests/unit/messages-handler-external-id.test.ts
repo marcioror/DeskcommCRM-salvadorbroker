@@ -100,4 +100,19 @@ describe("listMessagesHandler — normalização de external_id (C3)", () => {
     const result = await listMessagesHandler(supabase, ctx(), CONV, { limit: 20 });
     expect(result.messages[0]?.external_id).toBe(BARE);
   });
+
+  /**
+   * Regressão da fusão com o upstream (terceiro canal, migration 0132): o
+   * adapter guarda o `messageId` opaco do provedor, que pode ter `_` e NÃO
+   * carrega telefone. O corte cego pelo último `_` — que é o que a primeira
+   * versão fazia — devolvia na resposta um id que não existe no provedor, sem
+   * esconder nada em troca. Só a forma composta do WAHA (miolo com `@`) é que
+   * tem telefone dentro para esconder.
+   */
+  it("id de canal que não é WAHA passa intacto, mesmo tendo underscore", async () => {
+    const OPACO = "msg_01HXY_9f3a2b";
+    const supabase = fakeSupabase([messageRow({ external_id: OPACO })]);
+    const result = await listMessagesHandler(supabase, ctx(), CONV, { limit: 20 });
+    expect(result.messages[0]?.external_id).toBe(OPACO);
+  });
 });

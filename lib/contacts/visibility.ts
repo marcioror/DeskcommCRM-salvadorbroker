@@ -31,6 +31,10 @@ interface ContatoComTelefone {
 
 interface ContatoComTelefoneEEmail extends ContatoComTelefone {
   email: string | null;
+  // Opcional: `email_normalized` (coluna gerada `lower(trim(email))`) só existe
+  // em quem seleciona SELECT_COLS. Opcional aqui para não obrigar chamador que
+  // nem pede a coluna (e testes com objeto reduzido) a fingir que ela existe.
+  email_normalized?: string | null;
 }
 
 /** Contato completo (API /contacts, MCP) — protege telefone E e-mail. */
@@ -41,7 +45,18 @@ export function protegerContato<T extends ContatoComTelefoneEEmail>(
   if (podeVerContatoSensivel(actor, contact.created_by_user_id)) {
     return { ...contact, contact_protected: false };
   }
-  return { ...contact, phone_number: null, email: null, contact_protected: true };
+  return {
+    ...contact,
+    phone_number: null,
+    email: null,
+    // `email_normalized` é `lower(trim(email))` — o MESMO e-mail em outra
+    // coluna. Nular só `email` e deixar esta ficaria a mesma porta dos fundos:
+    // o JSON de resposta ainda carregaria o e-mail bruto (só em minúsculas).
+    // Só entra quando a coluna foi de fato selecionada (chave presente no
+    // objeto de origem), pra não introduzir a chave em chamador que não a pede.
+    ...(contact.email_normalized !== undefined ? { email_normalized: null } : {}),
+    contact_protected: true,
+  };
 }
 
 /** Contato embutido em conversas — só telefone (esse formato não seleciona email). */

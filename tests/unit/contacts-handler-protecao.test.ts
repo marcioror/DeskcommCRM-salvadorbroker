@@ -80,6 +80,11 @@ describe("listContactsHandler — proteção de telefone/email", () => {
       email: null,
       contact_protected: true,
     });
+    // C1: `email_normalized` é o MESMO e-mail em outra coluna (gerada por
+    // `lower(trim(email))`) — `toMatchObject` acima não pega porque não lista a
+    // chave. Asserção de valor explícita, senão o e-mail protegido continua
+    // vazando por aqui mesmo com o teste verde.
+    expect(result.contacts[0]?.email_normalized).toBeNull();
   });
 
   it("agent que cadastrou o próprio contato vê telefone/email normalmente", async () => {
@@ -121,6 +126,8 @@ describe("getContactHandler — proteção de telefone/email", () => {
     expect(result.phone_number).toBeNull();
     expect(result.email).toBeNull();
     expect(result.contact_protected).toBe(true);
+    // C1: mesma checagem explícita de email_normalized no getContactHandler.
+    expect(result.email_normalized).toBeNull();
   });
 });
 

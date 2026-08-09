@@ -1,8 +1,8 @@
--- 0140: eleva o limite do bucket property-media de 10MB pra 50MB.
+-- 0143: eleva o limite do bucket property-media de 10MB pra 50MB.
 --
 -- Achado da revisão final do módulo de Imóveis: a validação de app
 -- (MAX_MEDIA_BYTES/validateOutboundMedia, lib/messaging/media/, dimensionado
--- pro WhatsApp) já aceitava até 50MB, mas o bucket criado na migration 0139
+-- pro WhatsApp) já aceitava até 50MB, mas o bucket criado na migration 0142
 -- tinha file_size_limit=10485760 (10MB) — uma foto entre 10 e 50MB passava
 -- na validação de app e só falhava dentro do Supabase Storage, virando um
 -- 500 cru em vez de um 4xx limpo. Alinha com o precedente de whatsapp-media

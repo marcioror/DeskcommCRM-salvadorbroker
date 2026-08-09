@@ -40,7 +40,7 @@ export interface ProvedorSuportado {
   ondePegarAChave: string;
 }
 
-export const PROVEDORES: readonly ProvedorSuportado[] = [
+export const PROVEDORES = [
   {
     id: "anthropic",
     rotulo: "Anthropic (Claude)",
@@ -77,7 +77,24 @@ export const PROVEDORES: readonly ProvedorSuportado[] = [
     catalogoSincronizavel: true,
     ondePegarAChave: "https://openrouter.ai/keys",
   },
-] as const;
+] as const satisfies readonly ProvedorSuportado[];
+// `as const satisfies` e não anotação de tipo: a anotação apagaria os literais
+// e `Provider` viraria `string`, deixando o compilador aceitar qualquer texto
+// como provedor — que é exatamente a garantia que esta lista existe para dar.
+
+/**
+ * Só os ids, na forma que o `z.enum` exige (tupla não-vazia de literais).
+ *
+ * Existe para os pontos de ESCRITA derivarem daqui em vez de repetir a lista:
+ * a rota de credenciais, o schema de versão do agente e o diálogo da tela
+ * tinham cada um a sua cópia, e quando a 0127 abriu o banco para a OpenRouter
+ * as três continuaram recusando — o produto oferecia um provedor que não tinha
+ * como ser cadastrado.
+ */
+export const IDS_DE_PROVEDOR = PROVEDORES.map((p) => p.id) as unknown as readonly [
+  (typeof PROVEDORES)[number]["id"],
+  ...(typeof PROVEDORES)[number]["id"][],
+];
 
 export const PROVEDOR_POR_ID: ReadonlyMap<string, ProvedorSuportado> = new Map(
   PROVEDORES.map((p) => [p.id, p]),

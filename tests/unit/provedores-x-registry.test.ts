@@ -98,3 +98,117 @@ describe("o endpoint próprio chega até a fábrica", () => {
     expect(modelo).toBeDefined();
   });
 });
+
+/**
+ * A LISTA TAMBÉM PRECISA VALER NOS PONTOS DE ESCRITA.
+ *
+ * O par lista × registry acima é a metade que já concordava. A outra metade —
+ * as portas por onde um provider ENTRA no sistema — tinha, cada uma, a sua
+ * cópia da lista de três: o `z.enum` da rota de credenciais, o `PROVIDERS` da
+ * validação de versão de agente, o `Provider` do hook da tela, o `z.enum` do
+ * diálogo, o `Set` da rota de modelos e o tipo do ModelPicker.
+ *
+ * O efeito era o desenho inteiro do PR não funcionar: a 0127 abriu o banco para
+ * a OpenRouter, o painel a oferecia, e não havia como cadastrar a chave — a
+ * tela de Credenciais só listava três, a API devolvia 422, e `agent_turn` /
+ * `operator_turn` nunca podiam ser OpenRouter porque o schema de versão de
+ * agente também não a conhecia.
+ *
+ * Estes casos casam a lista com CADA porta. É a comparação que faltava — e é
+ * textual porque essas portas são declarações estáticas; o que não pode
+ * acontecer de novo é uma delas envelhecer sozinha.
+ */
+describe("lista de provedores × os pontos de ESCRITA", () => {
+  const ids = PROVEDORES.map((p) => p.id).sort();
+
+  it("o schema de versão de agente aceita a lista inteira", async () => {
+    const { PROVIDERS } = await import("@/lib/ai/agents/validation");
+    expect(
+      [...PROVIDERS].sort(),
+      "um provedor fora daqui não pode ser publicado num agente — os dois pontos que respondem o cliente ficam fora do alcance dele",
+    ).toEqual(ids);
+  });
+
+  it("o validador de chave sabe validar todo provedor da lista", async () => {
+    const validators = await import("@/lib/ai/provider-validators");
+    // `validateProviderKey` despacha por `switch`; o que se mede aqui é que
+    // existe um ramo por provedor, e não o `default` que devolve
+    // `unknown_provider` — cadastrar a chave devolveria "provedor
+    // desconhecido" com o provedor na lista da tela.
+    const semValidador: string[] = [];
+    for (const id of ids) {
+      const r = await validators.validateProviderKey(
+        id as Parameters<typeof validators.validateProviderKey>[0],
+        "",
+      );
+      if (!r.ok && r.error.startsWith("unknown_provider")) semValidador.push(id);
+    }
+    expect(semValidador).toEqual([]);
+  });
+
+  it("nenhuma cópia da lista de três sobrou no código de provedor", async () => {
+    // A sonda é grosseira de propósito: qualquer lugar que ainda enumere
+    // exatamente anthropic/openai/google à mão é uma porta que a OpenRouter não
+    // atravessa. A allowlist existe para os casos onde os três SÃO o assunto
+    // (ex.: derivar provider do prefixo de um id de modelo legado).
+    const { readFileSync } = await import("node:fs");
+    const { relative } = await import("node:path");
+    const { RAIZ_DO_REPO, arquivosDeCodigo } = await import("./helpers/varrer-codigo");
+
+    const PERMITIDOS = new Set([
+      // Deriva o provedor do PREFIXO de um id de modelo legado — não é uma
+      // lista de provedores suportados, é um mapa de prefixos históricos.
+      "lib/ai/log-invocation.ts",
+      "supabase/baseline.sql",
+    ]);
+    const TRINCA = /["']anthropic["']\s*,\s*["']openai["']\s*,\s*["']google["']/;
+
+    const arquivos = arquivosDeCodigo(["app", "lib", "components", "hooks"]);
+    expect(arquivos.length, "a varredura não enxergou o código").toBeGreaterThan(200);
+
+    const sobras = arquivos
+      .map((a) => relative(RAIZ_DO_REPO, a))
+      .filter((caminho) => !PERMITIDOS.has(caminho))
+      .filter((caminho) => TRINCA.test(readFileSync(caminho, "utf8")));
+
+    expect(
+      sobras,
+      "estes arquivos ainda enumeram os três provedores à mão — derive de lib/ai/pontos/provedores.ts",
+    ).toEqual([]);
+  });
+});
+
+/**
+ * A MUTAÇÃO DO PAINEL PRECISA DEIXAR LINHA DE AUDITORIA.
+ *
+ * `api_audit_log.resource_id` é **uuid**. A rota mandava `corpo.purpose`
+ * (`"stage_classifier"`), o INSERT falhava com 22P02 e — como o audit é
+ * fire-and-forget — o erro ia só para o log do servidor:
+ *
+ *     [audit] insert error invalid input syntax for type uuid: "stage_classifier"
+ *
+ * Ou seja: NENHUMA troca de modelo era auditada, num painel cujo efeito é mudar
+ * para onde vão o dinheiro e os dados do cliente. Achado dirigindo a tela — o
+ * DoD 5 do repo exige audit em toda mutação e nada assertava a linha.
+ */
+describe("PUT /api/v1/ai/providers — auditoria", () => {
+  it("o resourceId é o id da linha, não o purpose", async () => {
+    const { readFileSync } = await import("node:fs");
+    const fonte = readFileSync("app/api/v1/ai/providers/route.ts", "utf8");
+    const bloco = fonte.slice(fonte.indexOf("ai.purpose_binding_updated"));
+
+    expect(
+      bloco,
+      "resourceId voltou a receber o purpose — `resource_id` é uuid e o insert do audit morre com 22P02",
+    ).not.toMatch(/resourceId:\s*corpo\.purpose/);
+    expect(bloco).toMatch(/resourceId:\s*\(gravado as \{ id\?: string \}\)\.id/);
+    // E o purpose continua registrado — no metadata, onde texto é aceito.
+    expect(bloco).toMatch(/purpose:\s*corpo\.purpose/);
+  });
+
+  it("o upsert traz o id de volta (senão o resourceId seria sempre null)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const fonte = readFileSync("app/api/v1/ai/providers/route.ts", "utf8");
+    expect(fonte).toMatch(/\.select\("id, purpose, provider, model_id/);
+  });
+});

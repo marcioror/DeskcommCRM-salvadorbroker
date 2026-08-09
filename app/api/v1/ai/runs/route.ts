@@ -8,6 +8,7 @@
  * porque é assim que o operador pensa depois de configurar o painel: "troquei o
  * modelo do classificador de estágio, está funcionando?".
  */
+import { z } from "zod";
 import type { NextRequest } from "next/server";
 
 import { fail, ok } from "@/lib/api/wrappers";
@@ -59,6 +60,12 @@ interface LinhaDeExecucao {
   created_at: string;
 }
 
+const filtrosDaQuery = z.object({
+  purpose: z.string().min(1).max(64).optional(),
+  status: z.enum(["ok", "erro"]).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+
 export async function GET(req: NextRequest): Promise<Response> {
   const user = await requireAuth();
   const org = await resolveActiveOrg(user);
@@ -67,10 +74,15 @@ export async function GET(req: NextRequest): Promise<Response> {
     return fail("forbidden", "requer papel de gerente ou superior", 403);
   }
 
-  const url = new URL(req.url);
-  const purpose = url.searchParams.get("purpose");
-  const status = url.searchParams.get("status");
-  const limite = Math.min(Number(url.searchParams.get("limit") ?? 100), 200);
+  // Zod na query string, como a rota irmã de uso já faz. `Math.min(Number(…))`
+  // não valida nada: `?limit=abc` virava `NaN` e `?limit=-5` passava direto,
+  // o PostgREST recusava, e o erro dele voltava como **500** com a mensagem
+  // crua no corpo — resposta de servidor para um erro do cliente.
+  const filtros = filtrosDaQuery.safeParse(Object.fromEntries(new URL(req.url).searchParams));
+  if (!filtros.success) {
+    return fail("invalid_query", "filtros inválidos", 422, { details: filtros.error.issues });
+  }
+  const { purpose, status, limit: limite } = filtros.data;
 
   const db = await createClient();
   let q = db
@@ -83,7 +95,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     .limit(limite);
 
   if (purpose) q = q.eq("purpose", purpose);
-  if (status === "erro" || status === "ok") q = q.eq("status", status);
+  if (status) q = q.eq("status", status);
 
   const { data, error } = await q;
   if (error) return fail("query_failed", error.message, 500);

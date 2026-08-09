@@ -353,8 +353,30 @@ re-execução o shell não as tem (chave opcional não é perguntada no fluxo), 
 são reescritas **vazias**. A `OPENROUTER_API_KEY` que a pessoa configurou à mão
 era apagada por uma linha que parecia só repassar o valor.
 
-Consertado recarregando o `.env` atual no ambiente antes de montar o novo.
-Provado com `.env` real em 3 re-execuções: as duas chaves sobrevivem, 1× cada.
+**Corrigido em 2026-08-08 — este parágrafo descrevia um mecanismo que já não
+existe.** Ele dizia: *"consertado recarregando o `.env` atual no ambiente antes
+de montar o novo; provado com `.env` real em 3 re-execuções"*. Esse `set -a; .
+./.env; set +a` foi **removido** do `install.sh` logo depois, porque ele
+DESFAZIA a entrevista: a pessoa corrigia um valor errado na tela e o `.`
+sobrescrevia com o antigo do disco. A justificativa que ele carregava também era
+falsa — `install.sh:674` já faz `load_env .env` e `_common.sh:266` já faz
+`printf -v` + `export`, antes da entrevista.
+
+O mecanismo que ficou é outro: o laço `PRESERVADAS` compara cada linha do `.env`
+atual contra a lista de variáveis conhecidas, extraída do PRÓPRIO script
+(`grep -oE "^\s*envq [A-Z_]+" "$KIT_DIR/install.sh"`) — e o `$KIT_DIR` no lugar
+de `"$0"` é o que faz isso funcionar depois do `cd`, que era o defeito da 2ª
+execução por caminho relativo.
+
+A alegação das "3 re-execuções" media o código antigo e **não vale mais**. O que
+vale hoje está no CI: `hostgator-setup-kit/test-validators.sh` passou a rodar no
+job `verify` (via `pnpm test:shell`), com um caso por provedor que afere, no
+`--yes`, que o `.env` sai inteiro e que a chave configurada à mão sobrevive.
+
+*Lição, e ela não é sobre o instalador:* código tem catraca, prosa não. Este
+parágrafo continuou afirmando uma prova por dois commits depois de o mecanismo
+ter sido trocado — e o handoff é o documento de retomada da frente, ou seja, o
+lugar onde a afirmação falsa custa mais.
 
 ### O que fica aberto, e por quê
 
@@ -396,6 +418,23 @@ Cada linha da tabela acima tem a imagem correspondente:
 | A troca de modelo valeu | `evidence/provedores/05-troca-valeu.png` |
 | Ponto que exige ferramentas | `evidence/provedores/06-exige-ferramentas.png` |
 | Tela de execuções | `evidence/provedores/07-execucoes.png` |
+| Instalação sem agente publicado, com os dois pontos principais destravados | `evidence/provedores/08-sem-agente-publicado-destravado.png` |
+
+A oitava é de 2026-08-08 e registra um conserto, não a feature: `mandadoPeloAgente`
+era incondicional, e numa instalação recém-feita — nenhuma versão de agente
+publicada, que é o estado de quem acabou de instalar — o painel mostrava
+`agent_turn` e `operator_turn` **sem seletor**, dizendo que são governados por
+uma versão publicada que não existe e mandando configurar num lugar vazio. A
+condição passou a ser a mesma do resolvedor (`agentePublicado !== null`), e a
+imagem mostra "Responder o cliente" e "Trabalhar o funil" com Provedor, Modelo,
+Chave e o botão Salvar.
+
+Na mesma execução apareceu, no log do servidor, o que nenhum gate via:
+`[audit] insert error invalid input syntax for type uuid: "stage_classifier"`.
+`api_audit_log.resource_id` é uuid e a rota mandava o `purpose` — o insert
+falhava com 22P02 e o audit, sendo fire-and-forget, engolia. Nenhuma troca de
+modelo era auditada. Corrigido no mesmo dia (o `resourceId` passa a ser o id da
+linha), com guarda em `tests/unit/provedores-x-registry.test.ts`.
 
 E a confirmação no banco, que é onde o runtime lê:
 

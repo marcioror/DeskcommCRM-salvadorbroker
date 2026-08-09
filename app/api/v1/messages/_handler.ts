@@ -24,7 +24,7 @@ import type { ListMessagesQuery, SendMessageInput } from "@/lib/schemas";
 import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Message } from "@/lib/types/messaging";
-import { bareWaMessageId } from "@/lib/waha/message-id";
+import { bareWaMessageId, chatIdFromWaMessageId } from "@/lib/waha/message-id";
 
 type SB = SupabaseClient;
 
@@ -168,9 +168,20 @@ export interface ListMessagesResult {
  * forma exata que o webhook manda; normalizar na escrita quebraria a
  * correlação. `bareWaMessageId` é o mesmo helper que a ingestão já usa para
  * casar as duas formas — reaproveitado aqui, não reimplementado.
+ *
+ * O corte é CONDICIONADO à forma composta do WAHA (`chatIdFromWaMessageId`
+ * devolve não-nulo só quando o miolo tem `@`). A primeira versão cortava tudo
+ * depois do último `_` em QUALQUER id, e isso passou a estar errado quando o
+ * terceiro canal (migration 0132) chegou: o `externalId` dele é o `messageId`
+ * opaco do provedor, que não carrega telefone nenhum — cortá-lo não esconderia
+ * nada e devolveria na resposta um id que não existe no provedor. Esconder o
+ * telefone é o objetivo; mutilar id de canal que não tem telefone dentro é só
+ * dano. Sem chatId no id, não há o que esconder.
  */
 function comExternalIdNormalizado(m: Message): Message {
-  return m.external_id ? { ...m, external_id: bareWaMessageId(m.external_id) } : m;
+  if (!m.external_id) return m;
+  if (chatIdFromWaMessageId(m.external_id) === null) return m;
+  return { ...m, external_id: bareWaMessageId(m.external_id) };
 }
 
 export async function listMessagesHandler(
@@ -260,7 +271,7 @@ export async function sendMessageHandler(
   // envio com 42703. Sem a coluna, nada está arquivado — e a consulta sem ela é a
   // consulta certa (ver lib/channels/archived).
   const convSelect = (comArchived: boolean) =>
-    `id, organization_id, contact_id, channel_session_id, is_group, group_chat_id, contacts:contact_id(phone_number, wa_identity, wa_lid, is_blocked), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status${comArchived ? `, ${ARCHIVED_AT}` : ""})`;
+    `id, organization_id, contact_id, channel_session_id, is_group, group_chat_id, provider_conversation_id, contacts:contact_id(phone_number, wa_identity, wa_lid, is_blocked), channel_sessions:channel_session_id(${CHANNEL_SESSION_REF_COLUMNS}, status${comArchived ? `, ${ARCHIVED_AT}` : ""})`;
   const { data: conv, error: convErr } = await queryTolerantToMissingArchived(
     () => supabase.from("conversations").select(convSelect(true)).eq("id", input.conversation_id).maybeSingle(),
     () => supabase.from("conversations").select(convSelect(false)).eq("id", input.conversation_id).maybeSingle(),
@@ -280,6 +291,8 @@ export async function sendMessageHandler(
     channel_session_id: string;
     is_group: boolean;
     group_chat_id: string | null;
+    /** Thread do provider, quando ele endereça por thread própria (migration 0132). */
+    provider_conversation_id: string | null;
     contacts: {
       phone_number: string | null;
       wa_identity: string | null;
@@ -451,6 +464,7 @@ export async function sendMessageHandler(
         ({ externalId } = await adapter.send({
           sessionRef: resolveSessionRef(c.channel_sessions),
           to: chatId,
+          providerConversationId: c.provider_conversation_id,
           kind: input.type,
           media: {
             url: signed.signedUrl,
@@ -463,6 +477,7 @@ export async function sendMessageHandler(
         ({ externalId } = await adapter.send({
           sessionRef: resolveSessionRef(c.channel_sessions),
           to: chatId,
+          providerConversationId: c.provider_conversation_id,
           kind: input.type,
           body: input.body ?? "",
         }));

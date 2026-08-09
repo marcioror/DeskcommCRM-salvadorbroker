@@ -19,6 +19,8 @@ import { generateText, stepCountIs, type ModelMessage, type ToolSet } from 'ai';
 import type pg from 'pg';
 import { z } from 'zod';
 
+import { scrubMessage } from '@/lib/sentry/scrub';
+
 import type { Logger } from '../../obs/logger';
 import { decidirParaOSeam } from './binding-do-ponto';
 import { resolveOrgLlmConfig, type LlmEdgeConfig } from './credentials';
@@ -375,11 +377,40 @@ function normalizarErro(err: unknown): {
 
   return {
     error_code: codigo,
-    // Truncada e sem prompt/resposta/chave: mensagem de erro de provedor às
-    // vezes ecoa o corpo da requisição, e conteúdo de mensagem é PII aqui.
-    error_message: bruto.slice(0, 500),
+    // Redigida E truncada. O comentário anterior dizia "sem
+    // prompt/resposta/chave" e o único tratamento era o `slice` — a garantia
+    // estava escrita e não existia, que é pior que não existir e ninguém
+    // achar que existe.
+    //
+    // A mensagem crua do provedor vai para `llm_calls.error_message`, sai no
+    // JSON de `GET /api/v1/ai/runs` e é renderizada na tela de Execuções para
+    // qualquer `manager` da organização. Um endpoint OpenAI-compatível
+    // apontado por `base_url` — caminho que o painel de provedores abre — pode
+    // ecoar no corpo de erro o header de autorização ou o prompt recebido.
+    error_message: redigirMensagemDoProvedor(bruto),
     http_status: typeof status === 'number' ? status : null,
   };
+}
+
+/**
+ * Tira da mensagem do provedor o que não pode aparecer numa tela: segredo e
+ * dado do titular. Trunca DEPOIS de redigir — cortar antes deixaria meia chave
+ * passar, e meia chave ainda identifica de quem ela é.
+ *
+ * Os padrões de chave (`sk-…`, `Bearer …`) vêm daqui e não do
+ * `lib/sentry/scrub.ts` porque lá o alvo é PII de titular; os dois se somam.
+ */
+export function redigirMensagemDoProvedor(bruto: string): string {
+  const semSegredo = bruto
+    // Chaves de API dos provedores que este produto fala: `sk-ant-…`,
+    // `sk-or-v1-…`, `sk-proj-…`, `sk-…`, e as do Google (`AIza…`).
+    .replace(/sk-[A-Za-z0-9_-]{8,}/g, '[CHAVE]')
+    .replace(/AIza[A-Za-z0-9_-]{10,}/g, '[CHAVE]')
+    // O header inteiro, em qualquer caixa, com ou sem `Authorization:` na
+    // frente — é assim que ele costuma aparecer ecoado num corpo de erro.
+    .replace(/[Bb]earer\s+[A-Za-z0-9._-]{8,}/g, 'Bearer [CHAVE]')
+    .replace(/(x-api-key|api[-_]?key|authorization)\s*[:=]\s*\S+/gi, '$1: [CHAVE]');
+  return scrubMessage(semSegredo).slice(0, 500);
 }
 
 /**

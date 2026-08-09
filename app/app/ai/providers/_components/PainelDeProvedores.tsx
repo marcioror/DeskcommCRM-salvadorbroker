@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -53,6 +54,7 @@ interface Ponto {
     provider: string;
     modelId: string | null;
     credentialId: string | null;
+    baseUrl: string | null;
     origem: string;
     porQue: string;
   };
@@ -80,6 +82,8 @@ interface Provedor {
   rotulo: string;
   quandoUsar: string;
   ondePegarAChave: string;
+  /** Aceita apontar para outro endpoint (é compatível com a API da OpenAI). */
+  aceitaEndpointProprio: boolean;
 }
 
 interface Dados {
@@ -265,10 +269,16 @@ function CartaoDoPonto({
   const [provider, setProvider] = useState(ponto.efetivo.provider);
   const [modelId, setModelId] = useState(ponto.efetivo.modelId ?? "");
   const [credentialId, setCredentialId] = useState(ponto.efetivo.credentialId ?? "");
+  const [baseUrl, setBaseUrl] = useState(ponto.efetivo.baseUrl ?? "");
   const [salvando, setSalvando] = useState(false);
 
   const modelosDoProvider = dados.modelos.filter((m) => m.provider === provider);
   const credsDoProvider = dados.credenciais.filter((c) => c.provider === provider);
+  // Endpoint próprio só faz sentido em provedor compatível com a API da OpenAI
+  // — é a mesma condição que `lib/ai/pontos/provedores.ts` declara e que o
+  // registry aplica junto da allowlist do egress.
+  const aceitaEndpointProprio =
+    dados.provedores.find((p) => p.id === provider)?.aceitaEndpointProprio === true;
 
   const editavel = dados.podeEditar && ponto.fixo === null && !ponto.mandadoPeloAgente;
 
@@ -283,6 +293,12 @@ function CartaoDoPonto({
           provider,
           model_id: modelId,
           credential_id: credentialId || null,
+          // A coluna existia, o PUT a aceitava e o registry a honrava — e nada
+          // na tela a enviava. Quem quisesse apontar para um gateway próprio (o
+          // caso declarado como motivação da coluna, e o degrau para modelo
+          // local) só conseguia pela API. Configuração sem superfície é
+          // capacidade que ninguém alcança.
+          base_url: aceitaEndpointProprio && baseUrl.trim() !== "" ? baseUrl.trim() : null,
         }),
       });
       const json = await res.json();
@@ -383,24 +399,45 @@ function CartaoDoPonto({
 
           <div>
             <Label className="text-xs">Modelo</Label>
-            <Select value={modelId} onValueChange={setModelId}>
-              <SelectTrigger data-testid={`modelo-${ponto.id}`}>
-                <SelectValue placeholder="escolha" />
-              </SelectTrigger>
-              <SelectContent>
-                {modelosDoProvider.length === 0 && (
-                  <div className="p-2 text-xs text-muted-foreground">
-                    Nenhum modelo no catálogo deste provedor ainda.
-                  </div>
-                )}
-                {modelosDoProvider.map((m) => (
-                  <SelectItem key={m.model_id} value={m.model_id}>
-                    {m.display_name}
-                    {ponto.exige.tools && !m.supports_tools ? " — sem ferramentas" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/*
+              Catálogo vazio não pode ser beco sem saída. O `baseline.sql` semeia
+              `ai_models` só para anthropic/openai/google; os da OpenRouter só
+              chegam quando o cron diário roda. Numa VPS recém-instalada, quem
+              escolhia OpenRouter via um combo com zero opções e o Salvar
+              desabilitado — travado até as 04h15 do dia seguinte, e para sempre
+              num deploy sem scheduler. Aqui o campo vira texto livre: a API já
+              aceita modelo fora do catálogo e devolve o aviso de que não
+              conhece (`validar-binding.ts`, `conhecido: false`).
+            */}
+            {modelosDoProvider.length === 0 ? (
+              <>
+                <Input
+                  value={modelId}
+                  onChange={(e) => setModelId(e.target.value)}
+                  placeholder="ex.: meta-llama/llama-3.3-70b-instruct"
+                  data-testid={`modelo-${ponto.id}`}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  O catálogo deste provedor ainda não foi baixado. Digite o
+                  identificador do modelo como o provedor o nomeia — a lista
+                  completa aparece sozinha depois da primeira sincronização.
+                </p>
+              </>
+            ) : (
+              <Select value={modelId} onValueChange={setModelId}>
+                <SelectTrigger data-testid={`modelo-${ponto.id}`}>
+                  <SelectValue placeholder="escolha" />
+                </SelectTrigger>
+                <SelectContent>
+                  {modelosDoProvider.map((m) => (
+                    <SelectItem key={m.model_id} value={m.model_id}>
+                      {m.display_name}
+                      {ponto.exige.tools && !m.supports_tools ? " — sem ferramentas" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <div>
@@ -418,6 +455,23 @@ function CartaoDoPonto({
               </SelectContent>
             </Select>
           </div>
+
+          {aceitaEndpointProprio && (
+            <div className="sm:col-span-3">
+              <Label className="text-xs">Endereço próprio (opcional)</Label>
+              <Input
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder="https://meu-gateway.exemplo.com/v1"
+                data-testid={`base-url-${ponto.id}`}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Deixe em branco para usar o endereço oficial do provedor. Use
+                isto para apontar para um gateway compatível com a API da OpenAI
+                — inclusive um modelo rodando na sua própria máquina.
+              </p>
+            </div>
+          )}
 
           <div className="sm:col-span-3">
             <Button

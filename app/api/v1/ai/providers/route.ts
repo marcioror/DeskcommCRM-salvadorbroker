@@ -25,7 +25,7 @@ import {
   type LinhaDeBinding,
 } from "@/lib/ai/pontos/resolver";
 import { PAPEIS, PONTOS_DE_IA, PONTO_POR_ID } from "@/lib/ai/pontos/registro";
-import { PROVEDORES } from "@/lib/ai/pontos/provedores";
+import { PROVEDORES, ehProvedorSuportado } from "@/lib/ai/pontos/provedores";
 import { validarBinding } from "@/lib/ai/pontos/validar-binding";
 import { createClient } from "@/lib/supabase/server";
 
@@ -121,8 +121,18 @@ export async function GET(): Promise<Response> {
       exige: ponto.exige,
       sintomaDeFalha: ponto.sintomaDeFalha,
       fixo: ponto.fixo ?? null,
-      /** Escolha do agente publicado — a tela mostra como leitura, com link. */
-      mandadoPeloAgente: PONTOS_DO_AGENTE_PUBLICADO.has(ponto.id),
+      /**
+       * Escolha do agente publicado — a tela mostra como leitura, com link.
+       *
+       * Depende de EXISTIR versão publicada: é a mesma condição que o resolvedor
+       * usa (`resolver.ts` exige `agentePublicado !== null`). Sem o `&&`, uma
+       * instalação recém-feita — nenhum agente publicado ainda — abria o painel
+       * com os DOIS pontos que respondem o cliente sem seletor, dizendo que são
+       * governados por uma versão publicada que não existe e mandando
+       * configurar num lugar vazio. É a primeira tela da feature; travá-la no
+       * primeiro uso é o pior lugar para esse defeito estar.
+       */
+      mandadoPeloAgente: agentePublicado !== null && PONTOS_DO_AGENTE_PUBLICADO.has(ponto.id),
       efetivo: {
         provider: decisao.provider,
         modelId: decisao.modelId,
@@ -156,7 +166,19 @@ export async function GET(): Promise<Response> {
 
 const corpoDoPut = z.object({
   purpose: z.string().min(1),
-  provider: z.string().min(1),
+  // A migration 0127 removeu os CHECKs do banco dizendo que "a garantia de que
+  // a tela não oferece opção inválida passa a morar" na lista de provedores —
+  // mas a lista não era aplicada em NENHUM ponto de escrita. Um PUT direto (e a
+  // API é pública) gravava `provider: "foobar"`, a rota respondia 200, e todo
+  // uso daquele ponto morria em produção com provedor desconhecido. Metade da
+  // defesa transferida e nunca instalada.
+  provider: z
+    .string()
+    .min(1)
+    .refine(ehProvedorSuportado, {
+      message:
+        "provedor não suportado por esta instalação — escolha um da lista em Agente de IA → Provedores",
+    }),
   model_id: z.string().min(1),
   credential_id: z.string().uuid().nullable().optional(),
   base_url: z.string().url().nullable().optional(),
@@ -240,7 +262,7 @@ export async function PUT(req: NextRequest): Promise<Response> {
       },
       { onConflict: "organization_id,purpose" },
     )
-    .select("purpose, provider, model_id, credential_id, base_url, is_enabled")
+    .select("id, purpose, provider, model_id, credential_id, base_url, is_enabled")
     .maybeSingle();
 
   if (error) return fail("save_failed", error.message, 500);
@@ -255,11 +277,19 @@ export async function PUT(req: NextRequest): Promise<Response> {
     organizationId: org.orgId,
     actorUserId: user.id,
     resourceType: "ai_purpose_binding",
-    resourceId: corpo.purpose,
+    // O ID DA LINHA, não o `purpose`. `api_audit_log.resource_id` é **uuid**, e
+    // `purpose` é texto (`stage_classifier`): o INSERT falhava com 22P02
+    // (`invalid input syntax for type uuid`) e — como o audit é
+    // fire-and-forget — o erro ia só para o log do servidor. Resultado: NENHUMA
+    // troca de modelo era auditada, num painel cujo efeito é justamente mudar
+    // para onde o dinheiro e os dados do cliente vão. Achado dirigindo a tela;
+    // nenhum gate via, porque nada assertava a linha de auditoria.
+    resourceId: (gravado as { id?: string }).id ?? null,
     // O modelo entra no metadata, a credencial NÃO — só o id dela seria
     // inócuo, mas o hábito de mandar campo de credencial para o audit é o que
     // acaba vazando a chave quando alguém troca o campo de lugar.
     metadata: {
+      purpose: corpo.purpose,
       provider: corpo.provider,
       model_id: corpo.model_id,
       tem_endpoint_proprio: Boolean(corpo.base_url),

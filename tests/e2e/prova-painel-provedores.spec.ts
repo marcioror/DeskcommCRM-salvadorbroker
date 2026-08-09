@@ -30,6 +30,23 @@ import { lerCreds, loginComoAdmin, type CredsE2E } from "./helpers/login-admin";
  */
 let creds: CredsE2E;
 
+/**
+ * 90s por caso, e o motivo é o MFA — não lentidão da tela.
+ *
+ * Cada teste refaz o login no `beforeEach`, e o TOTP tem janela de 30 segundos:
+ * dois logins dentro da mesma janela apresentam o MESMO código, que o GoTrue
+ * recusa como reutilização. O helper trata isso esperando a janela virar
+ * (`login-admin.ts:91`) — e essa espera cabe dentro do timeout padrão de 30s do
+ * Playwright, comendo-o inteiro. O sintoma não é honesto: quem falha é o
+ * primeiro `page.click` depois do login, e a mensagem fala do botão.
+ *
+ * Medido: rodando isolada (`-g F3`), a spec passa em 15s; na suíte, o terceiro
+ * caso estourava sempre. Com o painel medido por instrumento — abrir cada grupo
+ * com 424 modelos no catálogo custa 60–105ms —, não há o que otimizar na tela: o
+ * custo é a janela do segundo fator.
+ */
+test.describe.configure({ timeout: 90_000 });
+
 test.beforeAll(() => {
   creds = lerCreds();
 });
@@ -156,4 +173,34 @@ test("as duas telas têm porta na navegação — pelo hub de IA", async ({ page
   await page.goto("/app/ai");
   await expect(page.getByRole("link", { name: /Provedores/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /Execuções/ })).toBeVisible();
+});
+
+test("instalação sem agente publicado: os dois pontos principais são EDITÁVEIS", async ({ page }) => {
+  // O estado de quem acabou de instalar: nenhuma versão de agente publicada.
+  // Antes deste caso, o painel mostrava `agent_turn` e `operator_turn` sem
+  // seletor, com a frase "usa o modelo definido na versão publicada do agente"
+  // e um link para configurar num lugar vazio — a primeira tela da feature,
+  // travada no primeiro uso. `mandadoPeloAgente` era incondicional; agora
+  // depende de existir publicação, que é a mesma condição do resolvedor.
+  const semPublicado = await page.evaluate(async () => {
+    const r = await fetch("/api/v1/ai/providers");
+    const j = await r.json();
+    const p = (j?.data?.pontos ?? []) as Array<{ id: string; mandadoPeloAgente: boolean }>;
+    return {
+      agent_turn: p.find((x) => x.id === "agent_turn")?.mandadoPeloAgente,
+      operator_turn: p.find((x) => x.id === "operator_turn")?.mandadoPeloAgente,
+      total: p.length,
+    };
+  });
+  // Controle positivo: sem pontos, as duas asserções abaixo passariam vazias.
+  expect(semPublicado.total).toBeGreaterThan(20);
+  expect(semPublicado.agent_turn, "agent_turn continua travado sem agente publicado").toBe(false);
+  expect(semPublicado.operator_turn, "operator_turn continua travado sem agente publicado").toBe(false);
+
+  await page.goto("/app/ai/providers");
+  await page.waitForSelector('[data-testid="painel-de-provedores"]');
+  await page.click('[data-testid="avancado-atender"]');
+  // E a prova PELA TELA: o seletor de provedor daquele ponto existe e responde.
+  await expect(page.locator('[data-testid="provider-agent_turn"]')).toBeVisible();
+  await page.screenshot({ path: "evidence/provedores/08-sem-agente-publicado-destravado.png", fullPage: true });
 });

@@ -111,10 +111,19 @@ export interface CapacidadeExigida {
   embeddingDims?: number;
 }
 
-/** Onde o ponto grava telemetria hoje. `nenhum` é dívida — ver Frente 2. */
+/**
+ * Onde o ponto grava telemetria hoje. `nenhum` é dívida — ver Frente 2.
+ *
+ * `ai_invocations` NÃO está aqui de propósito: a migration 0130 a depreciou e
+ * `lib/ai/log-invocation.ts` passou a gravar em `llm_calls`. Enquanto o valor
+ * existia no tipo, três pontos continuaram declarando-o e o registro — o
+ * artefato que existe para responder "quem usa IA aqui, e onde isso fica
+ * registrado" — apontava para uma tabela que ninguém mais escreve. Tirá-lo do
+ * union é o que faz o `tsc` reprovar a volta, em vez de depender de alguém
+ * reparar.
+ */
 export type DestinoDeTelemetria =
   | "llm_calls"
-  | "ai_invocations"
   | "ai_agent_runs"
   | "nenhum";
 
@@ -192,7 +201,7 @@ export const PONTOS_DE_IA: readonly PontoDeIa[] = [
     emissor: "workers/ai-response-worker.ts",
     sintomaDeFalha:
       "Nas instalações que ainda dependem dele, o cliente fica sem resposta e a conversa não avança.",
-    registraEm: "ai_invocations",
+    registraEm: "llm_calls",
   },
 
   // ────────────────────────── Entender a conversa ──────────────────────────
@@ -230,7 +239,7 @@ export const PONTOS_DE_IA: readonly PontoDeIa[] = [
     emissor: "workers/ai-sentiment-worker.ts",
     sintomaDeFalha:
       "Cliente irritado não é mais escalado para um humano, e a insatisfação só aparece quando ele já sumiu.",
-    registraEm: "ai_invocations",
+    registraEm: "llm_calls",
   },
   {
     id: "followup_classify",
@@ -333,7 +342,11 @@ export const PONTOS_DE_IA: readonly PontoDeIa[] = [
     },
     sintomaDeFalha:
       "Você sobe um documento e ele nunca fica pronto para uso; o agente responde sem conhecer o seu material.",
-    registraEm: "ai_invocations",
+    // `nenhum`, e não `llm_calls`: `lib/ai/embed.ts` não chama `logInvocation`
+    // nem passa pelo seam — não há uma linha de telemetria para este ponto em
+    // lugar nenhum. Declarar a tabela certa seria mentir sobre uma cobertura
+    // que não existe; a dívida fica visível com o nome dela.
+    registraEm: "nenhum",
   },
   {
     id: "embedding_consultar",

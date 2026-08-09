@@ -108,3 +108,6 @@ evidence/.sonda-score-residuo.json
 
 # sessão reusada pelas jornadas (contém tokens)
 .auth/
+
+# dumps do banco de produção (backup.sh) — nunca comitar
+backups/

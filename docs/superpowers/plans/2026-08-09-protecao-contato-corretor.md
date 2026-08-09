@@ -544,6 +544,14 @@ git commit -m "feat(contatos): protege telefone/email em list/get/create de cont
 **Files:**
 - Modify: `app/api/v1/contacts/_handler.ts` (`patchContactHandler`)
 - Test: `tests/unit/contacts-handler-protecao.test.ts` (extend)
+- Fix (collateral): `tests/unit/contato-audit-from-to.test.ts` — its fake contact
+  has no `created_by_user_id`, so the new guard turns its `email`/`phone_number`
+  patches into 403 and the file goes red. In its `beforeEach`, add
+  `created_by_user_id: USUARIO` to the `estadoAtual` object (that test's actor
+  IS the creator — the field was simply absent before this feature existed).
+  Verified NOT affected, do not touch: `tests/invariants/contato-consent-e-auditoria.test.ts`
+  and `tests/invariants/webhooks-trigger-events.test.ts` patch only
+  `consent`/`tags`, which the guard ignores.
 
 **Interfaces:**
 - Consumes: `podeVerContatoSensivel` from Task 1.
@@ -1565,3 +1573,196 @@ git commit -m "fix: ajustes da prova visual da proteção de telefone/email"
 ```
 
 (Skip this step if step 3 required no code changes.)
+
+---
+
+### Task 15: Fechar o vazamento pelas propostas de dado da IA
+
+**Files:**
+- Modify: `app/api/v1/contacts/[id]/proposals/route.ts` (GET — filtra propostas sensíveis)
+- Modify: `app/api/v1/contacts/[id]/proposals/[proposal_id]/route.ts:137-140` (passa `role` no actor)
+- Test: `tests/unit/propostas-dado-protecao.test.ts`
+
+**Dispatch order note:** execute this task BEFORE Task 14 (Task 14 is the final
+verification of the whole feature and must run last).
+
+**Interfaces:**
+- Consumes: `podeVerContatoSensivel` from Task 1 (`@/lib/contacts/visibility`).
+
+**Por que este task existe.** A IA escuta a conversa, extrai o telefone/e-mail
+que o cliente falou, e grava uma linha `pending` em `contact_field_proposals`
+para um humano confirmar. A rota GET devolve `valor_proposto`, `valor_anterior`
+E `trecho` (o pedaço literal do que o cliente escreveu). Para um corretor que
+NÃO cadastrou aquele contato, isso entrega exatamente o dado que as Tasks 3/6
+esconderam — a proteção do resto da feature seria contornável por esta tela.
+A rota de decisão (`accept`) chama `patchContactHandler`, que desde a Task 4
+recusa com 403 `contact_protected` — mas hoje ela passa um actor SEM `role`,
+o que faria a guarda recusar até para gerente/admin.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `tests/unit/propostas-dado-protecao.test.ts`:
+
+```ts
+/**
+ * A proteção de telefone/e-mail não pode ser contornada pela fila de propostas
+ * da IA — ver docs/superpowers/specs/2026-08-09-protecao-contato-corretor-design.md.
+ */
+import { describe, expect, it } from "vitest";
+
+import { podeVerContatoSensivel } from "@/lib/contacts/visibility";
+import { CAMPOS_SENSIVEIS_DA_PROPOSTA, filtrarPropostasVisiveis } from "@/lib/contacts/visibility";
+import type { Actor } from "@/lib/api/handlers/types";
+
+const CRIADOR = "11111111-1111-4111-8111-111111111111";
+const OUTRO = "22222222-2222-4222-8222-222222222222";
+
+const propostas = [
+  { id: "p1", campo: "phone_number", valor_proposto: "+5531988887777" },
+  { id: "p2", campo: "email", valor_proposto: "a@b.com" },
+  { id: "p3", campo: "name", valor_proposto: "Maria Silva" },
+];
+
+describe("filtrarPropostasVisiveis", () => {
+  it("corretor que não cadastrou não recebe proposta de telefone nem de e-mail", () => {
+    const actor: Actor = { type: "user", id: OUTRO, role: "agent" };
+    const visiveis = filtrarPropostasVisiveis(propostas, actor, CRIADOR);
+    expect(visiveis.map((p) => p.id)).toEqual(["p3"]);
+  });
+
+  it("corretor que cadastrou o contato recebe todas", () => {
+    const actor: Actor = { type: "user", id: CRIADOR, role: "agent" };
+    const visiveis = filtrarPropostasVisiveis(propostas, actor, CRIADOR);
+    expect(visiveis.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("gerente recebe todas mesmo sem ter cadastrado", () => {
+    const actor: Actor = { type: "user", id: OUTRO, role: "manager" };
+    const visiveis = filtrarPropostasVisiveis(propostas, actor, CRIADOR);
+    expect(visiveis.map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("proposta de nome nunca é filtrada, nem em contato sem criador", () => {
+    const actor: Actor = { type: "user", id: OUTRO, role: "agent" };
+    const visiveis = filtrarPropostasVisiveis(propostas, actor, null);
+    expect(visiveis.map((p) => p.id)).toEqual(["p3"]);
+  });
+
+  it("os campos sensíveis são exatamente telefone e e-mail", () => {
+    expect([...CAMPOS_SENSIVEIS_DA_PROPOSTA].sort()).toEqual(["email", "phone_number"]);
+    // `name` é proponível (CAMPOS_PROPONIVEIS) e deliberadamente NÃO é sensível:
+    // esconder o nome tiraria a utilidade da fila sem proteger contato nenhum.
+    expect(podeVerContatoSensivel({ type: "user", id: OUTRO, role: "agent" }, CRIADOR)).toBe(false);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npx vitest run tests/unit/propostas-dado-protecao.test.ts`
+Expected: FAIL — `filtrarPropostasVisiveis`/`CAMPOS_SENSIVEIS_DA_PROPOSTA` not exported.
+
+- [ ] **Step 3: Add the helper to `lib/contacts/visibility.ts`**
+
+Append to `lib/contacts/visibility.ts`:
+
+```ts
+/**
+ * Campos de `contact_field_proposals` que carregam contato direto. `name` fica
+ * de fora de propósito: esconder o nome tiraria a utilidade da fila sem
+ * proteger ninguém.
+ */
+export const CAMPOS_SENSIVEIS_DA_PROPOSTA = ["email", "phone_number"] as const;
+
+/**
+ * Some com as propostas de telefone/e-mail para quem não pode ver o dado bruto
+ * daquele contato — senão a fila da IA entrega o que o resto da feature
+ * esconde. Quem pode ver continua vendo tudo.
+ */
+export function filtrarPropostasVisiveis<T extends { campo: string }>(
+  propostas: T[],
+  actor: Actor,
+  contactCreatedByUserId: string | null,
+): T[] {
+  if (podeVerContatoSensivel(actor, contactCreatedByUserId)) return propostas;
+  return propostas.filter(
+    (p) => !(CAMPOS_SENSIVEIS_DA_PROPOSTA as readonly string[]).includes(p.campo),
+  );
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npx vitest run tests/unit/propostas-dado-protecao.test.ts`
+Expected: PASS (5 tests)
+
+- [ ] **Step 5: Wire the GET route**
+
+In `app/api/v1/contacts/[id]/proposals/route.ts`, add the import:
+
+```ts
+import { filtrarPropostasVisiveis } from "@/lib/contacts/visibility";
+```
+
+Replace the final `return ok(...)` block. Change:
+
+```ts
+  if (error) return fail("internal_error", error.message, 500, { requestId });
+
+  return ok({ items: (data ?? []) as PropostaViva[] }, { requestId });
+```
+
+to:
+
+```ts
+  if (error) return fail("internal_error", error.message, 500, { requestId });
+
+  // Quem cadastrou o contato decide se as propostas de telefone/e-mail podem
+  // ser vistas — a fila da IA não pode ser a porta dos fundos da proteção.
+  const { data: dono } = await supabase
+    .from("contacts")
+    .select("created_by_user_id")
+    .eq("id", contactId)
+    .eq("organization_id", guard.org.orgId)
+    .maybeSingle();
+
+  const items = filtrarPropostasVisiveis(
+    (data ?? []) as PropostaViva[],
+    { type: "user", id: guard.user.id, role: guard.org.role },
+    (dono as { created_by_user_id: string | null } | null)?.created_by_user_id ?? null,
+  );
+
+  return ok({ items }, { requestId });
+```
+
+- [ ] **Step 6: Wire the decision route**
+
+In `app/api/v1/contacts/[id]/proposals/[proposal_id]/route.ts`, find the
+`patchContactHandler` call (~line 137) and change:
+
+```ts
+      { organization_id: orgId, actor: { type: "user", id: userId }, requestId },
+```
+
+to:
+
+```ts
+      // `role` é obrigatório aqui: sem ele a guarda de contato protegido
+      // (patchContactHandler) avalia rank 0 e recusaria até para admin.
+      { organization_id: orgId, actor: { type: "user", id: userId, role: guard.org.role }, requestId },
+```
+
+If the local variable holding the `requireRole` result is not named `guard` in
+that file, use whatever name it has (it is assigned at line ~60).
+
+- [ ] **Step 7: Typecheck + full affected tests**
+
+Run: `npx tsc --noEmit -p . && npx vitest run tests/unit/propostas-dado-protecao.test.ts tests/unit/contacts-handler-protecao.test.ts`
+Expected: no type errors; all tests pass.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add lib/contacts/visibility.ts "app/api/v1/contacts/[id]/proposals/route.ts" "app/api/v1/contacts/[id]/proposals/[proposal_id]/route.ts" tests/unit/propostas-dado-protecao.test.ts
+git commit -m "feat(contatos): fila de propostas da IA respeita a proteção de telefone/email"
+```

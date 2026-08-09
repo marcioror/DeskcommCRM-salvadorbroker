@@ -50,14 +50,14 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   const authUser = await loadAuthUser();
-  const orgId = authUser ? (await resolveActiveOrg(authUser))?.orgId : undefined;
+  const activeOrg = authUser ? await resolveActiveOrg(authUser) : null;
 
   try {
     const { contacts, cursor, has_more } = await listContactsHandler(
       supabase,
       {
-        organization_id: orgId ?? "",
-        actor: { type: "user", id: user.id },
+        organization_id: activeOrg?.orgId ?? "",
+        actor: { type: "user", id: user.id, role: activeOrg?.role },
         requestId,
       },
       qsParsed.data,

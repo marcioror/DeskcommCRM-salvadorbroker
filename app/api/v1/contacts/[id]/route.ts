@@ -47,7 +47,7 @@ export async function GET(
       supabase,
       {
         organization_id: activeOrg.orgId,
-        actor: { type: "user", id: user.id },
+        actor: { type: "user", id: user.id, role: activeOrg.role },
         requestId,
       },
       { contactId: id, decryptPurpose },
@@ -93,7 +93,7 @@ export async function PATCH(
       supabase,
       {
         organization_id: activeOrg.orgId,
-        actor: { type: "user", id: user.id },
+        actor: { type: "user", id: user.id, role: activeOrg.role },
         requestId,
       },
       id,

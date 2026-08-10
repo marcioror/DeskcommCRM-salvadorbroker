@@ -295,6 +295,61 @@ describe("fn_atrito_jaccard — o detector de repergunta (Fase 3)", () => {
       .toBeLessThan(0.7);
   });
 
+  /**
+   * OS CASOS ACIMA COMPARAM CONTRA O LITERAL `0.7` ESCRITO AQUI — não contra o
+   * limiar que a função de fato aplica. Medido na triagem pós-merge: baixar o
+   * default de `p_repeticao_min` de 0.7 para 0.5 no banco e rodar este arquivo
+   * inteiro dá **20 passed, exit 0**. A calibração estava documentada em três
+   * lugares (a migration 0135, o MANIFEST e o HANDOFF) e protegida em nenhum.
+   *
+   * A "bateria de 15 pares" citada nessa documentação **não existe como
+   * artefato executável** — é prosa, e por isso não dá para recriá-la sem
+   * inventar dado. O que dá para medir são pares reais, e é disso que os três
+   * casos abaixo são feitos.
+   *
+   * Correção de fato, para o registro: o HANDOFF cita o par de sábados×domingos
+   * como `0.67`. Medido aqui, com a frase curta, ele dá **0.600**. O número da
+   * prosa não bate com a função; o que vale é o medido.
+   */
+  function limiarEmVigor(): number {
+    const args = lastLine(
+      sql(`select pg_get_function_arguments(oid) from pg_proc where proname = 'fn_atrito_metrics';`),
+    );
+    const m = /p_repeticao_min\s+double precision\s+DEFAULT\s+([0-9.]+)/i.exec(args);
+    if (m === null) throw new Error(`não achei p_repeticao_min na assinatura: ${args}`);
+    return Number(m[1]);
+  }
+
+  it("o limiar EM VIGOR é 0.7 — o valor calibrado, não um que alguém baixou", () => {
+    expect(limiarEmVigor()).toBe(0.7);
+  });
+
+  it("o falso positivo conhecido fica abaixo do limiar EM VIGOR, não de um literal", () => {
+    // 0.600 medido. É pergunta DIFERENTE sobre o mesmo tema; contá-la como
+    // repergunta levaria alguém a "consertar" um agente que está certo, e a
+    // assimetria de custo é o que justifica 0.7. Ler o limiar da função (e não
+    // escrever 0.7 aqui) é o que faz baixar o default reprovar.
+    const jaccard = jac("qual o horario aos sabados", "qual o horario aos domingos");
+    expect(jaccard).toBeGreaterThan(0.5); // guarda de vacuidade: o par é mesmo parecido
+    expect(jaccard).toBeLessThan(limiarEmVigor());
+  });
+
+  it("e a repergunta de verdade continua ACIMA do limiar em vigor (guarda de vacuidade)", () => {
+    // Sem este caso, SUBIR o limiar passaria: nada seria falso positivo porque
+    // nada seria positivo, e a métrica reportaria zero repergunta para sempre.
+    //
+    // O par importa. A primeira versão deste caso usava "qual o prazo de
+    // entrega" × "qual o prazo da entrega", que mede **1.000** — com ele, subir
+    // o limiar para 0.99 continuava passando, e a guarda era inerte. Medido:
+    // previ 2 vermelhos nessa sabotagem e observei 1.
+    //
+    // Este par mede **0.750**: é repergunta de verdade (a pessoa repetiu a mesma
+    // pergunta trocando uma palavra) e fica na faixa que o limiar pode invadir.
+    expect(jac("voces parcelam a compra", "voces parcelam essa compra")).toBeGreaterThanOrEqual(
+      limiarEmVigor(),
+    );
+  });
+
   it("assunto sem relação mede zero", () => {
     expect(jac("qual o prazo de entrega", "voces aceitam cartao de credito")).toBe(0);
   });

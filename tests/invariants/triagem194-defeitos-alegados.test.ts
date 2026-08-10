@@ -74,10 +74,26 @@ vi.mock("@/lib/auth/require-role", () => ({
   requireRole: async () => ({ ok: true }),
 }));
 
+/**
+ * ADAPTAÇÃO DESTE FORK (Salvador Broker) — o `role` não estava aqui no upstream.
+ *
+ * Sem ele o ator cai em rank 0 (`lib/contacts/visibility.ts:22`) e o
+ * `patchContactHandler` barra e-mail/telefone de contato que o ator não
+ * cadastrou (`contact_protected`, `_handler.ts:389`) — a proteção de contato
+ * contra corretor, que é customização nossa. O caso morria ANTES de alcançar o
+ * UPDATE, que é o que ele existe para medir (coluna gerada abortando a
+ * instrução inteira). Medido: sem `role`, 2 vermelhos com
+ * "Você não cadastrou este contato"; com `role`, o caso volta a medir o defeito
+ * alegado.
+ *
+ * `admin` e não outro papel porque o percurso real sempre carrega o papel da
+ * organização (`app/api/v1/contacts/[id]/route.ts:50`) — ctx sem papel é
+ * artefato de fixture, não estado alcançável por requisição.
+ */
 function ctx(): HandlerCtx {
   return {
     organization_id: ORG,
-    actor: { type: "user", id: USUARIO },
+    actor: { type: "user", id: USUARIO, role: "admin" },
     requestId: "req-triagem-194",
   };
 }

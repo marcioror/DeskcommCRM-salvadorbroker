@@ -1,4 +1,4 @@
--- 0142: módulo de imóveis (venda/locação) — tabelas properties/properties_media,
+-- 9001: módulo de imóveis (venda/locação) — tabelas properties/properties_media,
 -- bucket de fotos, e extensão do target_kind de crm_lead_links pra vincular
 -- imóveis a leads (muitos-para-muitos). Ver spec
 -- docs/superpowers/specs/2026-08-07-modulo-imoveis-design.md.

@@ -1,8 +1,10 @@
 "use client";
 import { useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { JanelaSelo } from "@/components/inbox/JanelaSelo";
 import { Phone, ArrowRight } from "@/lib/ui/icons";
 import { useAuth } from "@/hooks/auth/AuthProvider";
 import { useClaimConversation } from "@/hooks/inbox/useClaimConversation";
@@ -34,6 +36,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export function ConversationHeader({ conversation }: Props) {
+  const t = useT();
   const { user } = useAuth();
   const claim = useClaimConversation();
   const release = useReleaseConversation();
@@ -77,8 +80,15 @@ export function ConversationHeader({ conversation }: Props) {
         <div className="flex items-center gap-2">
           <h2 className="truncate text-sm font-semibold">{displayName}</h2>
           <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
-            {STATUS_LABEL[status] ?? status}
+            {t(STATUS_LABEL[status] ?? status)}
           </Badge>
+          {/* Ao lado do estado, não escondido num painel: a pergunta "dá para
+              escrever agora?" se faz ANTES de digitar, não depois de receber um
+              `failed` com um código de cinco dígitos. */}
+          <JanelaSelo
+            provider={conversation.channel_sessions?.provider ?? null}
+            lastInboundAt={conversation.last_inbound_at}
+          />
           {/* Sem esta marca, a conversa em que o robô está calado tem exatamente
               a mesma cara de uma conversa normal — e ninguém entende por que as
               respostas automáticas pararam. */}
@@ -112,7 +122,7 @@ export function ConversationHeader({ conversation }: Props) {
               })
             }
           >
-            Assumir
+            {t("Assumir")}
           </Button>
         )}
         {isMineAssigned && (
@@ -122,7 +132,7 @@ export function ConversationHeader({ conversation }: Props) {
             disabled={release.isPending}
             onClick={() => release.mutate({ conversation_id: conversation.id })}
           >
-            Liberar
+            {t("Liberar")}
           </Button>
         )}
         {/* A volta. Fica ANTES de transferir/fechar porque é a ação que a pessoa
@@ -135,12 +145,12 @@ export function ConversationHeader({ conversation }: Props) {
             data-testid="devolver-ao-automatico"
             onClick={() => retomar.mutate({ conversation_id: conversation.id })}
           >
-            {retomar.isPending ? "Devolvendo..." : "Devolver ao automático"}
+            {retomar.isPending ? "Devolvendo..." : t("Devolver ao automático")}
           </Button>
         )}
         {status !== "closed" && status !== "archived" && (
           <Button size="sm" variant="outline" onClick={() => setReassignOpen(true)}>
-            Transferir
+            {t("Transferir")}
           </Button>
         )}
         {status !== "closed" && status !== "archived" && (
@@ -160,7 +170,7 @@ export function ConversationHeader({ conversation }: Props) {
               }
             }}
           >
-            Fechar
+            {t("Fechar")}
           </Button>
         )}
         {/* `xl:hidden` porque a partir de 1280px o painel lateral de CRM entra

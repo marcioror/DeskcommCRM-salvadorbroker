@@ -34,9 +34,15 @@ import {
   type LeadCheckpointRow,
 } from './inbound-turn';
 import { isLeadInHandoff } from './human-handoff';
+import { camadaLigada, lerCamadasDaOrg } from '../guardrails/camadas-da-org';
 import type { LeadStateRow } from './lead-state';
 import { loadReentryTemplate, pickReentryVariant } from './reentry-template';
-import { classifyFollowupReply, decideFollowupTiming } from './followup-flow-classify';
+import {
+  classifyFollowupReply,
+  planFollowupTiming,
+  type EsperaParaPlanejar,
+  type PropostaDeEsperaBruta,
+} from './followup-flow-classify';
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -63,11 +69,22 @@ export const followupTurnPayloadSchema = z
     // (schedule_followup / F3-03 / F3-04) intocado — nem lido.
     followup_enrollment_id: z.string().uuid().optional(),
     node_id: z.string().min(1).optional(),
-    purpose: z.enum(['send_message', 'classify', 'decide_timing']).optional(),
+    purpose: z.enum(['send_message', 'classify', 'plan_timing']).optional(),
     prompt_hint: z.string().optional(),
     classes: z.array(z.string()).optional(),
     hint: z.string().optional(),
-    guidance: z.string().optional(),
+    // purpose 'plan_timing': as esperas adaptativas do fluxo inteiro, na ordem.
+    waits: z
+      .array(
+        z.object({
+          node_id: z.string().min(1),
+          label: z.string(),
+          min_ms: z.number().int(),
+          max_ms: z.number().int(),
+          guidance: z.string().optional(),
+        }),
+      )
+      .optional(),
   })
   .passthrough();
 
@@ -76,7 +93,7 @@ export const followupTurnPayloadSchema = z
 export type FollowupFlowTurnResult =
   | { kind: 'sent' }
   | { kind: 'classified'; class: string }
-  | { kind: 'timing'; proposed_at: string };
+  | { kind: 'planned'; propostas: PropostaDeEsperaBruta[]; modelo: string };
 
 /**
  * `InboundTurnDeps` + o callback que fecha o turno dirigido por fluxo de volta
@@ -267,7 +284,7 @@ export function createFollowupTurnHandler(deps: FollowupTurnDeps) {
         promptHint: payload.prompt_hint,
         classes: payload.classes,
         hint: payload.hint,
-        guidance: payload.guidance,
+        waits: payload.waits,
       });
       return;
     }
@@ -326,11 +343,11 @@ async function runFlowDrivenTurn(
   input: {
     enrollmentId: string;
     nodeId: string | undefined;
-    purpose: 'send_message' | 'classify' | 'decide_timing' | undefined;
+    purpose: 'send_message' | 'classify' | 'plan_timing' | undefined;
     promptHint: string | undefined;
     classes: string[] | undefined;
     hint: string | undefined;
-    guidance: string | undefined;
+    waits: EsperaParaPlanejar[] | undefined;
   },
 ): Promise<void> {
   if (input.nodeId === undefined || input.purpose === undefined) {
@@ -385,26 +402,37 @@ async function runFlowDrivenTurn(
     return;
   }
 
-  // 'decide_timing'
+  // 'plan_timing' — o acionamento do fluxo: planeja TODAS as esperas adaptativas
+  // de uma vez. Sem esperas no payload não há o que planejar, e chamar o modelo
+  // para devolver um plano vazio seria pagar por nada.
+  const esperas = input.waits ?? [];
+  if (esperas.length === 0) {
+    throw new Error('turno de planejamento de tempo sem esperas no payload — o engine só o enfileira quando há espera adaptativa');
+  }
   const context = await getLeadContext(pool, deps.crmCfg, { tenantId: target.tenantId, leadId: target.leadId }, {
     historyLimit: deps.knobs.historyLimit,
     maxTokens: deps.knobs.maxContextTokens,
   });
   if (!context.ok) {
-    throw new Error(`turno de decisão de instante do fluxo falhou em get_lead_context (${context.error.code})`);
+    throw new Error(`turno de planejamento de tempo do fluxo falhou em get_lead_context (${context.error.code})`);
   }
-  const proposedAt = await decideFollowupTiming(
+  const plano = await planFollowupTiming(
     pool,
     deps.llmCfg,
     { tenantId: target.tenantId, leadId: target.leadId, jobId: job.id },
     {
       context: context.context,
-      ...(input.guidance !== undefined ? { guidance: input.guidance } : {}),
+      esperas,
       ...(deps.knobs.followupAi?.model !== undefined ? { model: deps.knobs.followupAi.model } : {}),
     },
     { ...(deps.registry !== undefined ? { registry: deps.registry } : {}), log: runLog, clock },
   );
-  await complete(pool, { organizationId: target.tenantId, enrollmentId, nodeId, result: { kind: 'timing', proposed_at: proposedAt } });
+  await complete(pool, {
+    organizationId: target.tenantId,
+    enrollmentId,
+    nodeId,
+    result: { kind: 'planned', propostas: plano.propostas, modelo: plano.modelo },
+  });
 }
 
 /**
@@ -433,6 +461,12 @@ async function runDeterministicReentry(
     runLog.info('re-entrada determinística pulada — lead silenciado (handoff/opt-out)', { kind: job.kind });
     return;
   }
+
+  // Mesma escolha por organização do caminho do agente: a re-entrada
+  // determinística passa pela MESMA cadeia, então tem de honrar a MESMA
+  // preferência. Ler só no inbound deixaria a camada ligada num caminho e
+  // desligada no outro, para a mesma organização.
+  const camadasDaOrg = await lerCamadasDaOrg(pool, tenantId);
 
   // Template versionado por ponteiro (acc1): sem cache de processo — mover o ponteiro
   // ⇒ este disparo já usa a versão nova. Tenant sem template apontado = erro de
@@ -477,7 +511,7 @@ async function runDeterministicReentry(
     ...(deps.knobs.disclosureMode !== undefined ? { disclosureMode: deps.knobs.disclosureMode } : {}),
     // Gate 5 (F4-02/F4-08): mesma camada semântica do caminho do agente — a re-entrada
     // determinística também passa a candidata pela cadeia completa (ids da ROW do job).
-    ...(deps.knobs.promiseSemantic?.enabled === true
+    ...(camadaLigada(camadasDaOrg.promessa_semantica, deps.knobs.promiseSemantic?.enabled === true)
       ? {
           classifyPromiseSemantic: (candidate: string) =>
             classifyPromise(

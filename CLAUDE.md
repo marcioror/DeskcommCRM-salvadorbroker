@@ -211,7 +211,7 @@ Checks **obrigatórios** na branch protection da `main` (verificado na configura
 - **`verify`** (`ci.yml`) — typecheck + lint + test:unit.
 - **`invariants`** (`ci.yml`) — `pnpm test:db`: sobe `pgvector/pgvector:pg17`, aplica `supabase/baseline.sql` em modo install (`ON_ERROR_STOP=1`) e update (idempotência), e roda os testes de invariante, incluindo o de isolamento RLS entre 2 organizações.
 - **`build-and-size`** (`perf.yml`) — `pnpm build` em Node 22.
-- **`e2e`** (`e2e.yml`) — sobe Supabase local, aplica o `baseline.sql` e roda **32 das 33 specs** Playwright. A que fica de fora é `vps-fresh-onboarding` (precisa de WAHA + Redis + Resend + Nuvemshop) — e ela é a **P0** da doutrina de QA Visual, ou seja: o `e2e` verde **não** prova a jornada de instalação fresca, que é o produto que se vende. O próprio job declara isso no summary.
+- **`e2e`** (`e2e.yml`) — sobe Supabase local, aplica o `baseline.sql` e roda **37 das 39 specs** Playwright (medido em 2026-08-10; **reconte antes de citar**, com `ls tests/e2e/*.spec.ts | wc -l` e `grep -oE '[a-z0-9-]+\.spec\.ts' .github/workflows/e2e.yml | sort -u | wc -l` — este número já apodreceu duas vezes, e uma delas fui eu copiando o `echo` do próprio workflow em vez de contar os arquivos). As duas de fora: `vps-fresh-onboarding` (precisa de WAHA + Redis + Resend + Nuvemshop) e `agente-papeis-operador`. A primeira é a **P0** da doutrina de QA Visual — ou seja, `e2e` verde **não** prova a jornada de instalação fresca, que é o produto que se vende.
 
 Todos os quatro são **obrigatórios** — medido em 2026-08-08 na branch protection:
 

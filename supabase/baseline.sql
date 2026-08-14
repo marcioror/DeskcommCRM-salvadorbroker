@@ -280,7 +280,9 @@ begin
     jsonb_build_object(
       'message_id', new.id, 'conversation_id', new.conversation_id,
       'contact_id', new.contact_id, 'direction', new.direction,
-      'type', new.type, 'status', new.status, 'external_id', new.external_id
+      'type', new.type, 'status', new.status, 'external_id', new.external_id,
+      'channel_session_id', new.channel_session_id,
+      'body_preview', "left"(new.body, 280)
     )
   );
   return new;
@@ -8494,6 +8496,27 @@ alter table public.channel_sessions
 comment on column public.channel_sessions.zernio_token_encrypted is
   'API key do intermediário, cifrada por fn_encrypt_oauth. Por SESSÃO (não por instalação) — mesma decisão da 0087 para o canal oficial.';
 
+-- ---- carimbo do lookup de telefone (migration 0119) ----
+-- Espelho idempotente da 0119. Racional completo no arquivo da migration.
+--
+-- O canal identifica quem escreve por id opaco, e a tradução para telefone é
+-- povoada por ATIVIDADE — hoje não sabe, semana que vem talvez. Sem carimbar a
+-- tentativa, a varredura reprocessaria sempre os mesmos primeiros N e os do fim
+-- da fila nunca seriam perguntados.
+--
+-- NULLABLE de propósito: NULL = nunca perguntado; com valor e telefone ainda
+-- nulo = o canal não sabia na ocasião. Um `not null default now()` colapsaria
+-- os dois e faria contato novo nascer como "já tentado".
+alter table public.contacts
+  add column if not exists phone_lookup_at timestamptz;
+
+comment on column public.contacts.phone_lookup_at is
+  'Última vez que se PERGUNTOU ao canal o telefone por trás da identidade opaca. NULL = nunca perguntado. Com valor e phone_number ainda null = o canal não sabia na ocasião.';
+
+create index if not exists idx_contacts_phone_lookup_pendente
+  on public.contacts (organization_id, phone_lookup_at nulls first)
+  where phone_number is null;
+
 comment on column public.channel_sessions.provider is
   'Canal desta sessão. Vocabulário espelhado em lib/channels/types.ts → ChannelProvider (cobrado por tests/invariants/vocabulario-banco-x-typescript.test.ts).';
 
@@ -9110,6 +9133,8 @@ alter table public.agent_inbox_items
     -- devolvia string vazia EM SILÊNCIO: nenhum erro, nenhum log, e o operador
     -- concluindo que o agente ignorou o cliente de propósito.
     'midia_nao_lida',
+    'channel_template_review',
+    'channel_number_alert',
     -- (migration 0111, spec 16 §3.2) O papel Operador declara promessa em aberto:
     -- o assistente prometeu algo ao cliente e o cumprimento não foi registrado.
     -- A invariante sagrada da spec é "nenhuma promessa deixa de ser cumprida", e
@@ -10760,7 +10785,747 @@ create trigger trg_ai_agent_versions_content_immutable
 
 notify pgrst, 'reload schema';
 
--- ---- properties + properties_media + bucket property-media (migration 0142) ----
+-- ---- camadas de segurança por organização (migration 0142) ----
+--
+-- As duas verificações que consultam um modelo (e por isso custam por mensagem)
+-- passam a ser escolha da organização, na tela do agente, em vez de variável de
+-- ambiente do worker — que é por PROCESSO e só alcançável por quem edita o .env
+-- da VPS e reinicia o contêiner.
+--
+-- AUSÊNCIA DE LINHA NÃO É "DESLIGADO": sem linha, vale o ambiente. É o que
+-- mantém intacta a instalação que já decidiu isso no .env — aplicar este bloco
+-- não muda o comportamento de ninguém, só cria a porta.
+--
+-- `layer` sem CHECK, de propósito (vocabulário ABERTO, CLAUDE.md): um clone com
+-- valor que este build não conhece quebraria o update.sh. O vocabulário vive no
+-- TypeScript.
+--
+-- Idempotente e auto-curativo: `create table if not exists` + `drop policy if
+-- exists` antes do `create policy`.
+--
+-- TABELA NOVA NASCE CONCEDIDA, e não só função: o `ALTER DEFAULT PRIVILEGES ...
+-- GRANT ALL ON TABLES TO anon/authenticated` deste mesmo baseline vale para toda
+-- tabela criada depois dele. A primeira versão deste bloco dizia "nenhuma função
+-- nova, então não há grant a revogar" — leitura errada da doutrina, que fala de
+-- FUNÇÃO. O efeito medido está no cabeçalho da migration 0142.
+
+create table if not exists public.org_guardrail_layers (
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  layer text not null,
+  enabled boolean not null,
+  updated_at timestamptz not null default now(),
+  primary key (organization_id, layer)
+);
+
+alter table public.org_guardrail_layers enable row level security;
+
+-- ---- escrita de guardrail exige admin (migration 0143) ----
+--
+-- Leitura org-flat, escrita com gate de PAPEL no banco (forma canônica do repo:
+-- ver `crm_stages_select` / `crm_stages_manager_write` acima). O `admin` da rota
+-- não é fronteira — com a anon key e o próprio JWT, um `viewer` desligava a camada
+-- anti-jailbreak da organização pelo PostgREST, sem auditoria. Medido: UPDATE 1 +
+-- INSERT 1 num pg17 do zero.
+--
+-- Auto-curativo: derruba a policy da 0142 por nome antes de criar as duas novas,
+-- então o `update.sh` de um clone que parou na 0142 fica correto sem passo manual.
+drop policy if exists tenant_isolation_org_guardrail_layers_all on public.org_guardrail_layers;
+drop policy if exists org_guardrail_layers_select on public.org_guardrail_layers;
+drop policy if exists org_guardrail_layers_admin_write on public.org_guardrail_layers;
+
+create policy org_guardrail_layers_select on public.org_guardrail_layers
+  for select using (
+    (organization_id in (select public.fn_user_org_ids()))
+    or public.fn_is_platform_admin()
+  );
+
+create policy org_guardrail_layers_admin_write on public.org_guardrail_layers
+  using (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'admin'))
+  )
+  with check (
+    public.fn_is_platform_admin()
+    or ((organization_id in (select public.fn_user_org_ids()))
+        and public.fn_role_at_least(organization_id, 'admin'))
+  );
+
+revoke all on public.org_guardrail_layers from anon;
+
+-- ---- plano de tempo do follow-up (migration 0144) ----
+--
+-- O modo "Adaptativo (min–max)" do nó de espera existia na tela e não existia no
+-- motor: o fluxo esperava SEMPRE o máximo. Esta coluna guarda o plano decidido
+-- uma vez no acionamento, para todas as esperas adaptativas de uma vez.
+--
+-- Sem CHECK e sem NOT NULL de propósito: `null` é "ainda não planejado" e também
+-- o estado de todo enrollment anterior — os dois caem no comportamento antigo, e
+-- não há dado a corrigir antes de criar a coluna. Um CHECK de shape sobre jsonb
+-- quebraria o `update.sh` de um clone que já tivesse gravado algo aqui; quem
+-- valida é `lib/followup/timing-plan.ts`, que degrada para o máximo diante de
+-- plano ilegível em vez de derrubar o tick.
+
+alter table followup_enrollments
+  add column if not exists timing_plan jsonb;
+
+comment on column followup_enrollments.timing_plan is
+  'Plano de tempo das esperas adaptativas, decidido uma vez no acionamento do fluxo. null = sem plano (cai no max_ms de cada espera). Ver lib/followup/timing-plan.ts.';
+
+notify pgrst, 'reload schema';
+
+-- ---- o tick do follow-up para de servir uma organização de cada vez (migration 0146) ----
+--
+-- O claim levava os 20 vencidos MAIS ANTIGOS globalmente. Quem acumulou fila
+-- tem, por construção, os mais antigos — então uma organização atrasada ocupa o
+-- lote inteiro. Medido em pg17 descartável, teto 20: com 25 vencidos na grande e
+-- 1 na pequena, o tick 1 leva 20 da grande e ZERO da pequena; com 300 na grande,
+-- a pequena só é atendida no TICK 16 (≈16 min, com o cron de minuto em minuto).
+-- Não é inanição eterna — o lease empurra o ponteiro e ela entra em teto(K/20)
+-- ticks — mas o atraso não tem limite superior e cresce com a fila do vizinho.
+--
+-- Passa a ser rodízio: o mais antigo de CADA organização, depois o segundo de
+-- cada. Com UMA organização o resultado é idêntico ao de antes (os 20 mais
+-- antigos, na mesma ordem), então a instalação de operador único não muda.
+--
+-- O `limit p_limit` dentro do lateral faz o custo depender do número de
+-- organizações com fila, não do tamanho da fila. E `for update skip locked` vira
+-- CTE própria porque o Postgres não o aceita junto de window function.
+--
+-- Só isso NÃO preserva "dois workers nunca pegam a mesma linha": as duas conexões
+-- materializam a MESMA lista de candidatos antes de qualquer lock existir, e a
+-- segunda, ao esperar o lock da primeira, reavalia apenas o WHERE do UPDATE
+-- (READ COMMITTED). Medido: interseção de 5 em 5 no invariante de concorrência.
+-- Por isso a condição de lease está REPETIDA no WHERE do UPDATE — é ela que faz
+-- a segunda conexão enxergar o lease recém-gravado e desistir da linha.
+
+create index if not exists idx_followup_enrollments_due_por_org
+  on followup_enrollments (organization_id, next_eval_at)
+  where status in ('active','waiting_reply');
+
+create or replace function fn_claim_due_followup_enrollments(p_limit int, p_lease_seconds int)
+returns setof followup_enrollments
+language sql
+security definer
+set search_path = public
+as $$
+  with orgs as (
+    -- Sem a condição de claim aqui de propósito: o lateral abaixo a aplica, e uma
+    -- organização cujos vencidos estão todos com lease apenas devolve zero linhas.
+    select distinct organization_id
+      from followup_enrollments
+     where status in ('active','waiting_reply')
+       and next_eval_at <= now()
+  ),
+  fila as (
+    select f.id, f.next_eval_at, f.posicao_na_org
+      from orgs
+      cross join lateral (
+        select d.id,
+               d.next_eval_at,
+               row_number() over (order by d.next_eval_at) as posicao_na_org
+          from followup_enrollments d
+         where d.organization_id = orgs.organization_id
+           and d.status in ('active','waiting_reply')
+           and d.next_eval_at <= now()
+           and (d.claimed_until is null or d.claimed_until < now())
+         order by d.next_eval_at
+         limit p_limit
+      ) f
+  ),
+  escolhidos as (
+    -- O rodízio: posição 1 de todas as organizações, depois a 2 de todas, etc.
+    -- Empate na mesma posição vai para quem esperou mais.
+    select id from fila order by posicao_na_org, next_eval_at limit p_limit
+  ),
+  travados as (
+    select e.id from followup_enrollments e
+     where e.id in (select id from escolhidos)
+     for update skip locked
+  )
+  update followup_enrollments e
+     set claimed_until = now() + make_interval(secs => p_lease_seconds),
+         updated_at = now()
+   where e.id in (select id from travados)
+     -- A condição de lease É REPETIDA AQUI, e não é redundante com a CTE `fila`.
+     -- Sem ela, duas conexões simultâneas reclamam as MESMAS linhas: a segunda
+     -- espera o lock da primeira, e quando ele sai o Postgres (READ COMMITTED)
+     -- reavalia só o WHERE do UPDATE — que não olhava `claimed_until` — e grava
+     -- por cima. O `skip locked` da CTE não salva: as duas materializam a mesma
+     -- lista antes de qualquer lock existir. Medido: interseção de 5 em 5 no
+     -- invariante de concorrência (followup-schema.test.ts).
+     and (e.claimed_until is null or e.claimed_until < now())
+  returning e.*;
+$$;
+
+revoke execute on function fn_claim_due_followup_enrollments(int, int) from public, anon, authenticated;
+-- ---- o dossiê do follow-up: tempo escolhido pela IA + pausa manual (migration 0145) ----
+--
+-- Ver o cabeçalho de `supabase/migrations/20260810120000_0145_dossie_do_followup.sql`
+-- para o porquê de cada peça. Aqui vale a nota de re-aplicação: tudo é
+-- auto-curativo. O CHECK só ACRESCENTA um valor ao conjunto aceito e o predicado
+-- novo do índice cobre as mesmas linhas do antigo (nenhum banco tem
+-- `paused_manual` antes desta migration) — nada a deduplicar antes.
+
+-- A coluna `timing_plan` NÃO é recriada aqui: ela pertence ao apêndice da
+-- migration 0144 (acima). Duas criações da mesma coluna são idempotentes, mas os
+-- dois `comment on column` competem e o último vence — duplicação com dois donos
+-- e nenhuma fonte da verdade. Resolvido na integração: 0144 cria e descreve; 0145
+-- consome.
+
+-- Os dois CHECKs saem pelo CATÁLOGO, não pelo nome: num clone que passou por
+-- dump/restore o nome gerado pode não ser o deste repo, e dropar por nome fixo
+-- falharia em silêncio — o `add constraint` tropeçaria no duplicado, o
+-- `exception when duplicate_object` engoliria, e o banco ficaria com o CHECK
+-- ANTIGO recusando `paused_manual` num INSERT que a aplicação considera válido.
+do $$
+declare
+  c record;
+begin
+  for c in
+    select con.conname
+      from pg_constraint con
+      join pg_class rel on rel.oid = con.conrelid
+      join pg_namespace ns on ns.oid = rel.relnamespace
+     where ns.nspname = 'public'
+       and rel.relname = 'followup_enrollments'
+       and con.contype = 'c'
+       and pg_get_constraintdef(con.oid) like '%paused_handoff%'
+       and pg_get_constraintdef(con.oid) not like '%paused_manual%'
+  loop
+    execute format('alter table public.followup_enrollments drop constraint %I', c.conname);
+  end loop;
+end $$;
+
+do $$ begin
+  alter table public.followup_enrollments
+    add constraint followup_enrollments_status_valido
+    check (status in ('active','waiting_reply','paused_handoff','paused_manual','completed','cancelled','dead'));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table public.followup_enrollments
+    add constraint followup_enrollments_relogio_coerente
+    check (
+      (status in ('active','waiting_reply') and next_eval_at is not null)
+      or (status in ('paused_handoff','paused_manual','completed','cancelled','dead'))
+    );
+exception when duplicate_object then null; end $$;
+
+-- ⚠️ AS COLUNAS SÃO (organization_id, contact_id), NÃO (pointer_id, contact_id).
+--
+-- A DDL original da tabela (bem acima neste arquivo) cria este índice por
+-- `pointer_id`; o apêndice da migration 0062 o DERRUBA e recria por
+-- `organization_id`, e é essa a definição em vigor: **um follow-up vivo por lead
+-- na organização inteira**, não um por fluxo. É o guard anti-empilhamento — sem
+-- ele o mesmo contato entra em N sequências ao mesmo tempo e leva N mensagens,
+-- que é o bug de spam que a doutrina anti-banimento existe para impedir. O
+-- `silence-sweep.ts` e o produtor do gatilho de etapa dependem dele: os dois
+-- tratam o `23505` como skip silencioso, e é ele que garante que não há laço.
+--
+-- Quem precisa MEXER no predicado (como aqui, para incluir `paused_manual`) tem
+-- de copiar a definição EM VIGOR, não a da DDL original — recriar a partir da
+-- linha errada reverte a garantia sem conflito de merge e sem sintoma imediato.
+-- Corrigido na integração; ver a nota no MANIFEST da 0145.
+drop index if exists idx_followup_enrollments_one_live;
+create unique index if not exists idx_followup_enrollments_one_live
+  on public.followup_enrollments (organization_id, contact_id)
+  where status in ('active','waiting_reply','paused_handoff','paused_manual');
+
+create index if not exists idx_followup_events_enrollment_tempo
+  on public.followup_enrollment_events (enrollment_id, created_at);
+
+notify pgrst, 'reload schema';
+
+-- ⚠️ ESTE BLOCO FICA ACIMA DA VARREDURA DE ANON DE PROPÓSITO, e a posição é
+-- parte do conserto. O corpo do baseline traz um `alter default privileges …
+-- grant all on functions to anon`, então TODA função nova nasce alcançável
+-- pela chave anônima — que vai para o browser. O bloco de varredura no fim do
+-- arquivo cura isso, mas só para o que veio ANTES dele: um apêndice colocado
+-- depois fica exposto COM os `revoke` escritos e parecendo corretos. Defesa
+-- certa na ordem errada é exposição com gate verde.
+-- Vigiado por `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts`.
+
+-- ---- relógio do banco para o agendamento do follow-up (migration 0147) ----
+-- Quem AGENDA gravava `next_eval_at` com o relógio do PROCESSO; quem RECLAMA
+-- compara com `now()` do POSTGRES. Medido: o banco fica 17–34 ms atrás, então o
+-- "agora" do processo ainda é FUTURO para o claim — o tick seguinte não reclama
+-- e o enrollment espera o tick DEPOIS (até 60 s, cron de minuto em minuto).
+-- Corrigir por margem seria número mágico que envelhece; a correção é os dois
+-- lados usarem o mesmo relógio.
+--
+-- ADITIVO E RETROCOMPATÍVEL: `default` só age na AUSÊNCIA da coluna, então todo
+-- insert que já passa `next_eval_at` explicitamente continua idêntico. Nada a
+-- corrigir nos dados antes — não há constraint nova.
+--
+-- O QUE O DEFAULT CUSTA, decidido e não descoberto depois: hoje inserir um
+-- enrollment ativo SEM `next_eval_at` falha ALTO (o CHECK recusa); com o
+-- default, esquecer o campo passa a ser SILENCIOSO e significa "vencido agora".
+-- Troca de falha barulhenta por plausível — aceita porque os dois produtores de
+-- nascimento significam "agora", quem quiser outro instante continua passando
+-- valor explícito, e a regra está escrita no `comment on column` abaixo.
+alter table public.followup_enrollments
+  alter column next_eval_at set default now();
+
+comment on column public.followup_enrollments.next_eval_at is
+  'Quando este enrollment vence. DEFAULT now() do BANCO (migration 0147): quem agenda "para agora" deve OMITIR a coluna, porque o claim compara com now() do Postgres e o relógio do processo fica milissegundos à frente — o suficiente para o enrollment perder um tick inteiro (60s). Agendamento para o FUTURO continua passando valor explícito.';
+
+-- Para o caso em que `default` não alcança: UPDATE. O supabase-js grava VALOR,
+-- nunca EXPRESSÃO, e o PostgREST só expõe tabela e função — sem isto o worker
+-- agendaria com o relógio do próprio processo.
+create or replace function public.fn_agora()
+returns timestamptz
+language sql
+stable
+set search_path to 'public', 'pg_temp'
+as $fn$
+  select now()
+$fn$;
+
+comment on function public.fn_agora() is
+  'O relógio do BANCO, para quem precisa gravar um instante que será comparado com now() (migration 0147).';
+
+-- AS DUAS ORIGENS DE EXECUTE (CLAUDE.md, doutrina de migrations, item 9): o
+-- grant direto a anon do `alter default privileges` do baseline, que
+-- `revoke from public` não remove; e o grant a PUBLIC que o Postgres dá na
+-- criação, que `revoke from anon` não remove.
+revoke all     on function public.fn_agora() from public;
+revoke execute on function public.fn_agora() from anon, authenticated;
+grant  execute on function public.fn_agora() to service_role;
+
+-- ---- o caso anuncia abertura e fechamento no barramento (migration 0148) ----
+--
+-- `agent_cases` é a entidade de escalação e não emitia nada no `event_log`, então
+-- nenhum consumidor podia reagir a um caso. TRIGGER e não emissor em código porque
+-- o FECHAMENTO tem cinco escritores: caçar emissor deixa a garantia dependendo de
+-- alguém lembrar, e o próximo caminho nasce mudo. SQL puro, sem I/O externo — a
+-- proibição da doutrina é HTTP dentro da transação, e `fn_emit_conversation_routing`
+-- já usa este mesmo mecanismo. Idempotente: `create or replace` + `drop trigger if
+-- exists`, então o `update.sh` de um clone re-aplica sem efeito duplo.
+create or replace function public.fn_emit_agent_case_event()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_contact_id uuid;
+  v_tipo text;
+begin
+  v_tipo := case when tg_op = 'INSERT' then 'ai.case_opened' else 'ai.case_closed' end;
+
+  -- O contato viaja no PAYLOAD porque ele sempre existe por schema
+  -- (`agent_cases.conversation_id` é not null e `conversations.contact_id` é
+  -- not null) e porque poupa o consumidor de uma ida ao banco. O consumidor
+  -- mantém o fallback de buscar, para não confiar em convenção.
+  select c.contact_id into v_contact_id
+    from public.conversations c
+   where c.id = new.conversation_id;
+
+  perform public.emit_event(
+    v_tipo,
+    'agent_case',
+    new.id,
+    jsonb_build_object(
+      'case_id',         new.id,
+      'conversation_id', new.conversation_id,
+      'contact_id',      v_contact_id,
+      'lead_id',         new.lead_id,
+      'agent_id',        new.agent_id,
+      'source',          new.source,
+      'status',          new.status
+    ),
+    '{}'::jsonb,
+    new.organization_id   -- SEMPRE de `new`, nunca de parâmetro: é o filtro de tenant
+  );
+  return null;            -- AFTER trigger: o retorno é ignorado
+end;
+$$;
+
+alter function public.fn_emit_agent_case_event() owner to postgres;
+
+-- ⚠️ AS DUAS ORIGENS DE EXECUTE (doutrina de migrations, item 9). Tratar só uma
+-- deixa a função exposta com o gate verde: (A) o grant a PUBLIC que o Postgres
+-- dá a qualquer função ao criá-la, que `revoke from anon` não remove; (B) o
+-- `alter default privileges ... to anon` do baseline, que vale para toda função
+-- criada depois dele e que `revoke from public` não remove.
+revoke all     on function public.fn_emit_agent_case_event() from public;
+revoke execute on function public.fn_emit_agent_case_event() from anon, authenticated;
+
+-- ABERTURA: só os dois status que o código considera aberto
+-- (`OPEN_STATUSES` em lib/agent-engine/agent/human-cases.ts:75).
+drop trigger if exists trg_agent_case_opened on public.agent_cases;
+create trigger trg_agent_case_opened
+  after insert on public.agent_cases
+  for each row
+  when (new.status in ('awaiting_human','awaiting_lead'))
+  execute function public.fn_emit_agent_case_event();
+
+-- FECHAMENTO: os três status terminais. `escalated` entra porque o caso deixou
+-- de esperar o cliente — seguir cobrando quem já foi passado adiante é o mesmo
+-- defeito de cobrar quem já foi resolvido.
+drop trigger if exists trg_agent_case_closed on public.agent_cases;
+create trigger trg_agent_case_closed
+  after update of status on public.agent_cases
+  for each row
+  when (old.status is distinct from new.status
+        and new.status in ('resolved','escalated','cancelled'))
+  execute function public.fn_emit_agent_case_event();
+
+notify pgrst, 'reload schema';
+
+
+
+-- ---- definer valida a organização de quem chamou (migration 0149) ----
+--
+-- Relatório de segurança da comunidade, auditando a tag v1.0.0. A metade sobre
+-- ACL ("definer executáveis por anon") já estava fechada pela 0108/0116 — 0 de
+-- 31 hoje. Mas ACL e MEMBERSHIP são defeitos independentes: `emit_event` e
+-- `retrieve_top_k_chunks` continuavam usando o `p_organization_id` do ARGUMENTO
+-- como único filtro de tenant, e ambas são (corretamente) executáveis por
+-- `authenticated`.
+--
+-- Medido num pg17 com este baseline, usuário papel `viewer` membro só da org A,
+-- rodando como role `authenticated` com o `sub` dele em request.jwt.claims:
+--
+--   INSERT direto em event_log da org B  -> permission denied   (a RLS vale)
+--   SELECT direto em ai_chunks da org B  -> 0 linhas            (a RLS vale)
+--   emit_event(..., org => B)            -> GRAVOU na org B     ← furo
+--   retrieve_top_k_chunks(B, kbv)        -> devolveu o conteúdo ← furo
+--
+-- Depois deste bloco, os dois furos devolvem `caller_not_authorized_for_org`, e
+-- os dois controles positivos seguem verdes: emitir na PRÓPRIA org funciona, e
+-- o worker com `service_role` (sem JWT, auth.uid() null) funciona.
+--
+-- `fn_log_event` delega a `emit_event` e herda o guard — não ganha cópia da regra.
+create or replace function public.emit_event(
+  p_event_type text,
+  p_entity_kind text,
+  p_entity_id uuid,
+  p_payload jsonb default '{}'::jsonb,
+  p_metadata jsonb default '{}'::jsonb,
+  p_organization_id uuid default null
+) returns uuid
+  language plpgsql security definer
+  set search_path to 'public'
+as $$
+declare
+  v_org_id uuid;
+  v_event_id uuid;
+begin
+  v_org_id := p_organization_id;
+  if v_org_id is null then
+    select organization_id into v_org_id
+      from public.user_organizations
+      where user_id = auth.uid() and revoked_at is null
+      limit 1;
+  end if;
+  if v_org_id is null then
+    raise exception 'emit_event: organization_id obrigatorio';
+  end if;
+
+  if auth.uid() is not null
+     and not public.fn_role_at_least(v_org_id, 'viewer') then
+    raise exception 'caller_not_authorized_for_org'
+      using hint = 'emit_event: caller must be an active member of the organization';
+  end if;
+
+  insert into public.event_log
+    (organization_id, event_type, entity_kind, entity_id, payload, metadata)
+  values
+    (v_org_id, p_event_type, p_entity_kind, p_entity_id,
+     coalesce(p_payload, '{}'::jsonb),
+     coalesce(p_metadata, '{}'::jsonb)
+       || jsonb_build_object('emitted_at', extract(epoch from now())))
+  returning id into v_event_id;
+
+  return v_event_id;
+end $$;
+
+-- Os nomes de parâmetro e das colunas de retorno abaixo são os que estão no
+-- banco (`p_embedding`, `p_threshold` default 0.40, coluna `knowledge_source_id`):
+-- `create or replace` recusa renomear qualquer um dos dois, e um clone que
+-- receba nomes diferentes ganharia uma SOBRECARGA nova, deixando a versão sem
+-- guard viva. O `do $$` no fim deste bloco avisa se isso acontecer.
+create or replace function public.retrieve_top_k_chunks(
+  p_organization_id uuid,
+  p_kb_version_id uuid,
+  p_embedding public.vector,
+  p_k integer default 5,
+  p_threshold real default 0.40
+) returns table (
+  chunk_id uuid,
+  knowledge_source_id uuid,
+  content text,
+  similarity real,
+  metadata jsonb
+)
+  language plpgsql stable security definer
+  set search_path to 'public'
+as $$
+begin
+  if auth.uid() is not null
+     and not public.fn_role_at_least(p_organization_id, 'viewer') then
+    raise exception 'caller_not_authorized_for_org'
+      using hint = 'retrieve_top_k_chunks: caller must be an active member of the organization';
+  end if;
+
+  return query
+  select
+    c.id as chunk_id,
+    c.knowledge_source_id,
+    c.content,
+    (1 - (c.embedding <=> p_embedding))::real as similarity,
+    c.metadata
+  from public.ai_chunks c
+  where c.organization_id = p_organization_id
+    and c.kb_version_id   = p_kb_version_id
+    and (1 - (c.embedding <=> p_embedding)) >= p_threshold
+  order by c.embedding <=> p_embedding asc
+  limit greatest(p_k, 0);
+end $$;
+
+revoke execute on function public.emit_event(text, text, uuid, jsonb, jsonb, uuid) from public, anon;
+grant  execute on function public.emit_event(text, text, uuid, jsonb, jsonb, uuid) to authenticated, service_role;
+
+revoke execute on function public.retrieve_top_k_chunks(uuid, uuid, public.vector, integer, real) from public, anon;
+grant  execute on function public.retrieve_top_k_chunks(uuid, uuid, public.vector, integer, real) to authenticated, service_role;
+
+do $$
+declare
+  v_extra text;
+begin
+  select string_agg(p.oid::regprocedure::text, ', ') into v_extra
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname = 'retrieve_top_k_chunks'
+     and p.oid::regprocedure::text <> 'retrieve_top_k_chunks(uuid,uuid,vector,integer,real)';
+  if v_extra is not null then
+    raise warning '0149: sobrecarga inesperada de retrieve_top_k_chunks sem o guard de membership: %', v_extra;
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';
+
+
+
+-- ---- RBAC na configuração de IA e canais (migration 0150) ----
+--
+-- Segundo achado do relatório de segurança da comunidade, e o mais consistente
+-- dele. Medido no baseline da main: das 82 policies `ALL` de `public`, **71**
+-- não citam `fn_role_at_least` — só tenancy, via `fn_user_org_ids()`, que
+-- devolve organizações e nada mais. `authenticated` tem
+-- SELECT/INSERT/UPDATE/DELETE nessas tabelas.
+--
+-- Isso importa porque o `requireRole()` das rotas Next NÃO é a única porta: o
+-- PostgREST do Supabase é exposto ao browser por construção (a `anon key` e a
+-- URL vão no bundle), e um usuário logado fala com ele DIRETO, com o próprio
+-- JWT. Provado num pg17 com este baseline, membro papel `viewer`, rodando como
+-- role `authenticated` com o `sub` dele: derrubou `channel_sessions` (o canal de
+-- WhatsApp), reescreveu `ai_agents.system_prompt` (o texto que o bot fala com
+-- cliente real), subiu `ai_budgets.monthly_limit_cents` de 5.000 para
+-- 99.999.999 e DELETOU a linha de `ai_provider_credentials` (mata a IA da org).
+-- Controle no mesmo probe: o viewer NÃO alcança a organização vizinha — a
+-- tenancy vale, o que falta é o papel.
+--
+-- ESCOPO DELIBERADO: só as tabelas de CONFIGURAÇÃO de IA e canais, onde o dano
+-- é inequívoco e onde a rota Next já exige `admin` hoje (channel-sessions
+-- route.ts:61, ai/agents route.ts:67, ai/budget route.ts:46) — a policy passa a
+-- espelhar a API, em vez de ficar três níveis mais frouxa que ela. As outras ~63
+-- ficam para depois, de propósito: `job_queue`, `llm_calls`, `send_ledger`,
+-- `metrics` e afins são escritas pelo motor, e apertá-las no mesmo fôlego
+-- trocaria um furo de segurança por uma parada de produção. O gate que impede a
+-- lista de crescer vem em `tests/invariants/rbac-config-ia-canais.test.ts`.
+--
+-- FORMA: cada tabela vira PAR — SELECT só-tenancy (todo membro continua LENDO,
+-- inclusive o viewer, senão a tela quebra) + escrita com `fn_role_at_least`.
+-- Onde a policy atual tem `or fn_is_platform_admin()`, o par PRESERVA os dois
+-- lados: sem isso o super-admin de plataforma perde acesso e o suporte cega.
+--
+-- O worker não entra nesta conta: usa `service_role`, que é `bypassrls`.
+
+-- ---- canais ----
+drop policy if exists channel_sessions_tenant_isolation_all on public.channel_sessions;
+
+drop policy if exists channel_sessions_tenant_select on public.channel_sessions;
+create policy channel_sessions_tenant_select on public.channel_sessions
+  for select using (
+    organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin()
+  );
+
+drop policy if exists channel_sessions_tenant_write on public.channel_sessions;
+create policy channel_sessions_tenant_write on public.channel_sessions
+  for all using (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  ) with check (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  );
+
+-- ---- agentes de IA ----
+drop policy if exists tenant_isolation_ai_agents_all on public.ai_agents;
+
+drop policy if exists tenant_isolation_ai_agents_select on public.ai_agents;
+create policy tenant_isolation_ai_agents_select on public.ai_agents
+  for select using (
+    organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin()
+  );
+
+drop policy if exists tenant_isolation_ai_agents_write on public.ai_agents;
+create policy tenant_isolation_ai_agents_write on public.ai_agents
+  for all using (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  ) with check (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  );
+
+-- ---- versões de agente ----
+drop policy if exists tenant_isolation_ai_agent_versions_all on public.ai_agent_versions;
+
+drop policy if exists tenant_isolation_ai_agent_versions_select on public.ai_agent_versions;
+create policy tenant_isolation_ai_agent_versions_select on public.ai_agent_versions
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+drop policy if exists tenant_isolation_ai_agent_versions_write on public.ai_agent_versions;
+create policy tenant_isolation_ai_agent_versions_write on public.ai_agent_versions
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+-- ---- orçamento de IA ----
+drop policy if exists tenant_isolation_ai_budgets_all on public.ai_budgets;
+
+drop policy if exists tenant_isolation_ai_budgets_select on public.ai_budgets;
+create policy tenant_isolation_ai_budgets_select on public.ai_budgets
+  for select using (
+    organization_id in (select public.fn_user_org_ids()) or public.fn_is_platform_admin()
+  );
+
+drop policy if exists tenant_isolation_ai_budgets_write on public.ai_budgets;
+create policy tenant_isolation_ai_budgets_write on public.ai_budgets
+  for all using (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  ) with check (
+    (organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin'))
+    or public.fn_is_platform_admin()
+  );
+
+-- ---- roteadores de IA ----
+drop policy if exists tenant_isolation_ai_routers_all on public.ai_routers;
+
+drop policy if exists tenant_isolation_ai_routers_select on public.ai_routers;
+create policy tenant_isolation_ai_routers_select on public.ai_routers
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+drop policy if exists tenant_isolation_ai_routers_write on public.ai_routers;
+create policy tenant_isolation_ai_routers_write on public.ai_routers
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+drop policy if exists tenant_isolation_ai_router_members_all on public.ai_router_members;
+
+drop policy if exists tenant_isolation_ai_router_members_select on public.ai_router_members;
+create policy tenant_isolation_ai_router_members_select on public.ai_router_members
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+drop policy if exists tenant_isolation_ai_router_members_write on public.ai_router_members;
+create policy tenant_isolation_ai_router_members_write on public.ai_router_members
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+drop policy if exists tenant_isolation_ai_purpose_bindings_all on public.ai_purpose_bindings;
+
+drop policy if exists tenant_isolation_ai_purpose_bindings_select on public.ai_purpose_bindings;
+create policy tenant_isolation_ai_purpose_bindings_select on public.ai_purpose_bindings
+  for select using (organization_id in (select public.fn_user_org_ids()));
+
+drop policy if exists tenant_isolation_ai_purpose_bindings_write on public.ai_purpose_bindings;
+create policy tenant_isolation_ai_purpose_bindings_write on public.ai_purpose_bindings
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+-- ---- credenciais de provedor de IA: remover a superfície, não negociá-la ----
+--
+-- Aqui a policy não é o remédio suficiente. NENHUM caminho de browser precisa
+-- desta tabela: o servidor lê as colunas cifradas com `service_role`
+-- (lib/ai/credentials.ts, lib/ai/gateway-binding.ts) e a TELA já consome a view
+-- `ai_provider_credentials_safe`, que existe justamente para não expor
+-- `api_key_encrypted`/`iv`/`tag`. Então o SELECT de `authenticated` sai inteiro
+-- em vez de continuar ali sob a promessa de que o ciphertext basta.
+--
+-- (O ciphertext DE FATO protege a chave — é AES com iv+tag, e um viewer leria
+-- bytes inúteis. O que ele não protege é o resto: `provider`, `label`,
+-- `api_key_last4`, `validation_error`. E, sobretudo, a linha continuava
+-- DELETÁVEL, que é o dano real.)
+drop policy if exists tenant_isolation_ai_provider_credentials_select on public.ai_provider_credentials;
+drop policy if exists tenant_isolation_ai_provider_credentials_modify on public.ai_provider_credentials;
+
+drop policy if exists tenant_isolation_ai_provider_credentials_write on public.ai_provider_credentials;
+create policy tenant_isolation_ai_provider_credentials_write on public.ai_provider_credentials
+  for all using (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  ) with check (
+    organization_id in (select public.fn_user_org_ids())
+      and public.fn_role_at_least(organization_id, 'admin')
+  );
+
+-- O SELECT sai por COLUNA, não pela tabela inteira, e a razão é a view:
+-- `ai_provider_credentials_safe` é `security_invoker=true` — de propósito, para
+-- que a RLS da tabela base valha para o usuário que a consulta. Revogar o SELECT
+-- da tabela inteira quebraria a view (o invoker não tem privilégio para ler a
+-- base) e, com ela, a tela de provedores. Torná-la `security_invoker=false` para
+-- contornar isso seria trocar um furo pequeno por um grande: a RLS pararia de se
+-- aplicar e a view passaria a devolver linha de qualquer organização.
+--
+-- Com grant por coluna, as três colunas do segredo ficam inalcançáveis pelo
+-- PostgREST e a view — que só lê as outras doze — continua funcionando. Medido
+-- por controle positivo em tests/invariants/rbac-config-ia-canais.test.ts: a
+-- primeira versão desta migration revogava a tabela toda, e foi esse controle
+-- que reprovou.
+revoke select on public.ai_provider_credentials from authenticated, anon;
+grant select (
+  id, organization_id, provider, label, api_key_last4, validated_at,
+  validation_error, models_available, is_active, created_by, created_at, updated_at
+) on public.ai_provider_credentials to authenticated;
+grant select on public.ai_provider_credentials_safe to authenticated;
+
+-- O PostgREST guarda o schema em cache; sem isto as policies novas só valem no
+-- próximo reload dele.
+notify pgrst, 'reload schema';
+
+
+-- ---- properties + properties_media + bucket property-media (migration 9001) ----
 create table if not exists public.properties (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
@@ -10843,12 +11608,12 @@ insert into storage.buckets (id, name, public, file_size_limit)
 values ('property-media', 'property-media', false, 10485760)
 on conflict (id) do update set file_size_limit = excluded.file_size_limit;
 
--- ---- bucket property-media file_size_limit 10MB -> 50MB (migration 0143) ----
+-- ---- bucket property-media file_size_limit 10MB -> 50MB (migration 9002) ----
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('property-media', 'property-media', false, 52428800)
 on conflict (id) do update set file_size_limit = excluded.file_size_limit;
 
--- ---- crm_leads.title deixa de guardar telefone (migration 0144) ----
+-- ---- crm_leads.title deixa de guardar telefone (migration 9003) ----
 -- Achado I2 da revisão final da proteção de contato ao corretor. O forward-fix
 -- (lib/leads/nascimento-do-lead.ts) para de gravar telefone em título novo;
 -- este bloco corrige linhas que já nasceram assim, em QUALQUER clone.
@@ -10865,7 +11630,7 @@ on conflict (id) do update set file_size_limit = excluded.file_size_limit;
 -- cru) — então o título vazado é, verbatim, `contacts.phone_number` do
 -- próprio contato vinculado. Comparar com ESSE valor específico não pode
 -- acertar por acaso um CPF/CNPJ/pedido de outra origem. Detalhe completo em
--- supabase/migrations/20260809120000_0144_lead_title_sem_telefone.sql.
+-- supabase/migrations/20260809120000_9003_lead_title_sem_telefone.sql.
 --
 -- Idempotente: título já corrigido deixa de ser igual ao telefone, não bate
 -- mais no predicado. Sem hardcode de organização.
@@ -10875,6 +11640,53 @@ update public.crm_leads l
  where c.id = l.contact_id
    and c.organization_id = l.organization_id
    and l.title = c.phone_number;
+
+-- ---- imóveis: escrita exige papel, não só organização (migration 9004) ----
+--
+-- A 9001 criou estas duas tabelas com policy `for all` org-flat, e a API sempre
+-- foi mais estrita: ler é `viewer`, escrever é `agent` (route.ts:35,95;
+-- [id]/route.ts:26,53,122; [id]/media/route.ts:22). Rota não é fronteira — a
+-- anon key vai para o browser e o `ALTER DEFAULT PRIVILEGES ... GRANT ALL ON
+-- TABLES TO anon, authenticated` deste baseline alcança toda tabela criada
+-- depois dele, então um `viewer` escrevia no cadastro de imóveis pelo PostgREST.
+-- Mesmo defeito da 0150 (8 tabelas) e da 0143; estas ficaram de fora por serem
+-- deste fork. Forma canônica: SELECT org-flat + escrita com fn_role_at_least.
+-- As permissivas se somam por OR, então a org-flat PRECISA sair junto.
+do $$
+declare t text;
+begin
+  foreach t in array array['properties', 'properties_media'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('drop policy if exists tenant_isolation_%s_all on public.%I', t, t);
+    execute format('drop policy if exists %s_select on public.%I', t, t);
+    execute format('drop policy if exists %s_agent_write on public.%I', t, t);
+    execute format(
+      'create policy %s_select on public.%I
+         for select using (
+           (organization_id in (select * from public.fn_user_org_ids()))
+           or public.fn_is_platform_admin()
+         )',
+      t, t
+    );
+    execute format(
+      'create policy %s_agent_write on public.%I
+         using (
+           public.fn_is_platform_admin()
+           or ((organization_id in (select * from public.fn_user_org_ids()))
+               and public.fn_role_at_least(organization_id, ''agent''))
+         )
+         with check (
+           public.fn_is_platform_admin()
+           or ((organization_id in (select * from public.fn_user_org_ids()))
+               and public.fn_role_at_least(organization_id, ''agent''))
+         )',
+      t, t
+    );
+    execute format('revoke all on public.%I from anon', t);
+  end loop;
+end $$;
+
+notify pgrst, 'reload schema';
 
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
@@ -10949,5 +11761,52 @@ grant execute on function public.fn_decrypt_oauth(bytea) to service_role;
 grant execute on function public.fn_encrypt_oauth(text) to service_role;
 grant execute on function public.fn_lgpd_cascade_redact_contact(uuid, uuid, uuid) to service_role;
 grant execute on function public.fn_update_budget_consumption() to service_role;
+
+-- ---- mensagem editada e mensagem apagada (migration 0153) ----
+-- O cliente edita ou apaga no aplicativo e o CRM seguia mostrando a versão
+-- velha — sem erro em lugar nenhum. Combinar preço ou endereço a partir de um
+-- texto que o cliente já corrigiu gera um erro que ninguém rastreia depois.
+-- Duas colunas e não um estado: editada continua valendo (o texto novo conta),
+-- apagada deixou de valer (o texto não pode mais aparecer). Timestamp e não
+-- booleano porque a pergunta seguinte é "quando?". A linha apagada NÃO some: a
+-- remoção levaria junto o contexto das vizinhas e o histórico de quem atendeu.
+alter table public.messages add column if not exists edited_at timestamptz;
+alter table public.messages add column if not exists revoked_at timestamptz;
+
+-- ---- definição sabe de qual conexão é (migration 0154) ----
+-- `meta_templates` nasceu para um canal só: a única marca de origem é
+-- `waba_id`, o id da conta na plataforma da Meta. Um segundo canal não tem onde
+-- entrar sem mentir sobre o que aquele campo significa — e o endpoint, que
+-- resolve a sessão por `metaSessionForOrg`, devolvia lista VAZIA numa
+-- instalação que só tem o canal intermediado. A conexão, e não um `provider`:
+-- dois números do mesmo provider têm definições diferentes. `set null` no
+-- delete porque apagar a conexão não pode apagar o registro do que a
+-- plataforma aprovou — ela continua existindo lá.
+alter table public.meta_templates
+  add column if not exists channel_session_id uuid
+    references public.channel_sessions(id) on delete set null;
+create index if not exists meta_templates_sessao_idx
+  on public.meta_templates (channel_session_id, status)
+  where channel_session_id is not null;
+
+-- ---- o arquivo do webhook aceita os canais novos (migration 0151) ----
+-- `webhook_events_log` guarda o corpo CRU do que o provedor mandou — é o único
+-- lugar onde ele fica. O CHECK do dump conhecia três provedores e nenhum dos
+-- canais do seam, então a rota genérica de canal não tinha como gravar sem
+-- mentir sobre a origem ('generic' para um canal que se sabe qual é).
+--
+-- Este é o BLOCO ÚNICO desta constraint (regra da issue #159): canal novo edita
+-- ESTA lista, e não acrescenta um segundo bloco — dois blocos fazem o
+-- `update.sh` de um clone com dados falhar no primeiro e deixar a tabela sem
+-- constraint entre o `drop` e o `add` que funciona.
+--
+-- Alargamento puro: um CHECK que aceita MAIS valores não pode ser violado por
+-- linha que já passava pelo antigo, então não precisa de backfill antes.
+alter table public.webhook_events_log
+  drop constraint if exists webhook_events_log_provider_check;
+alter table public.webhook_events_log
+  add constraint webhook_events_log_provider_check check (provider in (
+    'waha', 'nuvemshop', 'generic', 'meta_cloud', 'zernio'
+  ));
 
 notify pgrst, 'reload schema';

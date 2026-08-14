@@ -76,6 +76,19 @@ case "$API_URL" in
     ;;
 esac
 
+# Mesmo default do `playwright.config.ts` (PORT = process.env.E2E_PORT ??
+# "3001"). NEXT_PUBLIC_APP_URL é uma NEXT_PUBLIC_* — o Next a embute no bundle
+# (server E client) em BUILD time, não runtime; por isso ela precisa entrar
+# aqui, no arquivo que `e2e-build.sh` exporta antes do `next build`, e não
+# bastaria setá-la só no `next start`. Sem isto, app/auth/confirm/route.ts
+# monta o redirect contra o default do schema (http://localhost:3000) — porta
+# onde não há NADA escutando durante o teste — e o browser, que SEMPRE segue
+# 3xx (diferente de `curl` sem `-L`), estoura ERR_CONNECTION_REFUSED em vez de
+# chegar em /login/reset ou /onboarding/welcome. Medido: as 3 specs do fluxo de
+# auth por e-mail (password-recovery, reset-password-mfa, signup-journey)
+# reprovam assim mesmo com token_hash válido — o defeito independe de PKCE.
+E2E_PORT="${E2E_PORT:-3001}"
+
 cat > .env.e2e <<EOF
 # ── Ambiente do E2E — LOCAL, nunca a nuvem ──────────────────────────────────
 # GERADO por 'pnpm e2e:env'. Não versionado (.gitignore cobre '.env*').
@@ -85,12 +98,15 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON
 SUPABASE_SERVICE_ROLE_KEY=$SERVICE
 SUPABASE_DB_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
+# Precisa bater com o baseURL real do Playwright (ver comentário acima).
+NEXT_PUBLIC_APP_URL=http://localhost:$E2E_PORT
+
 # Placeholders: 'next start' roda em NODE_ENV=production, e lib/env.ts exige
 # estas vars em produção. As specs não exercitam os serviços por trás delas.
 # Local e CI falham pelos mesmos motivos porque leem ESTE arquivo: o workflow
-# publica o `.env.e2e` no ambiente do job em vez de redigitar os valores. A
+# publica o \`.env.e2e\` no ambiente do job em vez de redigitar os valores. A
 # versão anterior desta linha prometia "valores iguais aos do CI" e eles não
-# eram iguais (`e2e-placeholder…` aqui, `ci-placeholder…` lá) — a promessa por
+# eram iguais (\`e2e-placeholder…\` aqui, \`ci-placeholder…\` lá) — a promessa por
 # coincidência durou até a primeira divergência, que custou 8 specs em 401.
 INTERNAL_SECRET=e2e-placeholder-nao-e-segredo
 # As três abaixo são chaves de CIFRA de verdade: o app exige 32 bytes e recusa
@@ -107,6 +123,18 @@ WAHA_WEBHOOK_BASE_URL=http://127.0.0.1:3001
 UPSTASH_REDIS_REST_URL=http://127.0.0.1:3998
 UPSTASH_REDIS_REST_TOKEN=e2e-placeholder-nao-e-segredo
 NEXT_TELEMETRY_DISABLED=1
+# Telemetria DESLIGADA na suíte, e não é preferência: sem isto o SDK do browser
+# assume o DSN da comunidade (\`lib/sentry/dsn.ts\` → DEFAULT_SENTRY_DSN) e a suíte
+# MANDA DADO para o Sentry de produção do projeto — mesma família do e2e que
+# escrevia no banco de produção. E o inverso morde igual: em 2026-08-10 a
+# organização do Sentry estava suspensa por cota, o ingest respondeu 429 a tudo, o
+# SDK cuspiu erro de console em toda tela e \`olhar-telas-do-epico\` reprovou. A cor
+# do CI não pode depender do estado de cobrança de um terceiro.
+#
+# Consequência aceita: com \`off\` o cliente não inicializa, então a suíte NÃO
+# exercita a política do DSN da comunidade — quem a guarda é
+# \`tests/unit/sentry-comunidade-so-erro.test.ts\`.
+SENTRY_DSN=off
 EOF
 
 echo "==> .env.e2e gerado, apontando para $API_URL"

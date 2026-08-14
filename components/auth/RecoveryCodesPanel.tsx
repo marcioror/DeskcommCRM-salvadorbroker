@@ -4,12 +4,37 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { branding } from "@/lib/branding";
 import { copyToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
 interface RecoveryCodesPanelProps {
   codes: string[];
   onAcknowledge: () => void;
+}
+
+/**
+ * Prefixo do arquivo baixado, derivado da marca da instalação.
+ *
+ * Este arquivo fica anos na pasta de downloads do usuário — é o artefato de marca
+ * mais duradouro que o produto entrega. Com o nome fixo, o cliente do revendedor
+ * baixa um arquivo com a NOSSA marca no nome, e não há atualização que conserte
+ * isso depois: o arquivo já está no disco dele.
+ *
+ * O acento é removido antes de filtrar (senão "Ótima Gestão" perderia o "O"
+ * inteiro em vez de virar "otima-gestao"), e uma marca sem nenhum caractere ASCII
+ * — nome em outro alfabeto, ou só emoji — cai em "crm", porque `download=""`
+ * faz o browser inventar um nome como "download.txt" e o usuário perde o arquivo
+ * de vista.
+ */
+export function prefixoDoArquivo(nome: string): string {
+  const slug = nome
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "crm";
 }
 
 /**
@@ -31,7 +56,7 @@ export function RecoveryCodesPanel({ codes, onAcknowledge }: RecoveryCodesPanelP
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "deskcommcrm-recovery-codes.txt";
+    a.download = `${prefixoDoArquivo(branding().name)}-recovery-codes.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

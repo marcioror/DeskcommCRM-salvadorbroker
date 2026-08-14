@@ -8,6 +8,67 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.3.0] — 2026-08-13
+
+Esta versão mexe em como o sistema **chega e se atualiza** no seu servidor. Em uso, três
+coisas mudam para melhor: a instalação deixa de ter uma etapa que podia falhar por falta de
+memória no meio (o servidor não compila mais nada — tudo vem pronto), fica bem mais rápida, e
+o agente de IA passa a receber as correções de cada versão. A recomendação de servidor
+**continua exatamente a mesma**: o que consome memória é operar o sistema no dia a dia — 7
+serviços e cerca de 150 MB por número de WhatsApp conectado —, e isso não mudou nem um pouco.
+
+### Corrigido
+
+- **O agente de IA nunca recebia atualização.** O worker — o processo que faz o agente
+  atender 24 horas por dia — era compilado dentro do seu servidor no dia da instalação, e
+  nenhuma atualização o reconstruía. Na prática: você atualizava o CRM, o site mudava, e o
+  agente continuava rodando exatamente o código do dia em que você instalou, para sempre.
+  Correções e melhorias do agente não chegavam. Agora ele é uma imagem pronta, publicada
+  junto com o resto, e o `update.sh` a traz como traz o app.
+- **Duas instalações "na mesma versão" rodavam código diferente.** Uma instalação nova ficava
+  apontada para o canal `latest`, que — apesar do nome — acompanha o desenvolvimento em
+  andamento, não a última versão lançada. Quem instalou em semanas diferentes tinha software
+  diferente, e não havia como dizer qual. Agora o instalador grava o **número da versão**
+  (ex.: `1.2.1`), e é essa versão que fica no seu servidor até você decidir atualizar.
+- **O CRM podia não subir por causa de um serviço externo fora do ar.** A configuração pedia
+  ao Docker que verificasse o registro de imagens a cada subida; se ele não respondesse, o
+  contêiner não subia — mesmo com a imagem já baixada no seu disco. Agora que o seu servidor
+  fica numa versão fixa, essa verificação deixa de ser feita **na sua instalação** (quem
+  acompanha um canal móvel continua com ela, que é onde ela serve para alguma coisa).
+- **O agendador de tarefas dependia da internet para voltar.** A cada reinício ele baixava
+  dois programas antes de começar. Sem internet no momento do reboot — justo quando a máquina
+  está se recuperando de alguma coisa —, as tarefas automáticas não voltavam. Agora já vêm
+  dentro da imagem.
+- **A versão mostrada em `/api/v1/health` era sempre `0.1.0`**, em qualquer instalação. Agora
+  é a versão de verdade.
+- O WhatsApp (WAHA) e o serviço de limites deixaram de acompanhar automaticamente qualquer
+  versão nova publicada por terceiros. Passam a mudar só quando nós testamos e lançamos.
+
+### ⚠️ Requer atenção
+
+**Se o seu servidor foi instalado antes desta versão, rode o `update.sh` DUAS vezes.**
+
+> A partir desta versão o agente de atualização corrige parte disso sozinho, em até 5
+> minutos, sem você fazer nada — ele fixa a versão que já está rodando. O que ele **nunca**
+> faz é mexer numa configuração que você escreveu à mão: se você escolheu acompanhar um
+> canal de propósito, ele respeita e só avisa.
+Medido em ensaio numa VPS: a primeira execução traz o agente novo, mas deixa a versão dele
+"solta" — acompanhando o canal em vez de ficar fixa, como o resto do sistema. Isso faria o
+agente saltar sozinho para a versão seguinte num reinício futuro, enquanto o resto do
+servidor continuaria onde está. A segunda execução fixa tudo na mesma versão.
+
+Para saber em que pé você está, sem mexer em nada:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/melgarafael/DeskcommCRM/main/hostgator-setup-kit/diagnostico.sh | bash
+```
+
+Ele só lê e explica — não escreve, não reinicia, não atualiza. Se disser que está afetada,
+o passo a passo (com como voltar atrás) está em `docs/runbooks/remediar-worker-congelado.md`.
+
+Fora isso, nada exige ação sua. Um `.env` antigo continua funcionando: as configurações
+novas têm valor padrão e o próprio `update.sh` as acrescenta.
+
 ## [1.2.1] — 2026-08-12
 
 **Versão de segurança. Se você roda o DeskcommCRM numa VPS, atualize.**

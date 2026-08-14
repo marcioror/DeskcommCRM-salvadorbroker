@@ -34,6 +34,19 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
   const rodape = NAV_GROUPS.find((g) => g.id === GRUPO_NO_RODAPE)?.hub;
 
   const brand = branding();
+  /**
+   * O CONSUMIDOR do nome por organização.
+   *
+   * Sem ele, `settings.branding.app_name` seria campo decorativo: medido, o nome
+   * da org não aparece em lugar nenhum da casca para o cliente típico de um
+   * revendedor — o único leitor é o `TenantSwitcher`, e ele devolve `null` com
+   * uma organização só.
+   *
+   * `branding()` continua embaixo, e continua lendo o ambiente injetado em
+   * runtime (`window.__PUBLIC_ENV__`): a organização que não definiu nome vê
+   * exatamente o que via antes.
+   */
+  const nome = activeOrg?.marca?.nome ?? brand.name;
 
   return (
     <aside
@@ -57,12 +70,16 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
           />
         ) : (
           <span className={cn("font-semibold tracking-tight", collapsed && "sr-only")}>
-            {brand.name}
+            {nome}
           </span>
         )}
         {collapsed && (
           <span aria-hidden className="text-lg font-bold text-primary">
-            {brand.initial}
+            {/* Spread e não `[0]`: nome começando com emoji ou acento composto
+                quebraria no meio do code point. Mesma regra de `resolveBranding`
+                — a inicial precisa acompanhar o nome que a barra mostra, senão
+                recolher o menu troca a marca. */}
+            {[...nome][0]?.toUpperCase() ?? brand.initial}
           </span>
         )}
       </div>

@@ -351,7 +351,12 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
  * Os baldes são escolhidos pela AÇÃO que cada um exige de quem instalou:
  * trocar a chave, escolher outro modelo, esperar/pagar, ou aguardar o provedor.
  */
-function normalizarErro(err: unknown): {
+/**
+ * Exportada para o diagnóstico da instalação usar a MESMA régua. Sem isto,
+ * "por que o funcionário não responde" teria uma classificação própria, e as
+ * duas telas dariam nomes diferentes ao mesmo erro do provedor.
+ */
+export function normalizarErro(err: unknown): {
   error_code: string;
   error_message: string;
   http_status: number | null;

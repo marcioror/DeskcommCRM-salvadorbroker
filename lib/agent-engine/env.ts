@@ -29,6 +29,17 @@ const envSchema = z.object({
   // OpenAI e a chave no `.env` continuava sem credencial utilizável, e a única
   // saída era cadastrar BYOK pela tela — sem nada dizendo isso.
   OPENAI_API_KEY: z.string().min(1).optional(),
+  // A TERCEIRA irmã, e a que mais doía faltar: OpenRouter é a opção **[1]** do
+  // menu do instalador, a que ele chama de caminho mais simples. O ramo
+  // `provider === 'openrouter'` existe em `resolveOrgLlmConfig` e
+  // `llmEdgeConfigFromEnv` já lia `env.OPENROUTER_API_KEY` — mas o parâmetro
+  // declara a chave como opcional (typecheck passa sem ela) e `loadEnv` devolve
+  // `parsed.data`, e o Zod remove o que o schema não declara. A chave estava no
+  // `.env`, sumia no boot do worker, e TODO turno morria em
+  // `LlmNotConfiguredError` mandando cadastrar credencial pela tela.
+  // Consertar a irmã da OpenAI e deixar esta é o modo de falha desta família:
+  // ao mexer aqui, confira as três de uma vez.
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
   // Modelo default do agente quando a org não define o dela (knob, nunca constante).
   AGENT_DEFAULT_MODEL: z.string().min(1).default('claude-sonnet-4-5'),
   // Teto de conexões por pool do pg. Sem valor = pg decide (default 10).

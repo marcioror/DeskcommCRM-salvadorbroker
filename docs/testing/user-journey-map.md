@@ -20,10 +20,12 @@
 
 ## J1 — Onboarding do primeiro usuário `[P0]`
 
-Contexto do código: sem signup público (`app/(public)/login`); primeiro usuário nasce
-do `scripts/bootstrap-owner.ts` (install.sh). Wizard: welcome → whatsapp → (nuvemshop
-se `NUVEMSHOP_ENABLED`) → setup-ai → invite-team → done. Gate: `organizations.onboarded_at`.
-MFA obrigatório pra admin logo após o wizard (`MfaEnrollGate`).
+Contexto do código: primeiro usuário nasce do `scripts/bootstrap-owner.ts`
+(install.sh); quem é convidado e ainda não tem conta entra por `/signup?invite=`.
+Wizard: welcome → whatsapp → (nuvemshop se `NUVEMSHOP_ENABLED`) → setup-ai →
+**testar** → invite-team → done. A ordem, os rótulos e o resumo final saem de uma
+fonte só (`lib/onboarding/passos.ts`) — eram três listas que discordavam. Gate:
+`organizations.onboarded_at`. MFA obrigatório pra admin logo após o wizard.
 
 | # | Caso | Expectativa |
 |---|------|-------------|
@@ -33,7 +35,7 @@ MFA obrigatório pra admin logo após o wizard (`MfaEnrollGate`).
 | J1.4 | Welcome: nome da org + timezone salvos | grava `display_name`/`timezone`, avança pro WhatsApp |
 | J1.5 | Connect WhatsApp: WAHA ativo → QR aparece | sessão criada, QR renderiza via proxy, poll de status roda |
 | J1.6 | Connect WhatsApp: "Pular por enquanto" | avança pro step correto (setup-ai quando Nuvemshop off) |
-| J1.7 | Setup IA: criar agente default | `ai_agents` criado, avança |
+| J1.7 | Setup IA: criar agente default | `ai_agents` criado **e a versão publicada aponta para o provedor que a instalação escolheu**, com o modelo curado DAQUELE provedor; avança |
 | J1.8 | Invite team: enviar convite SEM Resend configurado (realidade da VPS fresca) | UI **não mente**: mostra que email não saiu + oferece `accept_url` copiável |
 | J1.9 | Done: "Ir para o Inbox" | seta `onboarded_at`, cai no `/app/inbox` |
 | J1.10 | Gate MFA pós-onboarding | blocker aparece; enrolar TOTP + ver/salvar recovery codes funciona de ponta a ponta |
@@ -42,6 +44,39 @@ MFA obrigatório pra admin logo após o wizard (`MfaEnrollGate`).
 | J1.13 | Reabrir `/onboarding` depois de concluído | redirect pro app (wizard não reabre) |
 | J1.14 | Stepper com Nuvemshop desabilitado | numeração/etapas não quebram visualmente |
 | J1.15 | Setup IA: erro de banco ao listar os números (a publicação não pode ser decidida) | UI **não mente**: agente criado como rascunho, causa técnica na tela e saída pro próximo passo; clicar de novo NÃO cria um 2º agente · **PASS** (`tests/unit/onboarding-agente-nao-publicado.test.ts`, `tests/unit/onboarding-setup-ai-aviso.test.tsx`) |
+| J1.16 | Instalação escolheu OpenRouter (opção [1] do instalador) | o agente publicado usa `openrouter`, nunca `anthropic` — o provider da versão vence o da organização em runtime, então publicar o provedor errado entrega um "Publicado" que morre em toda mensagem · **PASS** (`tests/unit/onboarding-agente-nao-publicado.test.ts`) |
+| J1.17 | Instalação em provedor cujo catálogo ainda não sincronizou (estado real de uma VPS nova: o baseline semeia ZERO modelos OpenRouter) | não publica e **diz a causa certa**: rascunho por falta de modelo, sem acusar o WhatsApp; oferece saída pro próximo passo · **PASS** (`tests/unit/onboarding-agente-nao-publicado.test.ts`, `tests/unit/onboarding-setup-ai-aviso.test.tsx`) |
+| J1.18 | Não dá para ler qual provedor a instalação escolheu (erro no `select` de `organizations`) | não publica com chute — publicar "anthropic" quando não se sabe é o defeito de origem em roupa nova · **PASS** (`tests/unit/onboarding-agente-nao-publicado.test.ts`) |
+| J1.19 | O agente entregue consegue mexer no CRM | nasce com as capacidades do pacote "Vender e mover o funil" ligadas e o funil de entrada no escopo — antes vinha com `tool_ids` e `pipeline_ids` vazios, isto é: conversava e não criava lead nem movia card · **PASS** (`tests/unit/onboarding-agente-nao-publicado.test.ts`, `tests/unit/capacidades-padrao-do-onboarding.test.ts`) |
+| J1.20 | O escopo de funil chega ao turno REAL (agent-engine) | a ponte que monta as ferramentas do turno passa `pipeline_ids`; sem isso o campo era decorativo e toda escrita de lead era recusada, com a capacidade ligada na tela · **PASS** (`tests/unit/ponte-do-agente-passa-o-escopo.test.ts`) |
+
+| J1.22 | Convidado que **ainda não tem conta** | a tela de aceite oferece "Ainda não tenho conta", o signup recebe o convite, não pede nome de empresa e trava o e-mail; ao confirmar, a pessoa vai para o aceite em vez de ganhar uma organização própria — antes ela virava **admin de uma empresa fantasma**, com wizard alheio e MFA de administrador · **PASS** (`lib/auth/convite-no-signup.test.ts`, `tests/e2e/invite-lifecycle.spec.ts` casos 10–12) |
+| J1.23 | Convite expirado ou emitido para outro e-mail, no signup | falha FECHADA: não provisiona organização nenhuma e explica no login. Cair no provisionamento aqui devolveria o defeito de J1.22 para quem demorasse entre criar a conta e confirmar o e-mail · **PASS** (`lib/auth/convite-no-signup.test.ts`) |
+
+| J1.24 | Ver o funcionário atender antes de terminar | passo novo entre treinar e chamar o time: ensaio com o runtime real (`is_dry_run`), nada enviado pelo WhatsApp. Trata os três estados — sem agente, agente em rascunho, e o caso normal — e o erro aparece aqui, não com o primeiro cliente de verdade · **PASS** (`tests/e2e/vps-fresh-onboarding.spec.ts`, `lib/onboarding/passos.test.ts`) |
+| J1.25 | O passo 1 mostra o que a instalação já trouxe | provedor contratado, WhatsApp pronto, funil criado — cada linha MEDIDA. E o campo de nome vem vazio quando a organização ainda está com o "Minha Empresa" do instalador, em vez de obrigar a pessoa a apagá-lo · **PASS** (`lib/instalacao/ambiente.test.ts`) |
+| J1.26 | O quadro de clientes deixa de nascer de e-commerce | passo novo entre treinar e ver ele atender. `trg_seed_default_pipeline_for_org` semeia "Carrinho abandonado / Em separação / Enviado" em TODA organização, e a clínica abria o quadro dela e lia isso. A sugestão sai do MESMO modelo que vai atender — se ela falha, o dono descobre agora e não com o primeiro cliente · **PASS** (`tests/e2e/wizard-do-funcionario.spec.ts`, `lib/onboarding/proposta-de-funil.test.ts`) |
+| J1.27 | O quadro **ensina o funcionário a percorrê-lo** | MEDIDO em 2026-08-13: **312 etapas em 43 funis, 4 com `agent_stage_hint`** — e as 4 de organizações de teste. Toda instalação real nascia com `coberturaDoFunil()` devolvendo `mudo: true`: o assistente tinha o funil no escopo (J1.20) e não sabia o que significava nenhuma coluna. Aqui uma coluna é NOME + DESTINO indissociáveis · **PASS** (`tests/invariants/quadro-do-onboarding.test.ts`, 7 casos contra o Postgres do baseline) |
+| J1.28 | Sem chave de IA, o passo ainda entrega quadro | falha ABERTA na informação, FECHADA na ação: seis quadros prontos por ramo, escolhidos pelo que o dono escreveu no passo 1, e a tela DIZ que a sugestão não veio. Devolver erro deixaria a pessoa com o funil de e-commerce, que é o defeito que o passo existe para consertar · **PASS** (`lib/onboarding/sugerir-funil.test.ts`, `tests/e2e/wizard-do-funcionario.spec.ts`) |
+| J1.29 | O passo 1 pergunta **o que o negócio faz** | era o dado que faltava no produto inteiro: sem ele os três modelos de prompt diziam "loja online" e o quadro nascia de e-commerce — os dois defeitos vinham da mesma origem, uma instalação que nunca pergunta em que ramo entrou · **PASS** (`tests/e2e/wizard-do-funcionario.spec.ts`) |
+| J1.30 | Sem chave da IA, o passo de treinar PEDE a chave | o passo 1 media e escrevia "Falta a chave da inteligência artificial" — diagnóstico certo, saída nenhuma: a pessoa teria de descobrir sozinha que existe uma tela de credenciais, e onde. Agora ela cola a chave no passo em que a chave passa a importar, um clique antes de o funcionário nascer com ela · **PASS** (`tests/e2e/wizard-do-funcionario.spec.ts`) |
+| J1.31 | A chave é testada com uma GERAÇÃO, não com uma listagem | "Validada" nunca significou "funciona": o validador bate em `GET /v1/models`, que responde 200 com a conta zerada. `provarSaldo` existia e **nenhuma tela a chamava** (evento sem consumer, anti-pattern nº 3 do CLAUDE.md). Agora o passo de treinar confere e diz o resultado — e distingue "sem crédito" de "não consegui conferir", que pedem conselhos opostos · **PASS** (`lib/instalacao/prova-de-credito.test.ts`, `tests/e2e/wizard-do-funcionario.spec.ts`) |
+| J1.32 | A janela entre cadastrar a chave e ela ser confirmada | MEDIDO percorrendo o wizard: quem colava a chave lia "Não consegui testar o crédito" e "Falta a chave da inteligência artificial" no mesmo segundo — as duas frases mandam cadastrar de novo o que já está lá. A validação roda em SEGUNDO PLANO, então a janela existe sempre; o retrato passou a distinguir confirmada de em-verificação, e a tela espera em vez de acusar · **PASS** (`lib/instalacao/retrato.test.ts` — o arquivo não tinha teste nenhum antes) |
+| J1.33 | A verificação em duas etapas deixa de ser imposta | MEDIDO percorrendo o wizard: "Começar a usar" entregava o dono num bloqueador de tela cheia pedindo um aplicativo autenticador — um sétimo passo que a barra de progresso nunca anunciou, e que TODA instalação self-host recebia, porque o `install.sh` cria o dono como platform admin. Agora é escolha: `platform_admins.mfa_required` (que existia e **nunca era lido** — controle decorativo) e `organizations.settings.security.mfa_required`, ambos com padrão não-exigir · **PASS** (`tests/e2e/mfa-opcional.spec.ts`, `lib/auth/politica-mfa.test.ts`) |
+| J1.34 | Ligar e desligar a verificação, pela tela | o único ponto de cadastro do produto era o próprio bloqueador — sem um botão em Configurações › Segurança, tornar o cadastro opcional deixaria a proteção INALCANÇÁVEL. E desligar não existia em lugar nenhum: `enrollMfa` só apaga fator não verificado. Desligar o próprio fator exige sessão `aal2`, senão uma sessão roubada desliga a proteção com um clique · **PASS** (`tests/e2e/mfa-opcional.spec.ts`) |
+| J1.35 | Cadastrar e PROVAR são perguntas diferentes | `mfaEmDivida()` começava consultando a política, então quem ativasse a verificação por vontade própria teria o fator ignorado na sessão — o mesmo que não ter. Com o cadastro opcional isso viraria o buraco central da mudança. Agora quem TEM fator prova, sempre, qualquer que seja o papel · **PASS** (`tests/unit/require-role-mfa.test.ts` — o caso do manager INVERTEU, e a inversão aperta) |
+
+> **Cobertura em camadas (J1.22/J1.23):** a decisão de *não provisionar* é provada por unitário, porque é uma função pura e roda no gate obrigatório. O caso de tela cobre o caminho visível (CTA → signup com o token → campos certos). O que **não** está coberto ponta a ponta é a volta do link de confirmação de e-mail: exigiria caixa de e-mail no e2e, e a spec que faria isso é a de instalação fresca, que está fora do CI.
+
+> **A jornada J1 passou a ter GATE.** `tests/e2e/wizard-do-funcionario.spec.ts` roda no CI (SPECS_PARTE_1) e cobre o wizard inteiro pela tela — do login ao "Começar a usar" — criando a PRÓPRIA organização, porque o seed compartilhado entrega uma já onboardada e zerá-la mandaria as specs seguintes para dentro do onboarding. Fica de fora só o ensaio com resposta real, que exige chave de IA com saldo. `vps-fresh-onboarding.spec.ts` continua fora do gate (depende de WAHA, Redis, Resend e Nuvemshop) e segue sendo a prova mais completa, para rodar à mão.
+
+> **Achado ABERTO (não é regressão, é primeira impressão):** percorrendo o wizard inteiro num tenant fresco, o botão "Começar a usar" entrega o dono no Inbox e a PRIMEIRA coisa que ele vê é um modal bloqueante de verificação em duas etapas — um sétimo passo que a barra de progresso do wizard nunca anunciou. O MFA obrigatório para `admin` é decisão de produto e está correto; o que está errado é ele aparecer como surpresa depois de seis passos que se apresentaram como o caminho completo. Conserto natural: virar passo do wizard, ou ao menos ser anunciado na tela final. Fora do escopo da frente do quadro de clientes.
+
+> **J1.21 — FECHADA.** O agente do onboarding nascia `kind='rag_bot'` (o default do banco, de quando o produto só tinha o formato antigo), abria no editor legado — Temperature, Top K, Similarity threshold — e as capacidades que ele recebia ligadas ficavam **invisíveis** para o dono: funcionavam no runtime e não tinham superfície de configuração, que é o invariante 6 do Sistema Vivo quebrado.
+>
+> O que travava a virada era o editor novo exigir `credential_id`, enquanto instalação pelo kit funciona com a chave de plataforma do `.env` e não tem nenhuma linha em `ai_provider_credentials` — o dono cairia numa tela onde não consegue salvar nada. Resolvido nas duas pontas: `versionShapeSchema` aceita `credential_id: null` (= a chave da instalação), o seletor oferece essa opção, e a rota de versões **recusa** o nulo quando o ambiente não tem chave daquele provedor (falha fechada — senão publicaria um agente que morre em toda mensagem).
+>
+> MEDIDO na tela, num tenant fresco: o funcionário criado no wizard abre no editor atual, com "Chave de acesso: A chave desta instalação (anthropic)", "12 de 20 capacidades ligadas" e "Vender e mover o funil" ativo.
 
 ## J2 — Conectar WhatsApp e Central de Conexões `[P0]`
 
@@ -300,7 +335,7 @@ só o E2E contra Postgres real revelou.
 |----|--------|--------|-----------|
 | M1 | `supabase/config.toml` trava `major_version = 15`, mas `baseline.sql` exige PG17 (`GRANT MAINTAIN`) — contribuidor open-source não sobe ambiente local | reproduzido | Alta (DX) |
 | M2 | Trilha manual do `docs/deploy-selfhost/README.md` não configura o cron do drain → automações mortas em silêncio | explorer webhooks | Alta |
-| M3 | README self-host aponta repo/imagem `deskcommcrm/*`; kit usa `melgarafael/*` | explorer webhooks | Alta |
+| M3 | ~~README self-host aponta repo/imagem `deskcommcrm/*`; kit usa `melgarafael/*`~~ **CORRIGIDO 2026-08-13** — era um `git clone` de uma org que não existe (404) em `docs/deploy-selfhost/README.md:26`. Uma consultoria externa leu essa string e concluiu que o compose apontava para uma org desvinculada; o compose sempre apontou para `melgarafael`. | explorer webhooks | — |
 | M4 | `INVITE_TOKEN_SECRET` ausente → fallback `"dev-fallback"` → convite forjável em VPS mal configurada | explorer CRM/time | Alta (segurança) |
 | M5 | AI Gateway key ausente → bot mudo sem NENHUM feedback na UI | explorer IA | Média |
 | M6 | Knowledge sources: botões de upload/configurar são stubs "Em breve" | explorer IA | Média |
@@ -388,8 +423,16 @@ espaço e acento, que era o gatilho do defeito #6.
   alguém passa a escutar, ou o trigger sai. Não inventei consumidor.
 - Tela de Conexões diz "1 número conectado" mesmo com o número **caído** (conta
   sessões, não conectados).
-- O autenticador registra o nome fixo "DeskcommCRM", ignorando o `APP_NAME` que o
-  instalador vende como marca de toda a interface.
+- ~~O autenticador registra o nome fixo "DeskcommCRM", ignorando o `APP_NAME` que o
+  instalador vende como marca de toda a interface.~~ **RESOLVIDO em 2026-08-14** — virou o
+  caso `M4` da jornada de marca própria (no fim deste arquivo). E a justificativa que estava
+  aqui era **falsa em duas metades**: o problema não era "o nome fixo aparece no celular do
+  usuário", porque o `friendlyName` **não entra na URI `otpauth://`** (medido contra GoTrue
+  v2.188.1, e nenhuma tela do produto renderiza `friendly_name`). O campo que de fato grava no
+  aparelho é o `issuer`, que simplesmente **não era passado**. Este item ficou aqui semanas
+  descrevendo o defeito certo pelo mecanismo errado — e, enquanto isso, a mesma coisa constava
+  como dívida da fase 4 na guarda de marca. O mesmo defeito com duas biografias é como uma
+  correção acaba consertando a metade que não importa.
 - `CLAUDE.md` documenta bearer `tok_...`; o token real nasce com prefixo `dsk_`.
 
 ## Segurança — achados após conectar o WhatsApp real (2026-07-30)
@@ -551,3 +594,87 @@ edição de invariante é congelada por hook; usei a válvula
 `DESKCOMM_GOV_INVARIANTS_EDIT=1` **declarando o uso no commit** (`685d6e7`) em vez
 de contornar em silêncio. CI verde em `2c045c4` (invariants, verify, e2e,
 build-and-size, build-and-push).
+
+---
+
+## A atualização alcança o worker? (2026-08-13)
+
+**Jornada nova, e ela nasceu de um defeito que nenhuma jornada existente cobria.** Todas as
+jornadas do mapa exercitam o produto DEPOIS de instalado; nenhuma perguntava se uma correção
+entregue numa versão nova chega mesmo a cada peça da VPS.
+
+O serviço `worker` — o runtime do agente de IA — não tinha `image:` no `docker-compose.prod.yml`,
+só `build:`. Isso o tornava invisível para `docker compose pull` ("Skipped — No image to be
+pulled") e imune a `up -d` sem `--build`. Ele era construído na VPS no dia da instalação e
+**nenhum `update.sh` jamais o reconstruiu**. Correções do agente não chegavam a instalação
+nenhuma, e nada na tela nem no log dizia isso.
+
+O dossiê desta suíte já tinha registrado o sintoma sem tirar a conclusão: a linha 295 anota,
+do QA de instalação real, *"cache de build do Docker zerado (a VPS realmente compila o
+worker)"*. O fato estava medido; a pergunta é que faltava.
+
+**Casos desta jornada** (`[P0]` = primeira impressão / parque instalado):
+
+| # | Caso | Estado |
+|---|---|---|
+| U1 `[P0]` | Instalação nova nasce pinada numa VERSÃO, não em canal móvel | coberto — `hostgator-setup-kit/test-validators.sh` roda o `install.sh` contra um remoto local com tags e cobra o `.env` |
+| U2 `[P0]` | `update.sh` grava as TRÊS imagens na mesma versão | coberto — `tests/shell/update-guard.test.sh` §4b |
+| U3 `[P0]` | Nenhum serviço de produção fica `build:`-only | coberto — `tests/unit/packaging-artefato-do-cliente.test.ts` |
+| U4 | O crontab do scheduler não perde rota ao mudar de arquivo | coberto — `tests/shell/scheduler-entrypoint.test.sh` + `tests/unit/cron-routes-scheduled.test.ts` |
+| U5 | `/api/v1/health` responde a versão real da imagem | coberto — medido no app real: com `APP_VERSION=9.9.9-teste` responde `9.9.9-teste`; sem ela, `desconhecido` |
+| U6 `[P0]` | **Ensaio de atualização numa VPS real, de uma versão anterior para a nova, e o worker passa a rodar o código novo** | **EXECUTADO 2026-08-13** (U6-b, U6-c e **aplicado em produção**) — estado legado reproduzido do commit `ee520110`, worker migrou para a imagem publicada, nada perdido. **Com ressalva:** a 1ª execução do `update.sh` não conserta enquanto o canal `stable` não existir; a 2ª conserta. Evidência e limites em [`../runbooks/remediar-worker-congelado.md`](../runbooks/remediar-worker-congelado.md) §6 |
+
+U6 deixou de ser buraco em 2026-08-13, e o ensaio pagou o próprio custo: revelou que a
+primeira execução do `update.sh` não conserta o worker enquanto o canal `stable` não
+existir — coisa que nenhum teste do CI podia mostrar, porque não é sobre o que os scripts
+fazem, e sim sobre a ORDEM em que o parque encontra as peças.
+
+O que continua fora: o app contra um Supabase real (o ensaio usou Postgres em contêiner),
+uma sessão de WhatsApp pareada de verdade (foi um marcador no volume), e o `install.sh`
+completo da época (exige projeto Supabase). Segue valendo a régua de `vps-fresh-onboarding`:
+o CI prova que os scripts fazem o que dizem, não que a máquina de alguém mudou de estado.
+
+---
+
+## O cliente do revendedor vê a marca de quem o atende? (2026-08-14)
+
+**Jornada nova, e ela cobre a persona que nenhuma outra cobre: o REVENDEDOR.** Todas as
+jornadas acima olham a instalação pelos olhos de quem a usa. Esta olha pelos olhos de quem a
+**vende** — a agência que instala numa VPS, põe a própria marca e cobra por isso, que é o
+modelo de monetização declarado do produto (`docs/white-label.md`).
+
+Ela nasceu de uma frase falsa em documento público. O `white-label.md` prometia, em texto de
+venda, que "cores, fontes e tema não são configuráveis" e que "a marca é por instalação, não
+por organização" — as duas coisas deixaram de ser verdade no épico de marca própria, e o
+documento seguiu vendendo o limite antigo. O oposto também apareceu: o autenticador registrava
+o nome fixo do nosso produto, e isso morava numa lista de "aberto para decisão do dono" há
+semanas, sem dono.
+
+**Por que quase toda a régua aqui é `[P0]`:** um vazamento de marca não parece um bug para
+quem o comete — a tela funciona, o e-mail chega, o teste passa. Ele só existe aos olhos de um
+terceiro (o cliente do revendedor) que descobre, no meio de uma conversa de venda, o nome de um
+software que ele não contratou. Não há gravidade média nisso.
+
+**Onde o código vive:** `lib/branding/` (resolvedor, rampa, contraste, saída sem DOM),
+`app/admin/(protected)/marca/` e `app/app/settings/marca/` (as duas telas),
+`hostgator-setup-kit/marca-emails.sh` (os e-mails de acesso) e o mapa
+[`../architecture/marca-propria.architecture.json`](../architecture/marca-propria.architecture.json).
+
+| # | Caso | Estado |
+|---|---|---|
+| `M1` `[P0]` | Instalação com a marca do revendedor: a **aba** mostra o nome dele e o **ícone** carrega **deslogado** | **PASS por comportamento** (2026-08-13, build de produção): com `app_name='Vendas Turbo'` e `accent_hex='#f2c94c'` gravados, o ícone virou **V sobre `#6e5c28`** — o accent DERIVADO, não a semente crua — e o título trocou. Spec `tests/e2e/icone-da-marca.spec.ts` no disco **e inscrita** em `SPECS_PARTE_1` (`.github/workflows/e2e.yml:106`). **NÃO medido: a primeira execução dela no CI** |
+| `M2` `[P0]` | O **e-mail de confirmação de conta** chega com a marca do revendedor — ou, sem `SUPABASE_ACCESS_TOKEN`, o passo manual é impresso e a instalação segue | **PARCIAL.** O mecanismo foi medido contra a API real num projeto descartável: `PATCH /v1/projects/{ref}/config/auth` com `mailer_templates_*` **é aceito e PERSISTE sem SMTP customizado** (releitura por `GET`, estado restaurado). Achado do rig: **projeto pausado responde 400 "Project is paused."** — modo de falha que um script confiando em 2xx reportaria como sucesso, e por isso `marca-emails.sh` relê o que gravou. **NÃO medido: um e-mail efetivamente entregue numa caixa de entrada** |
+| `M3` `[P0]` | **Convite de time**: assunto e corpo com a marca; sem `RESEND_*`, a tela mostra o `accept_url` em vez de falhar calada | **COBERTO POR TESTE, NÃO PROVADO NA TELA.** `tests/unit/email-marca-e-remetente.test.ts` e `tests/unit/branding-saida.test.ts` guardam a resolução e o remetente; `RESEND_FROM_EMAIL` vazio passa a significar `not_configured`, que cai no caminho que já existia (`accept_url` na tela, `pending_review` no worker de LGPD). Falta dirigir o browser num ambiente fresco **sem** `RESEND_API_KEY` |
+| `M4` `[P1]` | **Cadastro de MFA**: o app autenticador registra a marca da instalação | **ENTREGUE, PROVA CONTRA GoTrue REAL NÃO LOCALIZADA.** `app/actions/auth/enrollMfa.ts:59` passa `issuer: marca.nome` — o campo que de fato grava no celular (`friendlyName` **não** entra na URI `otpauth://`, medido contra GoTrue v2.188.1). O plano exigia repetir o rig de enroll real antes de fechar; não achei registro dessa execução. **Vale só para quem enrolar depois: trocar o `issuer` não reescreve fator já cadastrado** |
+| `M5` `[P1]` | **Export de LGPD**: o PDF nomeia o **controlador** (`legal_name`) e o DPO — **nunca** a marca do revendedor | **COBERTO POR TESTE.** O teste isola o rodapé e exige que o texto entre `Controlador:` e `· Relatório LGPD` seja **exatamente** o `legal_name` (a primeira versão só checava `/deskcomm/i` e teria deixado passar a marca de um revendedor). Vigiado também no mapa de arquitetura, que reprova quem ligar o PDF ao resolvedor de marca. **Armadilha viva:** `legal_name` nasce igual ao nome fantasia — o caso ruim é o valor plausível e errado, e quem resolve é a tela `/app/settings/tenant` |
+| `M6` `[P1]` | **Marca por organização**: a cor da org pinta `/app` e **não** vaza para o `/login` | **PASS na tela** (2026-08-13), com admin de tenant PURO — a precondição falhou primeiro e era a armadilha prevista (`e2e-admin` **era** `platform_admin`; medi `count=1`, revoguei, reafirmei `count=0`, só então testei). `#b3261e` no claro, `#f16051` no escuro, persistido no reload, e **ausente** em `/login` sem sessão. Evidência: `evidence/org-1-tela.png`, `evidence/org-2-digitado.png`, `evidence/org-3-salvo.png`, `evidence/org-4-recarregado.png`, `evidence/org-5-login.png` |
+| `M7` `[P2]` | Cor inválida: cai para o padrão, o estado fica gravado e a tela **mostra** por quê | **PASS na tela** para a recusa (hex inválido → **Salvar desabilitado**, evidência `evidence/marca-3-invalido.png`). `fallback_at`/`fallback_reason` são gravados por `registrarEstadoDaMarca()` e lidos por `/admin/marca`. **Dívida conhecida:** pela UI o caminho é inalcançável — o CHECK do banco barra o hex corrompido antes —, então o estado do degrade só aparece para quem editar o banco à mão ou vier de um clone com valor legado |
+| `M8` `[P0]` | O revendedor **descobre** que dá para trocar a marca | **PASS estrutural.** `/app/settings/marca` está declarada em `lib/navigation/registry.ts` (grupo Configurações, `sidebar:false` — tarefa de uma vez, o hub e o ⌘K garantem a descoberta), e `tests/unit/navegacao-completude.test.ts` reprova tela sem porta. `/admin/marca` é de platform admin e fica fora dessa varredura por construção |
+
+**O que esta jornada ainda NÃO cobre, e é onde eu apostaria o próximo defeito:** a instalação
+fresca ponta a ponta com a marca de um revendedor — `install.sh` numa VPS, respondendo
+`APP_NAME` com um nome de verdade, e conferindo os **cinco** artefatos que saem dali (aba,
+ícone, e-mail de acesso, convite, endereço de suporte). É a mesma lacuna de
+`vps-fresh-onboarding`: os testes provam que cada peça faz o que diz, não que a jornada de
+quem compra funciona inteira. Os defeitos de marca que mais custam caro moram exatamente aí,
+porque são vistos primeiro por um terceiro.

@@ -64,15 +64,27 @@ mudança toca schema, RLS ou UI, `gov:verify` verde **não** é prova — rode `
 **O que o CI cobre.** `.github/workflows/ci.yml`: `verify` = typecheck + lint + test:unit;
 `invariants` = `pnpm test:db` (isolamento RLS + invariantes de governança contra Postgres
 efêmero pg17). `.github/workflows/perf.yml`: `build-and-size` = `pnpm build`.
-**Os três são checks obrigatórios** na branch protection da `main`.
+`.github/workflows/e2e.yml` roda **45 das 46 specs** Playwright contra um Supabase local de
+verdade com o `baseline.sql` aplicado — o mesmo banco que o self-hoster tem. **É check
+obrigatório desde 2026-08-08.** A **única** de fora é `vps-fresh-onboarding` (WAHA + Redis +
+Resend + Nuvemshop; é a P0 da doutrina de QA) — ou seja, `e2e` verde não prova a jornada de
+instalação fresca. `followup-journey`, `webhooks` e `capacidades-do-agente` estiveram fora e
+**voltaram**: rodam hoje (`e2e.yml`, listas `SPECS_PARTE_1`/`SPECS_PARTE_2`).
 
-`.github/workflows/e2e.yml` roda **28 das 32 specs** Playwright contra um Supabase local de
-verdade com o `baseline.sql` aplicado — o mesmo banco que o self-hoster tem. **Não é
-obrigatório ainda** (o conjunto de specs acabou de mudar, então execuções verdes anteriores
-eram de outro conjunto e não provam a estabilidade deste). As 4 de fora: `followup-journey` e
-`webhooks` (precisam de WAHA), `vps-fresh-onboarding` (WAHA + Redis + Resend + Nuvemshop; é a
-P0 da doutrina de QA) e `capacidades-do-agente`, que está fora porque REPROVA de verdade — ver
-o summary do job. Se você mexeu em UI fora desse subconjunto, a prova é sua.
+`.github/workflows/publish-image.yml`: `imagens-ok` = as três imagens Docker constroem. **Obrigatório
+desde 2026-08-13.**
+
+**Os cinco são checks obrigatórios** na branch protection da `main` — medido em 2026-08-14 @ `741c4ec8`:
+
+```console
+$ gh api repos/melgarafael/DeskcommCRM/branches/main/protection --jq '.required_status_checks.contexts|join(", ")'
+verify, build-and-size, invariants, e2e, imagens-ok
+```
+
+> Este bloco estava errado em quatro pontos até 2026-08-14 (dizia "três checks", "28 das 32
+> specs", "e2e não é obrigatório ainda" e listava como excluídas três specs que já rodavam).
+> A pior era a do `e2e`: quem lesse mediria um PR contra a régua errada. **Reconte antes de
+> citar** — `ls tests/e2e/*.spec.ts | wc -l` e o comando acima.
 
 ## Padrões de código (observados no repo, não inventados)
 
@@ -83,6 +95,15 @@ o summary do job. Se você mexeu em UI fora desse subconjunto, a prova é sua.
 - Log: `lib/logger.ts` (estruturado). **`console.log` é proibido** em código merged.
 - Testes ao lado do código (`lib/foo/bar.test.ts`) ou em `tests/{unit,api,invariants,e2e}/`.
 - Comentários em PT-BR são a norma neste repo — mantenha o idioma do arquivo que editar.
+
+### Marca própria (white-label) — o produto é revendido, e o nome não é seu
+
+- **Nunca escreva "Deskcomm"/"DeskcommCRM" em código que alcança o usuário.** `tests/unit/branding.test.ts` varre `app|components|lib|workers|hooks` e reprova; a allowlist **só encolhe**.
+- A marca resolve do **banco** (`platform_branding` para a instalação, `organizations.settings.branding` para a organização). `APP_NAME`/`APP_LOGO_URL`/`APP_ACCENT_HEX` no `.env` são **semente e piso de rollback**, não a fonte.
+- Precisa da marca **fora do DOM** (e-mail, remetente, ícone, `issuer` do MFA)? Use `marcaDaSaida()` de `lib/branding/saida.ts` — um hex e uma frente legível, tema claro. Nunca entregue `MarcaResolvida` a um template de e-mail.
+- Resolvedor de marca **nunca lança**: ele roda em `app/layout.tsx`, e um throw ali é 500 em todas as telas.
+- **O PDF de LGPD não leva marca** — ele nomeia o controlador (`organizations.legal_name`) e o DPO. Isso é decisão, não omissão; há gate no mapa de arquitetura.
+- Contexto de venda em `docs/white-label.md`; mapa em `docs/architecture/marca-propria.architecture.json`.
 
 ## Diretórios e arquivos SENSÍVEIS
 
@@ -127,20 +148,23 @@ o summary do job. Se você mexeu em UI fora desse subconjunto, a prova é sua.
 
 ## Testes existentes (CONFIRMADO)
 
-- **221** arquivos `*.test.ts(x)` unitários (rodam em `test:unit` e no CI)
-- **67** arquivos de invariante de banco em `tests/invariants/` — RLS/isolamento cross-tenant,
+Medido em 2026-08-14 @ `741c4ec8`, com o comando ao lado de cada número:
+
+- **257** arquivos de teste unitário em `tests/unit/` (`git ls-files 'tests/unit/*.test.ts' 'tests/unit/*.test.tsx' | wc -l`). O repo tem **491** arquivos `*.test.ts(x)` no total (`git ls-files '*.test.ts' '*.test.tsx' | wc -l`) — a diferença vive junto ao código, fora de `tests/`, e também roda em `test:unit`.
+- **102** arquivos de invariante de banco em `tests/invariants/` (`git ls-files 'tests/invariants/*.test.ts' | wc -l`) — RLS/isolamento cross-tenant,
   RBAC, governança (G1–G6). Excluídos do `test:unit` de propósito; rodam via `pnpm test:db`
   **e no job `invariants` do CI**.
-- **32** specs Playwright em `tests/e2e/`. **28 rodam no CI** (via `e2e.yml`,
-  não-obrigatório). As 4 de fora dependem de serviço externo (WAHA/Redis/Resend/Nuvemshop) —
-  incluindo `vps-fresh-onboarding` — ou reprovam legitimamente (`capacidades-do-agente`).
-  Ver issue #63.
+- **46** specs Playwright em `tests/e2e/` (`ls tests/e2e/*.spec.ts | wc -l`). **45 rodam no CI** (via `e2e.yml`,
+  **obrigatório**). A única de fora é `vps-fresh-onboarding`, por dependência de serviço externo
+  (WAHA/Redis/Resend/Nuvemshop). Ver issue #63.
 
 ## Limitações conhecidas (estado em 2026-07-29, contra `origin/main` @ 789dfa6)
 
-- **4 das 32 specs E2E seguem fora do CI**, e o `e2e` ainda não é check obrigatório: um PR
-  que o quebre entra na `main` assim mesmo. Se você mexeu em UI coberta só por essas 4, a
-  prova é sua.
+- **1 das 46 specs E2E segue fora do CI** (`vps-fresh-onboarding`), e o `e2e` **é** check
+  obrigatório desde 2026-08-08. Ou seja: um PR que quebre o `e2e` não entra — mas a jornada de
+  instalação fresca, que é o produto que se vende, continua sem gate. Se você mexeu nela, a
+  prova é sua. *(Corrigido em 2026-08-14; a redação anterior — "4 das 32, não-obrigatório" —
+  mudava a régua de qualquer triagem que a lesse.)*
 - Rate limit HTTP existe em **2** pontos do código (webhook de captação e dispatcher de IA);
   login, signup, aceite de convite, crons e MCP estão sem. Não há lockout por conta no login.
 - Fallback do rate limit é **em memória** — sem Upstash configurado o limite é por processo.
@@ -164,11 +188,28 @@ o summary do job. Se você mexeu em UI fora desse subconjunto, a prova é sua.
   higieniza — não confie nele como única camada.
 - Não commite screenshot/dump com dado real de cliente.
 
+## Packaging — se você tocou `Dockerfile*`, `docker-compose*.yml` ou `hostgator-setup-kit/`
+
+Lei completa em [`docs/doctrine/packaging.md`](docs/doctrine/packaging.md). O não-negociável:
+
+- **Nenhum serviço de `docker-compose.prod.yml` constrói na máquina do cliente.** Todo serviço
+  declara `image:` de uma imagem publicada; `build:` só existe **ao lado**, como escape.
+  Serviço `build:`-only é pulado por `docker compose pull` e imune a `up -d` sem `--build` —
+  ele não é só caro de instalar, ele **nunca é atualizado**.
+- **Publicação é ato do CI**, nunca da sua máquina: build ARM local não roda na VPS amd64.
+- **Instalação de cliente aponta para número de versão**, nunca para tag móvel. Aqui `latest`
+  significa **topo da `main`**, não última release — quem quer a última release usa `stable`.
+- **Dependência upstream é referenciada com tag fixa, nunca republicada** (WAHA é licenciado).
+- **Bump de versão não pode exigir que o operador da VPS edite arquivo à mão.**
+
+`pnpm test:shell` é o único gate que exercita o kit. Rode-o.
+
 ## Critério de conclusão
 
-Vale a **Definition of Done de 13 itens em [`CLAUDE.md`](CLAUDE.md)**. Não declare pronto
+Vale a **Definition of Done de 15 itens em [`CLAUDE.md`](CLAUDE.md)**. Não declare pronto
 sem: typecheck/lint zerados, testes relevantes verdes, RLS testada se tocou tabela
-tenant-aware, migration + baseline + MANIFEST se mudou schema, e prova visual se mudou UI.
+tenant-aware, migration + baseline + MANIFEST se mudou schema, prova visual se mudou UI, e a
+regra de packaging acima se mudou o artefato que o self-hoster instala.
 
 ## Regra final — não invente
 

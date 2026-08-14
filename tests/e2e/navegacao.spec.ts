@@ -86,12 +86,25 @@ test.describe("navegação agrupada", () => {
     });
   });
 
-  test("chega em Funis pelo CRM, sem passar por Configurações", async ({ page }) => {
+  test("chega nas Etapas do funil pelo CRM, sem passar por Configurações", async ({ page }) => {
     await loginAdmin(page);
 
-    // O caso que originou tudo: o usuário não sabia que Funis existia.
-    await sidebar(page).getByRole("link", { name: "Funis" }).click();
-    await page.waitForURL(/pipelines/);
+    // O caso que originou tudo: o usuário não sabia que esta tela existia.
+    //
+    // ⚠️ O ITEM MUDOU DE NOME, e o nome antigo ("Funis") passou para o VIZINHO —
+    // a lista de funis, em /app/kanban. Um teste que continuasse clicando em
+    // "Funis" seguiria verde medindo a outra tela; por isso a asserção de URL
+    // abaixo é específica (`settings/tenant/pipelines`) e não o antigo
+    // /pipelines/, que casa com as duas.
+    await sidebar(page).getByRole("link", { name: "Etapas do funil" }).click();
+    await page.waitForURL(/settings\/tenant\/pipelines/);
+    await expect(page.getByRole("heading", { name: "Etapas do funil", level: 1 })).toBeVisible();
+  });
+
+  test("e a lista de funis é o item vizinho, com nome próprio", async ({ page }) => {
+    await loginAdmin(page);
+    await sidebar(page).getByRole("link", { name: "Funis", exact: true }).click();
+    await page.waitForURL(/\/app\/kanban/);
     await expect(page.getByRole("heading", { name: "Funis", level: 1 })).toBeVisible();
   });
 

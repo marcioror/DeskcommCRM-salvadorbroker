@@ -45,9 +45,19 @@ export function useLinkPropertyToLead(leadId: string) {
     // Mesmo vínculo, duas telas — ver comentário simétrico em
     // hooks/properties/usePropertyLeadLinks.ts (achado da revisão final:
     // sem invalidar os dois lados, o outro fica com cache stale por até 30s).
+    //
+    // A TIMELINE é o terceiro lado, e faltava. A rota grava
+    // `property_linked` em `crm_lead_activities` (properties/[id]/leads
+    // POST:128), e `useLeadTimeline` só descobria isso pelo realtime — sem
+    // invalidação, a linha "Vinculado a um imóvel" não aparece enquanto o
+    // dossiê estiver aberto, e o usuário conclui que o vínculo não registrou.
+    // Medido no CI de 2026-08-14: `properties.spec.ts:197` reprovou esperando
+    // 15s por ela, com o vínculo já visível nos outros dois lados. Realtime é
+    // otimização, não garantia — quem faz a mutação sabe o que mudou.
     onSuccess: (_data, propertyId) => {
       qc.invalidateQueries({ queryKey: ["lead-properties", leadId] });
       qc.invalidateQueries({ queryKey: ["property-leads", propertyId] });
+      qc.invalidateQueries({ queryKey: ["timeline", leadId] });
     },
   });
 }
@@ -58,9 +68,12 @@ export function useUnlinkPropertyFromLead(leadId: string) {
     mutationFn: async (propertyId: string) =>
       apiClient.delete(`/api/v1/properties/${propertyId}/leads/${leadId}`),
     onError: showApiError,
+    // `property_unlinked` também vira atividade (leads/[leadId] DELETE:56) —
+    // mesma razão da mutação acima.
     onSuccess: (_data, propertyId) => {
       qc.invalidateQueries({ queryKey: ["lead-properties", leadId] });
       qc.invalidateQueries({ queryKey: ["property-leads", propertyId] });
+      qc.invalidateQueries({ queryKey: ["timeline", leadId] });
     },
   });
 }

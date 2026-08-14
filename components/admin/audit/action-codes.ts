@@ -45,9 +45,23 @@ export const ACTION_CODES: string[] = [
   "onboarding.whatsapp_skipped",
   "onboarding.nuvemshop_skipped",
   "onboarding.ai_configured",
+  // O passo que troca o quadro de e-commerce semeado por um do ramo do negócio,
+  // e o passo de ver o funcionário responder antes de terminar o wizard.
+  "onboarding.quadro_montado",
+  "onboarding.quadro_pulado",
+  "onboarding.agente_testado",
+  "onboarding.agente_teste_pulado",
   "onboarding.team_invited",
   "onboarding.completed",
   "tenant.onboarded",
+  // A verificação em duas etapas deixou de ser imposta por papel: quem exige, e
+  // quem desligou a própria, é escolha auditável.
+  "security.mfa_exigida",
+  "security.mfa_dispensada",
+  "security.mfa_desativada",
+  // O signup que RECUSOU provisionar empresa nova porque o convite não valia —
+  // sem esta linha, o caso mais delicado do fluxo de convite não teria filtro.
+  "auth.signup_provision_recusado",
   "conversation.created",
   "conversation.claimed",
   "conversation.released",
@@ -91,4 +105,38 @@ export const ACTION_CODES: string[] = [
   "tenant.reactivated",
   "platform_admin.audit_listed",
   "platform_admin.audit_entry_viewed",
+  // Marca da instalação trocada (migration 0155). Entra aqui E em
+  // lib/audit/actions.ts — sem isto o filtro do painel não oferece o código e a
+  // linha existiria no banco sem porta na tela.
+  //
+  // ⚠️ ACHADO, NÃO CONSERTADO AQUI: estas duas listas JÁ DIVERGEM. Medido em
+  // 2026-08-13, com esta entrada JÁ nas duas — 208 códigos no union de
+  // `lib/audit/actions.ts` contra 88 aqui, e 120 que existem, são emitidos e NÃO
+  // são filtráveis no painel (o inverso é 0: nada aqui falta lá). O comentário do
+  // topo diz "keep in sync manually" e não há gate nenhum cobrando — foi assim
+  // que 120 entradas se perderam. Curar 120 entradas alheias dentro
+  // desta mudança misturaria duas coisas e esconderia as duas; a dívida está
+  // registrada no handoff desta frente para virar item próprio (o conserto certo
+  // é derivar esta lista do union, não copiá-la melhor).
+  "platform_branding.updated",
+  "org.branding_updated",
+  // Módulo de imóveis — customização DESTE FORK (Salvador Broker), emitida
+  // desde a 9001 e ausente daqui desde então: as sete linhas iam para
+  // `api_audit_log` e o filtro do painel não as oferecia, então a trilha de
+  // quem cadastrou, editou, desativou ou vinculou um imóvel existia sem porta
+  // na tela. Quem acusou foi `audit-listas-nao-divergem-mais.test.ts`, gate
+  // que o upstream trouxe na fusão de 2026-08-14 — a dívida das 120 entradas
+  // dele está congelada, mas a catraca proíbe fazer a lista crescer, e estas
+  // sete são nossas.
+  //
+  // Não entram na DIVERGENCIA_CONGELADA de propósito: congelar é para dívida
+  // alheia que se conserta em frente própria, e o conserto destas custa esta
+  // linha.
+  "property.created",
+  "property.updated",
+  "property.deactivated",
+  "property.media_added",
+  "property.media_removed",
+  "property.lead_linked",
+  "property.lead_unlinked",
 ];

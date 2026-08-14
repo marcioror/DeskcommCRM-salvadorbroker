@@ -429,11 +429,39 @@ ask_one() {
 RAM_MINIMA_KB=3500000
 ram_abaixo_do_recomendado() { [ "${1:-0}" -lt "$RAM_MINIMA_KB" ]; }
 
-# Uma linha de .env com o valor entre aspas simples e as aspas do conteúdo
-# escapadas — o que faz senha com espaço, `#` ou `$` sobreviver à releitura.
+# Uma linha de .env com o valor entre aspas DUPLAS e `\`, `"`, `$` e crase
+# escapados — o que faz nome de empresa e senha sobreviverem à releitura.
+#
+# O encoding tem de servir a TRÊS consumidores, cada um com um parser próprio, e
+# nenhum deles é o mesmo shell: o `load_env` do _common.sh (leitura manual, por
+# onde passa todo script do kit), o `env_file: .env` do docker-compose.prod.yml
+# (:34 e :71) e o `source .env && curl …` que o README ensina (:143).
+#
+# Era aspas SIMPLES, com a aspa do conteúdo escrita como `'\''` — shell válido,
+# e só. O parser de dotenv do Compose não é um shell: ele lê aquela barra como
+# começo de nome de variável e recusa o ARQUIVO INTEIRO. Medido no compose
+# v2.38.2 com `APP_NAME=Sant'Ana Odontologia`:
+#
+#   failed to read .env: line 1: unexpected character "\" in variable name
+#   "\''Ana Odontologia'"
+#   config → rc=1 ; ps → rc=1 ; pull → rc=1   (o mesmo .env sem apóstrofo: rc=0)
+#
+# Nomes assim são comuns aqui — "Sant'Ana", "D'Ávila", "Espaço D'Or" —, APP_NAME
+# é a última pergunta da entrevista e não tem validador. O desfecho era o pior
+# tipo de quebra: Supabase provisionado, schema aplicado, admin criado, e TODO
+# comando docker do kit morto, sem nada apontando para o .env.
+#
+# RESIDUAL MEDIDO, e a escolha por trás dele: o Compose desfaz `\"`, `\\` e `\$`
+# dentro das aspas duplas, mas NÃO desfaz a crase escapada — um valor com crase
+# chega ao contêiner com as barras (medido: `Loja \`date\` Ltda`). Escapá-la
+# assim mesmo é deliberado: sem a barra, o `source .env` do README EXECUTA o que
+# estiver entre crases. Caractere feio no contêiner é preço menor que execução
+# de comando na máquina de quem instala. As duas outras pontas (load_env e
+# source) recebem a crase intacta.
+#
 # Fica aqui em cima (e não junto do bloco que escreve o .env) porque o
 # save_partial abaixo grava durante a ENTREVISTA, muito antes daquele bloco.
-envq() { printf "%s='%s'\n" "$1" "$(printf '%s' "${2-}" | sed "s/'/'\\\\''/g")"; }
+envq() { printf '%s="%s"\n' "$1" "$(printf '%s' "${2-}" | sed 's/[\\"$`]/\\&/g')"; }
 
 # Guarda cada resposta no instante em que ela é aceita. Antes, as 12 respostas
 # só viravam arquivo no FIM: quem travasse na connection string — a pergunta
@@ -908,8 +936,11 @@ fi
 # Cada linha: VARIÁVEL|pergunta|padrão|validador|secret|opcional
 # A ordem importa: a URL do projeto vem antes das chaves porque os validadores
 # das chaves batem contra ela (chave de outro projeto é erro comum e mudo).
-# Marca da instalação (APP_NAME) fica por último de propósito: é opcional, e
-# perguntar no meio das credenciais faria parecer obrigatória.
+# O bloco final (APP_NAME, SUPPORT_EMAIL, RESEND_*) fica por último de
+# propósito: é tudo opcional, e perguntar no meio das credenciais faria parecer
+# obrigatório. Todas as quatro aceitam Enter — e, quando vazias, o produto
+# degrada de forma declarada (marca padrão; tela de suspensão sem endereço;
+# convite mostrando o link de aceite na própria tela).
 # ── Qual IA vai atender ─────────────────────────────────────────────────────
 #
 # Antes daqui o instalador só sabia pedir a chave da Anthropic, e quem já tinha
@@ -981,10 +1012,57 @@ else
   CAMPO_OPENAI_EXTRA="OPENAI_API_KEY|Chave da OpenAI — só para ouvir áudios e usar a base de conhecimento (Enter pula)||v_openai|secret|opcional"
 fi
 
+# ── A versão que esta instalação vai rodar ───────────────────────────────────
+# Uma instalação nova nascia em `:latest`, e aqui `latest` NÃO quer dizer "a
+# última release": ele segue a branch default, então ela
+# segue o topo da `main` — código ainda não lançado. Quem instalava no dia 6
+# e quem instalava no dia 20 rodavam software diferente, ambos dizendo "estou
+# no latest", e o suporte não tinha como saber o quê. A issue #184 chegou
+# descrevendo o ambiente como "latest do dia 06/08/2026", que é a admissão de
+# que a versão não era nomeável.
+#
+# Resolvido no REMOTO porque o clone é `--depth 1` e não traz tag nenhuma.
+VERSAO_ALVO="$(ultima_versao_publicada "$REPO_URL")"
+
+# A tag do git é condição NECESSÁRIA, não suficiente: ela nasce minutos antes
+# das imagens, e `deskcomm-worker`/`deskcomm-scheduler` só passaram a existir
+# depois das releases que já estão publicadas — `deskcomm-worker:1.2.1` nunca
+# vai existir, porque a v1.2.1 é passado. Sem esta conferência, o .env do
+# cliente receberia duas referências impossíveis e o kit as construiria aqui em
+# silêncio, do topo da main: app de uma release + worker de outro código.
+#
+# Cascata, do mais específico ao mais disponível. Cada nível pergunta pelas TRÊS
+# imagens juntas, porque instalar com elas desalinhadas é o defeito, não a
+# solução.
+if [ -n "$VERSAO_ALVO" ] && trio_publicado "$VERSAO_ALVO"; then
+  : # o caminho normal: as três publicadas na última versão
+elif trio_publicado "stable"; then
+  c_ylw "⚠ A versão ${VERSAO_ALVO:-mais recente} ainda não tem as três imagens publicadas."
+  c_ylw "  Instalando pelo canal 'stable' (a última versão completa)."
+  VERSAO_ALVO="stable"
+elif [ -n "$VERSAO_ALVO" ]; then
+  # Nem a versão nem o `stable` têm o trio. Segue assim mesmo — o compose tem
+  # `build:` ao lado do `image:` do worker e do scheduler, então eles são
+  # construídos aqui. É lento, mas instala. O que NÃO pode é isso acontecer
+  # calado: o dono precisa saber que duas peças dele saíram do fonte local.
+  c_ylw "⚠ As imagens do worker e do agendador ainda não estão publicadas."
+  c_ylw "  Elas serão construídas neste servidor — leva alguns minutos a mais."
+  c_ylw "  Rode 'bash hostgator-setup-kit/update.sh' quando a próxima versão sair."
+else
+  # Falha ABERTA: sem rede ou sem tag no remoto, segue como antes. Travar a
+  # instalação por não resolver um número seria trocar previsibilidade por
+  # disponibilidade — mas o aviso sai, porque o dono precisa saber que ficou
+  # num canal móvel em vez de numa versão.
+  VERSAO_ALVO="latest"
+  c_ylw "⚠ Não consegui descobrir a última versão publicada (rede?)."
+  c_ylw "  Instalando pelo canal 'latest'. Depois rode: bash hostgator-setup-kit/update.sh"
+fi
+IMAGEM_APP_DEFAULT="${IMG_APP}:${VERSAO_ALVO}"
+
 FIELDS=(
   "DOMAIN|Domínio do CRM (ex: crm.suaempresa.com.br)||v_domain||"
   "ACME_EMAIL|Seu e-mail (avisos de SSL)||v_email||"
-  "APP_IMAGE|Imagem Docker do app|ghcr.io/melgarafael/deskcommcrm:latest|||"
+  "APP_IMAGE|Imagem Docker do app|${IMAGEM_APP_DEFAULT}|||"
   "NEXT_PUBLIC_SUPABASE_URL|Supabase Project URL (Settings > API)||v_supabase_url||"
   "NEXT_PUBLIC_SUPABASE_ANON_KEY|Supabase anon key (Settings > API)||v_anon||"
   "SUPABASE_SERVICE_ROLE_KEY|Supabase service_role key (Settings > API)||v_service|secret|"
@@ -994,6 +1072,9 @@ FIELDS=(
   "OWNER_EMAIL|E-mail do primeiro admin (dono)||v_email||"
   "OWNER_PASSWORD|Senha do primeiro admin (mínimo 8 caracteres)||v_password|secret|"
   "APP_NAME|Nome que aparece na interface (Enter para o padrão)|DeskcommCRM|||"
+  "SUPPORT_EMAIL|E-mail de suporte que SEUS clientes veem (Enter pula)||v_email||opcional"
+  "RESEND_API_KEY|Chave da Resend — envia convite e e-mail de LGPD (resend.com/api-keys, Enter pula)|||secret|opcional"
+  "RESEND_FROM_EMAIL|Remetente dos e-mails, de um domínio verificado na Resend (Enter pula)||v_email||opcional"
 )
 
 field_at() { IFS='|' read -r F_VAR F_PROMPT F_DEF F_VAL F_SEC F_OPT <<< "${FIELDS[$1]}"; }
@@ -1143,11 +1224,13 @@ fi
 step "Escrevendo .env"
 umask 077
 
-# Todo valor sai entre aspas simples, com aspa interna escapada. Sem isso, um
+# Todo valor sai pelo `envq` (definido lá em cima, junto do save_partial): entre
+# aspas DUPLAS, com `\`, `"`, `$` e crase escapados. Sem isso, um
 # `APP_NAME=Loja do João` (ou uma senha com # ou $) quebrava tudo que lê este
 # arquivo com `source` — os scripts do kit e a receita do próprio README
-# (`source .env && curl ...`). O Docker Compose remove as aspas ao carregar,
-# então o contêiner recebe exatamente o valor digitado.
+# (`source .env && curl ...`) —, e a versão de aspas simples que veio antes
+# quebrava o terceiro leitor, o `env_file: .env` do Compose, em todo nome com
+# apóstrofo. O porquê de cada caractere escapado está no comentário do envq.
 
 # ── Preserva o que o instalador NÃO conhece ────────────────────────────────
 #
@@ -1211,10 +1294,49 @@ if [ -f .env ]; then
   fi
 fi
 
+# A tag que o dono escolheu (o campo APP_IMAGE é editável na entrevista) decide
+# o pull_policy das três imagens. A regra é medida, não estética: com `always` e
+# o registry sem responder para aquela referência, o `up -d` FALHA e o contêiner
+# não sobe, mesmo com a imagem já no disco. Numa tag imutável isso não protege
+# de nada — só amarra a subida do CRM à disponibilidade do GHCR. Numa tag móvel
+# é o contrário: sem `always`, a versão nova nunca chega.
+# Olha só o último segmento do caminho: `registry.local:5000/x/y` tem ':' e NÃO
+# tem tag, e um `${APP_IMAGE##*:}` ingênuo devolveria "5000/x/y" como se fosse
+# uma. Um `@sha256:...` cai aqui como tag imutável, que é o correto.
+_ref_final="${APP_IMAGE##*/}"
+case "$_ref_final" in
+  *@sha256:*)
+    # O operador pinou o app por DIGEST. Derivar a tag daí produziria
+    # `deskcomm-worker:<hash-do-app>` — uma referência que não existe em lugar
+    # nenhum, e o `pull` falharia com "manifest unknown" sem ninguém entender
+    # por quê. Worker e scheduler vão para o canal estável, e o aviso sai porque
+    # quem pinou por digest tinha um motivo e precisa saber que ele não se
+    # propagou às outras duas.
+    TAG_ALVO="stable"
+    c_ylw "⚠ APP_IMAGE está pinado por digest."
+    c_ylw "  O worker e o scheduler ficam em 'stable' — ajuste WORKER_IMAGE/SCHEDULER_IMAGE"
+    c_ylw "  no .env se você precisa deles num digest específico também."
+    ;;
+  *:*) TAG_ALVO="${_ref_final##*:}" ;;
+  *)   TAG_ALVO="latest" ;;   # imagem sem ':' é :latest por definição do Docker
+esac
+case "$TAG_ALVO" in
+  latest|main|stable) PULL_POLICY_ALVO="always" ;;
+  *)                  PULL_POLICY_ALVO="missing" ;;
+esac
+
 {
   printf '# Gerado por install.sh — NÃO comitar. Contém segredos.\n'
   envq APP_IMAGE "$APP_IMAGE"
-  envq APP_PULL_POLICY "always"
+  envq APP_PULL_POLICY "$PULL_POLICY_ALVO"
+  # Worker e scheduler acompanham a MESMA versão do app: um em 1.2.1 e outro em
+  # `latest` é uma matriz de compatibilidade que ninguém testou. Estas duas
+  # imagens existem desde que o worker deixou de ser `build:`-only — antes disso
+  # ele era compilado aqui na VPS e nenhum update jamais o alcançava.
+  envq WORKER_IMAGE "${IMG_WORKER}:${TAG_ALVO}"
+  envq WORKER_PULL_POLICY "$PULL_POLICY_ALVO"
+  envq SCHEDULER_IMAGE "${IMG_SCHEDULER}:${TAG_ALVO}"
+  envq SCHEDULER_PULL_POLICY "$PULL_POLICY_ALVO"
   envq DOMAIN "$DOMAIN"
   envq ACME_EMAIL "$ACME_EMAIL"
   printf '# Proxy reverso: "caddy" (o kit sobe o dele nas portas 80/443) ou "traefik"\n'
@@ -1242,6 +1364,19 @@ fi
   printf '# imagem pública para trocar o texto por logo na sidebar. Ver lib/branding.ts.\n'
   envq APP_NAME "$APP_NAME"
   envq APP_LOGO_URL "${APP_LOGO_URL:-}"
+  printf '# Endereço de suporte que o CLIENTE FINAL vê (conta suspensa, cobrança).\n'
+  printf '# Vazio = a tela não mostra endereço nenhum.\n'
+  envq SUPPORT_EMAIL "${SUPPORT_EMAIL:-}"
+  # As três acima e as duas abaixo entram aqui pelo MESMO motivo, e não por
+  # simetria: o .env é escrito com truncamento (`} > .env`, no fecho deste
+  # bloco), então chave que este script não grava é APAGADA na execução
+  # seguinte. Quem pôs a chave da Resend à mão a perdia no primeiro update —
+  # num script que o README vende como idempotente.
+  printf '# E-mail transacional. RESEND_FROM_EMAIL tem de ser de um domínio\n'
+  printf '# VERIFICADO na SUA conta Resend. Vazio = e-mail desligado: o convite\n'
+  printf '# mostra o link de aceite na tela e o export de LGPD fica pendente.\n'
+  envq RESEND_API_KEY "${RESEND_API_KEY:-}"
+  envq RESEND_FROM_EMAIL "${RESEND_FROM_EMAIL:-}"
   printf '# Qual provedor você escolheu na instalação. É o que faz a 2ª execução do\n'
   printf '# install.sh já vir com a sua escolha como padrão, em vez de re-adivinhar\n'
   printf '# pelas chaves presentes. A app não lê esta variável.\n'
@@ -1284,7 +1419,12 @@ fi
   printf '# então ligar isto sem um WAHA Plus (ou proxy que assine) para a ingestão\n'
   printf '# de mensagens. A rota global já não é publicada na internet (ver Caddyfile).\n'
   envq WAHA_WEBHOOK_REQUIRE_SIGNATURE "${WAHA_WEBHOOK_REQUIRE_SIGNATURE:-false}"
-  envq WAHA_IMAGE "${WAHA_IMAGE:-devlikeapro/waha}"
+  # PINADA. Sem a tag, `devlikeapro/waha` é `:latest`, e esta linha gravava isso
+  # no .env de todo cliente — por cima do default pinado do compose, que então
+  # nunca chegava a ninguém. O `dc pull` de cada update entregava qualquer versão
+  # que o upstream tivesse publicado, sem ninguém ter testado.
+  # `latest-2026.7.2` é o mesmo digest de `latest` hoje (65e593e30bb7…).
+  envq WAHA_IMAGE "${WAHA_IMAGE:-devlikeapro/waha:latest-2026.7.2}"
   envq WAHA_DEFAULT_ENGINE "${WAHA_DEFAULT_ENGINE:-NOWEB}"
   envq UPSTASH_REDIS_REST_URL "http://srh:80"
   envq UPSTASH_REDIS_REST_TOKEN "$UPSTASH_REDIS_REST_TOKEN"
@@ -1411,6 +1551,20 @@ else
   c_ylw "⚠ supabase/baseline.sql não encontrado — pulei (aplique o schema manualmente)."
 fi
 
+# ── 7.5 E-mails de acesso (criar conta / recuperar senha) ───────────────────
+# O e-mail de confirmação de conta é o PRIMEIRO artefato que qualquer usuário
+# recebe. Sem este passo ele chega no modelo padrão do Supabase — em inglês,
+# "Confirm Your Signup", sem marca nenhuma — numa instalação em que tudo o mais
+# já está com a marca de quem hospeda.
+#
+# Chamado SEMPRE, com ou sem token: sem `SUPABASE_ACCESS_TOKEN` o script imprime
+# o passo manual do painel e sai 0. É informação que vale mais aqui, no fim da
+# instalação, do que num documento que ninguém vai abrir.
+#
+# `|| true` como cinto de segurança: o script já promete nunca sair diferente de
+# 0, e mesmo assim a instalação não pode morrer por causa do e-mail.
+bash "$KIT_DIR/marca-emails.sh" --projeto "$PROJECT_DIR" || true
+
 # ── 8. Bootstrap do 1º dono (cria no Auth + promove via psql) ───────────────
 step "Criando o primeiro admin (${OWNER_EMAIL})"
 # 1) Cria o usuário no Supabase Auth. Se já existe, a API responde 422 — ignoramos
@@ -1470,7 +1624,21 @@ SQL
 # ── 9. Sobe a stack ─────────────────────────────────────────────────────────
 fase 4 "Colocando o CRM no ar"
 step "Puxando a imagem e subindo os serviços"
-dc pull
+# A guarda existe porque dar `image:` a um serviço que era build-only mudou o
+# comportamento do `pull`: antes ele PULAVA o worker ("Skipped - No image to be
+# pulled"), agora FALHA a operação inteira se a referência não resolver. E há
+# três motivos reais para não resolver logo depois de um release: pacote novo no
+# GHCR nasce PRIVADO até alguém trocar a visibilidade na mão; a tag git existe
+# minutos antes das imagens; e o GHCR pode estar fora do ar.
+#
+# Sem esta guarda, uma instalação NOVA morria no passo 9 — com o banco já
+# provisionado e o .env já escrito. O `up -d` seguinte não precisa do pull: o
+# worker e o scheduler têm `build:` ao lado do `image:`, e o Compose os constrói
+# quando a imagem não existe (medido).
+if ! dc pull; then
+  c_ylw "⚠ Não consegui puxar todas as imagens do registro."
+  c_ylw "  Sigo assim mesmo: o que faltar é construído aqui (mais lento, mesmo resultado)."
+fi
 dc up -d
 c_grn "✓ containers no ar"
 

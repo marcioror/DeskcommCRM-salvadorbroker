@@ -258,15 +258,37 @@ load_env() {
     key="${line%%=*}"; val="${line#*=}"
     case "$key" in ''|*[!A-Za-z0-9_]*) continue;; esac
     case "$val" in
-      \"*\") val="${val:1:${#val}-2}";;
-      \'*\')
+      \"*\")
         val="${val:1:${#val}-2}"
-        # envq escreve a aspa simples do CONTEÚDO como '\'' (fecha o literal,
-        # escapa a aspa, reabre) — é o que faz a linha ser shell válido. Só que
-        # tirar as aspas de fora não desfaz isso: sem esta troca, uma senha com
-        # aspa volta da releitura com quatro caracteres a mais, e o erro só
-        # aparece longe daqui (o psql recusa a conexão, o login não bate) sem
-        # nada apontando para o .env. Achado pelo teste de round-trip.
+        # Tirar as aspas não desfaz o escape que o envq pôs lá dentro. Sem estas
+        # quatro trocas, `Loja P$ss` volta da releitura como `Loja P\$ss` — o
+        # valor chega adulterado e o erro só aparece longe daqui (medido).
+        #
+        # O sentinela \001 existe pela ORDEM: um `\\` desfeito para `\` de cara
+        # seria reprocessado pelas trocas seguintes, e `\\$` (barra literal
+        # seguida de cifrão) viraria `$`. Guardando o par escapado num byte que
+        # não ocorre em .env, as trocas de `\"`, `\$` e crase não o enxergam, e
+        # ele só volta a ser barra no fim.
+        val="${val//\\\\/$'\001'}"
+        val="${val//\\\"/\"}"
+        val="${val//\\\$/\$}"
+        val="${val//\\\`/\`}"
+        val="${val//$'\001'/\\}"
+        ;;
+      \'*\')
+        # RETROCOMPATIBILIDADE — não remova. Até 2026-08 o envq gravava com
+        # aspas simples, e atualizar NÃO reescreve o .env: o update.sh só troca
+        # APP_IMAGE e APP_PULL_POLICY (:159 e :165, via set_env_var) e deixa as
+        # outras chaves exatamente como o install antigo as escreveu. Quem
+        # apagar este ramo devolve senha e connection string de toda instalação
+        # velha com quatro caracteres a mais, já na primeira atualização.
+        val="${val:1:${#val}-2}"
+        # O envq daquela época escrevia a aspa simples do CONTEÚDO como '\''
+        # (fecha o literal, escapa a aspa, reabre). Tirar as aspas de fora não
+        # desfaz isso: sem esta troca, uma senha com aspa volta da releitura com
+        # quatro caracteres a mais, e o erro só aparece longe daqui (o psql
+        # recusa a conexão, o login não bate) sem nada apontando para o .env.
+        # Achado pelo teste de round-trip.
         val="${val//"'\\''"/"'"}"
         ;;
     esac
@@ -287,6 +309,196 @@ enter_project() {
 
 # psql efêmero via container (não exige psql no host).
 psql_run() { docker run --rm -i postgres:17-alpine psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 "$@"; }
+
+# ── As três imagens que NÓS publicamos ───────────────────────────────────────
+# O namespace é constante e literal de propósito: ele está gravado no .env de
+# toda instalação viva, e derivá-lo de variável faria o kit antigo (que já está
+# no disco do cliente) e o novo montarem strings diferentes.
+IMG_NS="ghcr.io/melgarafael"
+IMG_APP="${IMG_NS}/deskcommcrm"
+IMG_WORKER="${IMG_NS}/deskcomm-worker"
+IMG_SCHEDULER="${IMG_NS}/deskcomm-scheduler"
+
+# A última versão publicada (ex.: "1.2.1"), ou vazio se não deu para saber.
+#
+# Consulta o REMOTO, não o clone: o install.sh clona com `--depth 1`, que não
+# traz tag nenhuma, então `git tag -l` local devolveria vazio e a instalação
+# nasceria em `latest` sem ninguém perceber — que é justamente o defeito que
+# esta função existe para consertar.
+#
+# Falha ABERTA de propósito: sem rede, sem git ou sem tag no remoto ela devolve
+# vazio e quem chama cai no canal móvel, como era antes. Travar a instalação de
+# alguém porque não deu para resolver um número de versão seria trocar um
+# problema de previsibilidade por um de disponibilidade.
+ultima_versao_publicada() {
+  local url="${1:-https://github.com/melgarafael/DeskcommCRM.git}" ref
+  command -v git >/dev/null 2>&1 || return 0
+  # `grep -v -- -` descarta PRERELEASE (v1.11.0-rc1, v1.1.1-jmpo.1 — esta última
+  # existe de verdade neste repo). O `--sort=-v:refname` do git põe o prerelease
+  # ACIMA do release final quando `versionsort.suffix` não está configurado, e
+  # uma instalação nova nasceria num release candidate sem ninguém pedir.
+  ref="$(git ls-remote --tags --refs --sort=-v:refname "$url" 'v*' 2>/dev/null \
+        | awk '{print $2}' | grep -v -- '-' | head -1)" || return 0
+  [ -n "$ref" ] || return 0
+  printf '%s' "${ref#refs/tags/v}"
+}
+
+# Código HTTP do manifest de uma referência nossa no GHCR, anonimamente.
+#   200 = existe e é pública | 404 = não existe | 403 = pacote PRIVADO | 000 = sem rede
+#
+# 403 é o caso que mais engana: pacote recém-criado no GHCR nasce privado, e
+# repositório público não muda isso. Enquanto ninguém trocar a visibilidade na
+# mão, o `docker compose pull` de toda VPS é negado — e como `pull` de serviço
+# com `image:` falha a operação inteira, a instalação morre no passo de subir.
+ghcr_status() {
+  local img="$1" tag="$2" tok
+  tok="$(curl -fsS --max-time 6 \
+          "https://ghcr.io/token?scope=repository:melgarafael/${img}:pull&service=ghcr.io" 2>/dev/null \
+        | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')" || true
+  if [ -z "$tok" ]; then printf '000'; return 0; fi
+  curl -s -o /dev/null --max-time 6 -w '%{http_code}' \
+    -H "Authorization: Bearer $tok" \
+    -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json' \
+    "https://ghcr.io/v2/melgarafael/${img}/manifests/${tag}" 2>/dev/null || printf '000'
+}
+
+# As TRÊS imagens existem e são públicas nesta referência?
+#
+# Perguntar pelas três juntas, e não só pela do app, é o ponto: `deskcomm-worker`
+# e `deskcomm-scheduler` nasceram depois das releases que já existem, então
+# `deskcomm-worker:1.2.1` nunca vai existir — a v1.2.1 é passado. Pinar as três
+# numa versão sem conferir gravaria no .env do cliente duas referências
+# impossíveis, e o kit as construiria na VPS **em silêncio**, do topo da main:
+# app de uma release + worker/scheduler de outro código. Exatamente a mistura de
+# versões que a doutrina existe para proibir, no caminho de primeira impressão.
+trio_publicado() {
+  local tag="$1" i
+  for i in deskcommcrm deskcomm-worker deskcomm-scheduler; do
+    [ "$(ghcr_status "$i" "$tag")" = "200" ] || return 1
+  done
+  return 0
+}
+
+# O .env está com pin PELA METADE? (app fixado numa versão, worker/scheduler não)
+#
+# Este é o estado que a transição produz e que nada denuncia. Medido em ensaio e
+# depois na produção: quem executa a primeira atualização é o `update.sh` que já
+# estava no disco — o antigo —, e ele só sabe gravar `APP_IMAGE`. O worker cai no
+# default do compose (`:stable`, um canal MÓVEL) e o script termina dizendo
+# "Atualização concluída — app no ar e saudável", sem uma palavra sobre isso.
+#
+# Por que importa: na release seguinte o `stable` se move, e um `up -d` qualquer
+# — com `pull_policy: always`, que é o default de tag móvel — levaria o worker
+# sozinho para a versão nova enquanto o app permanece na antiga. Mistura de
+# versões que acontece sem ninguém pedir, e é o que o invariante 3 proíbe.
+#
+# Ecoa os serviços sem pin, separados por espaço. Vazio = está tudo certo.
+valor_do_env() {  # valor_do_env <arquivo> <chave>   (sem aspas ao redor)
+  # O `|| true` não é decorativo: o `_common.sh` roda sob `set -euo pipefail`, e
+  # um `grep` que não casa sai 1 — o que, sem isto, mataria a função inteira
+  # justamente no caso que interessa (a chave AUSENTE). Custou dois casos verdes
+  # de mentira num teste antes de aparecer.
+  { grep -E "^$2=" "$1" 2>/dev/null || true; } | head -1 | cut -d= -f2- | sed "s/^['\"]//; s/['\"]\$//"
+}
+
+tag_da_imagem() {  # tag_da_imagem <referência>  → a tag, ou vazio se não houver
+  local ref="${1##*/}"
+  case "$ref" in *:*) printf '%s' "${ref##*:}" ;; *) printf '' ;; esac
+}
+
+pin_incompleto() {  # pin_incompleto [caminho do .env]
+  local envfile="${1:-.env}" app_ref app_tag faltando="" par chave svc img tag
+  [ -f "$envfile" ] || return 0
+
+  # Sem APP_IMAGE pinado não há "metade" nenhuma — é outra situação (instalação
+  # que nunca rodou update, ou que escolheu um canal de propósito).
+  app_ref="$(valor_do_env "$envfile" APP_IMAGE)"
+  [ -n "$app_ref" ] || return 0
+  app_tag="$(tag_da_imagem "$app_ref")"
+  case "$app_tag" in latest|main|stable|"") return 0 ;; esac
+
+  for par in "WORKER_IMAGE:worker" "SCHEDULER_IMAGE:scheduler"; do
+    chave="${par%%:*}"; svc="${par##*:}"
+    img="$(valor_do_env "$envfile" "$chave")"
+    if [ -z "$img" ]; then
+      faltando="$faltando $svc"                    # ausente: segue o default do compose
+    else
+      tag="$(tag_da_imagem "$img")"
+      case "$tag" in latest|main|stable|"") faltando="$faltando $svc" ;; esac
+    fi
+  done
+  printf '%s' "${faltando# }"
+}
+
+# Completa o pin AUSENTE no .env, com a versão que a imagem EM EXECUÇÃO declara.
+#
+# A regra que torna isto seguro: **só preenche lacuna, nunca sobrescreve valor
+# explícito.** Chave ausente é omissão do `update.sh` antigo; chave presente é
+# decisão de quem opera — inclusive a decisão de seguir um canal móvel de
+# propósito. Um cron que corrigisse escolha alheia seria pior que o defeito.
+#
+# E a versão gravada é a que o contêiner JÁ está rodando (label
+# `org.opencontainers.image.version` da imagem em uso), não a do app. A diferença
+# importa: se o worker estiver numa versão diferente do app, gravar a do app
+# MUDARIA o que roda no próximo `up -d` — possivelmente um downgrade. Gravando o
+# que já está lá, a operação é congelamento puro: nada muda de comportamento
+# agora, e o próximo `update.sh` alinha as três.
+#
+# Ecoa os serviços corrigidos, separados por espaço. Vazio = nada a fazer.
+completar_pin_ausente() {  # completar_pin_ausente [envfile]
+  local envfile="${1:-.env}" par chave svc repo img ver corrigidos=""
+  [ -f "$envfile" ] || return 0
+  # Esta guarda vale para execução não-root e não custa nada. NÃO é ela que
+  # protege o caso real: o cron roda como root, e root ignora `chmod`. Quem
+  # protege é a atomicidade do `set_env_var` (escreve num `.tmp` e faz `mv`) —
+  # medido com `chattr +i`, que barra até root: a escrita falha, a função sai 0
+  # e o `.env` original chega intacto do outro lado, com as customizações.
+  [ -w "$envfile" ] || return 0
+
+  for par in "WORKER_IMAGE:worker:deskcomm-worker" "SCHEDULER_IMAGE:scheduler:deskcomm-scheduler"; do
+    chave="${par%%:*}"; svc="$(printf '%s' "$par" | cut -d: -f2)"; repo="${par##*:}"
+
+    # LACUNA apenas. Valor explícito (mesmo em canal móvel) é intocável.
+    if { grep -qE "^${chave}=" "$envfile" 2>/dev/null; }; then continue; fi
+
+    img="$(docker inspect "$(nome_do_projeto_atual)-${svc}-1" --format '{{.Config.Image}}' 2>/dev/null)" || img=""
+    [ -n "$img" ] || continue
+    ver="$(docker image inspect "$img" --format '{{index .Config.Labels "org.opencontainers.image.version"}}' 2>/dev/null)" || ver=""
+    # `<no value>` = imagem sem o label (build local). Canal não é versão.
+    case "$ver" in ""|"<no value>"|latest|main|stable) continue ;; esac
+
+    set_env_var "$envfile" "$chave" "${IMG_NS}/${repo}:${ver}"
+    set_env_var "$envfile" "${chave%_IMAGE}_PULL_POLICY" missing
+    corrigidos="$corrigidos $svc"
+  done
+  printf '%s' "${corrigidos# }"
+}
+
+# Escreve no .env as três imagens da MESMA versão + o pull_policy que combina
+# com a mutabilidade da tag.
+#
+# As três juntas porque elas sobem juntas: app numa versão e worker em `latest`
+# é a matriz de compatibilidade que ninguém testou. E o pull_policy não é
+# detalhe — foi medido que, com `always` e o registry sem responder para aquela
+# referência, o `up -d` FALHA e o contêiner não sobe, mesmo com a imagem já no
+# disco. Numa tag imutável isso não protege de nada e só amarra a subida do CRM
+# do cliente à disponibilidade do GHCR.
+#
+#   gravar_imagens .env 1.2.1   → pinado,  pull_policy=missing
+#   gravar_imagens .env latest  → canal,   pull_policy=always
+gravar_imagens() {
+  local envfile="$1" versao="$2" politica
+  case "$versao" in
+    latest|main|stable) politica="always" ;;
+    *)                  politica="missing" ;;
+  esac
+  set_env_var "$envfile" APP_IMAGE             "${IMG_APP}:${versao}"
+  set_env_var "$envfile" APP_PULL_POLICY       "$politica"
+  set_env_var "$envfile" WORKER_IMAGE          "${IMG_WORKER}:${versao}"
+  set_env_var "$envfile" WORKER_PULL_POLICY    "$politica"
+  set_env_var "$envfile" SCHEDULER_IMAGE       "${IMG_SCHEDULER}:${versao}"
+  set_env_var "$envfile" SCHEDULER_PULL_POLICY "$politica"
+}
 
 # Grava (ou reescreve) uma chave no .env — sem duplicar linha se ela já existe.
 #   set_env_var .env APP_IMAGE ghcr.io/…:1.1.0

@@ -11,6 +11,7 @@ import {
   ChartBar,
   Users,
   ShieldCheck,
+  Palette,
   ArrowRight,
 } from "@/lib/ui/icons";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
@@ -33,6 +34,11 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/usage", label: "Usage", icon: ChartBar },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/platform-admins", label: "Platform Admins", icon: ShieldCheck },
+  // A porta da tela de marca. Ela NÃO entra em `lib/navigation/registry.ts`:
+  // aquele registro descreve a navegação do tenant (`app/app/**`) e o teste de
+  // completude que o vigia varre só aquela raiz. O admin de plataforma tem
+  // navegação própria, e é esta lista.
+  { href: "/admin/marca", label: "Marca", icon: Palette },
 ];
 
 interface AdminSidebarProps {

@@ -9,7 +9,11 @@
 #                  à que já está aqui (é o jeito explícito de voltar no tempo)
 #   --skip-backup  pula o backup automático (não recomendado)
 #   --to <tag>     instala essa tag em vez da mais recente publicada
-source "$(dirname "$0")/_common.sh"
+# Absoluto e resolvido ANTES do `enter_project`, que faz `cd`: depois dele um
+# `dirname "$0"` relativo apontaria para o lugar errado, e o único sintoma seria
+# um script do kit "não encontrado" no meio da atualização.
+KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+source "$KIT_DIR/_common.sh"
 enter_project
 
 FORCE=""; SKIP_BACKUP=""; TARGET_TAG=""
@@ -149,21 +153,69 @@ else
 fi
 [ -n "${DESKCOMM_AGENT_REPORT:-}" ] && eval "${DESKCOMM_AGENT_REPORT_CMD}" banco
 
+# ── 4.5 E-mails de acesso, para quem já estava instalado ────────────────────
+# Só COM o token no ambiente, e por isso duas coisas:
+#
+#  - é assim que um clone ANTIGO recebe os e-mails com a marca dele. O
+#    `install.sh` dele nunca chamou este passo (ele não existia), e nenhuma
+#    atualização toca em config de auth por conta própria;
+#  - sem o token, o script imprimiria o passo manual — útil UMA vez, na
+#    instalação, e ruído em toda atualização a partir daí. Atualização que
+#    resmunga toda vez ensina a ignorar a saída dela.
+if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+  bash "$KIT_DIR/marca-emails.sh" --projeto "$PROJECT_DIR" || true
+fi
+
 # ── 5. App novo ──────────────────────────────────────────────────────────────
 step "Baixando a versão nova do app e reiniciando"
 # Imagem da TAG publicada (não "latest" solto): garante que o código (checkout
 # acima) e a imagem do container sejam sempre da mesma versão. Gravada no .env,
 # não só exportada: o compose lê a imagem de lá, e um `up -d` rodado à mão
 # depois voltaria pro ":latest" do install — desfazendo a atualização.
-export APP_IMAGE="ghcr.io/melgarafael/deskcommcrm:${TARGET_TAG#v}"
-set_env_var .env APP_IMAGE "$APP_IMAGE"
-# Devolve a política padrão: um rollback anterior deixou "missing" no .env
-# (porque a imagem de volta é um ID local, que não se puxa do registro), e
-# ninguém desfazia isso — o `up -d` manual do dono parava de puxar imagem para
-# sempre. Aqui o alvo é uma tag do registro de novo, então "always" volta a ser
-# o certo.
-set_env_var .env APP_PULL_POLICY always
-dc pull
+#
+# As TRÊS imagens são gravadas juntas, na mesma versão. O worker e o scheduler
+# passaram a ter imagem publicada porque, antes, eram `build:`-only no compose:
+# `dc pull` os PULAVA ("Skipped - No image to be pulled") e o `dc up -d` abaixo
+# recriava o contêiner sobre a imagem velha, sem `--build`. Resultado: o worker
+# — que é o runtime do agente de IA — ficava congelado no código do dia da
+# instalação e atravessava todas as atualizações. Esta é a linha que conserta
+# isso para o parque já instalado, sem que ninguém precise editar arquivo.
+#
+# `gravar_imagens` também resolve o pull_policy pela mutabilidade da tag: como
+# aqui o alvo é sempre uma tag de versão (imutável), sai `missing`. Isso além de
+# tudo desfaz o "missing" que um rollback anterior deixava para trás — antes ele
+# ficava no .env para sempre, e o `up -d` manual do dono nunca mais puxava nada.
+# Lido ANTES de `gravar_imagens` corrigir — senão a informação some. Este é o
+# estado que a execução ANTERIOR deixou, e o dono nunca soube: o `update.sh`
+# antigo grava só `APP_IMAGE`, e o worker fica seguindo um canal móvel.
+PIN_FALTANDO_ANTES="$(pin_incompleto .env)"
+
+VERSAO_ALVO="${TARGET_TAG#v}"
+export APP_IMAGE="${IMG_APP}:${VERSAO_ALVO}"
+export WORKER_IMAGE="${IMG_WORKER}:${VERSAO_ALVO}"
+export SCHEDULER_IMAGE="${IMG_SCHEDULER}:${VERSAO_ALVO}"
+gravar_imagens .env "$VERSAO_ALVO"
+
+# `dc pull` falha se alguma das três imagens ainda não existir no registro — o
+# que acontece numa instalação atualizando para a primeira versão publicada
+# depois desta mudança, ou se um run de publicação quebrou. Nesse caso o compose
+# ainda tem `build:` ao lado do `image:` do worker e do scheduler, então o
+# `up -d` os constrói localmente: pior que puxar, melhor que não atualizar.
+if ! dc pull; then
+  # A mensagem distingue os dois casos porque a consequência é oposta, e uma
+  # frase tranquilizadora sobre o caso errado é o pior desfecho possível: o
+  # `worker` e o `scheduler` têm `build:` ao lado do `image:` e o `up -d` os
+  # constrói; o `app` NÃO tem, então se for a imagem dele que falta, o `up -d`
+  # morre logo abaixo — e dizer "sigo assim mesmo" teria sido mentira.
+  if dc pull app >/dev/null 2>&1; then
+    c_ylw "⚠ Não consegui puxar todas as imagens da versão ${VERSAO_ALVO}."
+    c_ylw "  A do app veio; o que faltar é construído aqui (mais lento, mesmo resultado)."
+  else
+    c_ylw "⚠ Não consegui puxar a imagem do APP na versão ${VERSAO_ALVO}."
+    c_ylw "  Causas comuns: a versão ainda está publicando, ou o pacote está privado no GHCR."
+    c_ylw "  Vou tentar subir mesmo assim — se falhar, rode de novo em alguns minutos."
+  fi
+fi
 # A rede do proxy externo é declarada como EXTERNA no compose: se ela sumiu
 # (um `docker network prune`, ou o `down -v` que o próprio kit ensina como
 # caminho de recomeço), o `up -d` abaixo morre em "network X declared as
@@ -202,6 +254,12 @@ ok=""
 wait_app_healthy 20 3 >/dev/null && ok=1
 if [ -n "$ok" ]; then
   c_grn "✓ Atualização concluída — app no ar e saudável."
+  # Dito no fim, e não no início, porque é aqui que o dono lê. Se a execução
+  # anterior deixou o pin pela metade, ele nunca soube — a tela dizia "concluída"
+  # e o worker seguia um canal móvel. Agora ele sabe que existiu e que acabou.
+  if [ -n "$PIN_FALTANDO_ANTES" ]; then
+    c_ylw "  (de quebra: a versão de $PIN_FALTANDO_ANTES estava solta e foi fixada agora)"
+  fi
 else
   c_ylw "⚠ Atualizei, mas o app não respondeu 'ok'. Veja os logs:"
   c_ylw "  docker compose $(dc_files) logs --tail=50 app"

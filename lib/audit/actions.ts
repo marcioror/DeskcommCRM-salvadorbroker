@@ -46,8 +46,27 @@ export type AuditAction =
   | "onboarding.whatsapp_skipped"
   | "onboarding.nuvemshop_skipped"
   | "onboarding.ai_configured"
+  /**
+   * O quadro de clientes montado no wizard. Vale registrar porque é a única
+   * escrita do onboarding que SUBSTITUI dado semeado (as colunas do gatilho) em
+   * vez de acrescentar: quem for entender depois por que o funil mudou de nome
+   * encontra aqui quem fez, quando, e se veio da IA ou de um modelo pronto.
+   */
+  | "onboarding.quadro_montado"
+  | "onboarding.quadro_pulado"
+  // O passo de ver o funcionário responder antes de terminar o wizard.
+  | "onboarding.agente_testado"
+  | "onboarding.agente_teste_pulado"
   | "onboarding.team_invited"
   | "onboarding.completed"
+  /**
+   * A verificação em duas etapas deixou de ser obrigatória por papel e passou a
+   * ser escolha de quem administra. Escolha de segurança se registra: quem
+   * auditar depois precisa saber quem afrouxou, quando, e em qual empresa.
+   */
+  | "security.mfa_exigida"
+  | "security.mfa_dispensada"
+  | "security.mfa_desativada"
   | "tenant.onboarded"
   | "conversation.created"
   | "conversation.claimed"
@@ -210,6 +229,10 @@ export type AuditAction =
   | "auth.signup_failed"
   | "auth.signup_confirmed"
   | "auth.signup_provision_failed"
+  // Havia convite no signup e ele não valia (expirado, ou emitido para outro
+  // e-mail). Não é falha de sistema: é a recusa deliberada de abrir organização
+  // nova para quem estava tentando entrar numa existente.
+  | "auth.signup_provision_recusado"
   | "auth.email_link_rejected"
   | "auth.password_reset_requested"
   | "auth.password_reset_request_failed"
@@ -251,4 +274,17 @@ export type AuditAction =
   // de código próprio para não somar duas grandezas no mesmo relatório.
   | "followup.scheduled"
   | "followup.cancelled"
-  | "lead.reactivation_proposed";
+  | "lead.reactivation_proposed"
+  // A marca da INSTALAÇÃO (nome, logo, cor, selo) trocada em `platform_branding`
+  // — mutação de plataforma, não de tenant, e por isso sem `organization_id`.
+  // Auditável porque muda a fachada que TODOS os clientes daquela instalação
+  // veem, e a pergunta "quem repintou isto?" só tem resposta aqui: não há
+  // event_log (nenhum handler consumiria o tipo — ver register-handlers.ts).
+  | "platform_branding.updated"
+  // A marca da ORGANIZAÇÃO (nome + cor) trocada em `organizations.settings.branding`
+  // — mutação de TENANT, e por isso COM `organization_id` e com `resource_id` =
+  // o uuid da org. É outra ação, e não `org.updated`, porque a pergunta que a
+  // trilha responde é diferente: "quem repintou a marca desta empresa?" contra
+  // "quem mexeu no cadastro dela?". Fundir as duas obrigaria a ler o metadata
+  // para saber qual das duas coisas aconteceu.
+  | "org.branding_updated";

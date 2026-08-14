@@ -10,6 +10,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { logger } from "@/lib/logger";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { empresaExigeMfa, exigeCadastroDeMfa } from "@/lib/auth/politica-mfa";
 import type { AuthUser, Role, UserOrgMembership, ActiveOrg } from "./types";
 
 const ACTIVE_ORG_COOKIE = "active_org";
@@ -154,11 +156,53 @@ export async function isMfaEnrolled(): Promise<boolean> {
 }
 
 /**
- * MFA enforcement policy: platform admins and tenant `admin` role MUST enroll.
- * `manager`/`agent`/`viewer` are optional in MVP.
+ * Quem é OBRIGADO a cadastrar a verificação em duas etapas.
+ *
+ * ⚠️ ISTO DEIXOU DE SER UMA CONSTANTE. A regra era
+ * `isPlatformAdmin || role === "admin"` — sem opção —, e como o `install.sh`
+ * cria o dono da instalação como platform admin, TODA instalação self-host
+ * forçava TOTP antes de a pessoa usar o produto. Medido percorrendo o wizard: o
+ * botão "Começar a usar" entregava o dono num bloqueador de tela cheia, um
+ * sétimo passo que a barra de progresso nunca anunciou.
+ *
+ * Agora a resposta vem da POLÍTICA — `platform_admins.mfa_required` para o
+ * platform admin, `organizations.settings.security.mfa_required` para o admin do
+ * tenant —, e o padrão de ambos é não exigir. A regra pura, com o porquê de cada
+ * ramo, vive em `lib/auth/politica-mfa.ts`.
+ *
+ * Carrega as duas leituras porque o layout precisa delas de qualquer forma; quem
+ * já tem a política em mãos deve chamar `exigeCadastroDeMfa` direto.
  */
-export function requiresMfa(role: Role | undefined, isPlatformAdmin: boolean): boolean {
-  return isPlatformAdmin || role === "admin";
+export async function requiresMfa(
+  role: Role | undefined,
+  isPlatformAdmin: boolean,
+  userId?: string,
+  orgId?: string,
+): Promise<boolean> {
+  const admin = createAdminClient();
+
+  let plataformaExige: boolean | null = null;
+  if (isPlatformAdmin && userId) {
+    const { data } = await admin
+      .from("platform_admins")
+      .select("mfa_required")
+      .eq("user_id", userId)
+      .is("revoked_at", null)
+      .maybeSingle();
+    plataformaExige = (data?.mfa_required as boolean | undefined) ?? null;
+  }
+
+  let empresaExige = false;
+  if (orgId) {
+    const { data } = await admin
+      .from("organizations")
+      .select("settings")
+      .eq("id", orgId)
+      .maybeSingle();
+    empresaExige = empresaExigeMfa(data?.settings);
+  }
+
+  return exigeCadastroDeMfa({ role, isPlatformAdmin, plataformaExige, empresaExige });
 }
 
 /**
@@ -190,8 +234,13 @@ export async function sessionAal(): Promise<"aal1" | "aal2" | null> {
  * cadastrar. Quem ainda não tem fator continua sendo tratado pelo gate de
  * cadastro do `app/app/layout.tsx`.
  */
-export async function mfaEmDivida(role: Role | undefined, isPlatformAdmin: boolean): Promise<boolean> {
-  if (!requiresMfa(role, isPlatformAdmin)) return false;
+export async function mfaEmDivida(): Promise<boolean> {
+  // ⚠️ NÃO PERGUNTA MAIS A POLÍTICA, e a mudança é o que impede o cadastro
+  // opcional de virar um buraco: começava por `requiresMfa(...)`, então, com a
+  // exigência desligada, quem ativasse a verificação POR VONTADE PRÓPRIA teria o
+  // fator ignorado na sessão — o mesmo que não ter.
+  //
+  // Cadastrar e provar são perguntas diferentes. Quem TEM fator prova, sempre.
   if (!(await isMfaEnrolled())) return false;
   return (await sessionAal()) !== "aal2";
 }

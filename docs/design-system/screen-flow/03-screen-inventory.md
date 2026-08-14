@@ -146,9 +146,21 @@ date: 2026-04-28
 | 67 | `/app/settings/security/sessions` | todos | default, revoke-confirm | `<ActiveSessionsList>` | — | P1 |
 | 68 | `/app/settings/tenant` | P3 admin | default, edit | `<TenantSettingsForm>` | — | P1 |
 | 69 | `/app/settings/tenant/vocabulary` | manager+ | default, edit, propagating | `<VocabularyEditor>` | — | P1 |
-| 70 | `/app/settings/tenant/branding` | P3 admin | default, upload-logo | `<BrandingForm>` | — | P2 |
+| 70 | `/app/settings/marca` | P3 admin | default, prévia-ao-digitar, hex-inválido (Salvar desabilitado), salvo | `app/app/settings/marca/_form.tsx` + `<TiraDeTons>` | — | **entregue** |
 | 71 | `/app/settings/api-tokens` | P3 admin | default, create-once-shown, revoked | `<APITokensList>`, `<TokenRevealDialog>` | — | P1 |
 | 72 | `/app/settings/billing` | P3 admin | default (Fase 2) | `<BillingDashboard>` | — | P2 |
+
+> **Correção de 2026-08-14 na linha 70.** Ela inventariava `/app/settings/tenant/branding` com
+> `<BrandingForm>` e upload de logo. **Essa rota nunca existiu**, e quem a procurasse concluiria
+> que a tela sumiu. O que foi entregue no épico de marca própria são **duas** telas, e elas
+> respondem a perguntas diferentes: `/app/settings/marca` (acima) é a marca da **organização** —
+> nome + cor, editável pelo admin do tenant; **`/admin/marca`** é a marca da **instalação**, é de
+> platform admin e por isso pertence à seção M, não a esta. Nenhuma das duas edita logo: o logo
+> segue vindo do `.env` (`APP_LOGO_URL`).
+>
+> `/admin/marca` **não** ganhou linha numerada aqui de propósito: o cabeçalho da seção M diz "15
+> telas" e a tabela já tem **17** linhas (defeito pré-existente, medido). Acertar isso pede uma
+> passada no inventário inteiro — dívida declarada, não conserto de brinde no meio de outro.
 
 ## M. Super-admin (`/admin`) (15 telas)
 

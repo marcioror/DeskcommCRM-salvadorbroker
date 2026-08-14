@@ -108,6 +108,7 @@ jobs:
       # parte 2 já estourou teto de requisições uma vez.
       SPECS_PARTE_1: >-
         smoke.spec.ts auth.spec.ts error-pages.spec.ts
+        icone-da-marca.spec.ts
         password-recovery.spec.ts signup-journey.spec.ts
         rbac-roles.spec.ts inbox-scope.spec.ts reset-password-mfa.spec.ts
         degradacao-silenciosa.spec.ts vps-webhook-outbound-ssrf.spec.ts
@@ -117,6 +118,7 @@ jobs:
         risk-radar.spec.ts invite-lifecycle.spec.ts system-update.spec.ts
         agente-papeis-operador.spec.ts prova-painel-provedores.spec.ts
         followup-linguagem.spec.ts followup-ramos.spec.ts
+        wizard-do-funcionario.spec.ts mfa-opcional.spec.ts
         properties.spec.ts
       SPECS_PARTE_2: >-
         agente-novo-e-uso.spec.ts agente-organiza-operacao.spec.ts

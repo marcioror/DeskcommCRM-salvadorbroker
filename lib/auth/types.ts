@@ -78,4 +78,21 @@ export interface ActiveOrg {
    * de autorização — a RLS (fn_can_view_conversation) é quem garante o escopo.
    */
   visibility_mode?: VisibilityMode;
+  /**
+   * O nome que ESTA organização definiu para si, quando ela definiu um.
+   *
+   * Opcional pelo mesmo motivo de `visibility_mode`: só o layout de `/app`
+   * preenche, e só quando a resolução da marca diz que o nome veio da camada da
+   * organização. Ausente significa "vale o nome de cima" — o da instalação —,
+   * que é exatamente o que o menu já mostrava.
+   *
+   * Sem `logoUrl`: a camada da organização não fala de logo nesta fase, e um
+   * campo aqui prometeria à próxima pessoa um dado que ninguém grava.
+   *
+   * A rota é a que já existe: layout → `AuthProvider` → `useAuth()`. É como o
+   * nome atravessa a fronteira servidor/navegador sem plumbing nova — `branding()`
+   * lê `window.__PUBLIC_ENV__`, não o banco, e por isso nem a marca da instalação
+   * GRAVADA chega ao menu hoje.
+   */
+  marca?: { readonly nome: string };
 }

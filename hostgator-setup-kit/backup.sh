@@ -16,6 +16,12 @@ enter_project
 # dentro do contêiner é o único que alcança o .tgz — ele é criado pelo alpine
 # rodando como root, e um `chmod` aqui fora falha com "Operation not permitted"
 # para o dono do projeto.
+#
+# O `chown` que acompanha esse chmod NÃO é arrumação: sem ele o arquivo fica
+# `600 root:root` e o DONO DO PROJETO não consegue ler o próprio backup. Medido
+# em 2026-08-15 — a primeira versão desta correção só tinha o `chmod`, e o `scp`
+# do dono quebrava justamente no arquivo mais crítico (a sessão do WhatsApp).
+# Backup que o dono não consegue copiar para fora não é backup.
 umask 077
 
 BACKUP_DIR="${BACKUP_DIR:-$PROJECT_DIR/backups}"
@@ -33,7 +39,7 @@ step "Snapshot das sessões do WhatsApp → $BACKUP_DIR/waha-$ts.tgz"
 vol="$(dc config --volumes 2>/dev/null | grep -m1 waha-data || echo '')"
 proj="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')"
 docker run --rm -v "${proj}_waha-data:/data:ro" -v "$BACKUP_DIR:/out" alpine:3.20 \
-  sh -c "tar czf /out/waha-$ts.tgz -C /data . && chmod 600 /out/waha-$ts.tgz" 2>/dev/null \
+  sh -c "tar czf /out/waha-$ts.tgz -C /data . && chown $(id -u):$(id -g) /out/waha-$ts.tgz && chmod 600 /out/waha-$ts.tgz" 2>/dev/null \
   && c_grn "✓ sessões WhatsApp salvas" \
   || c_ylw "⚠ não achei o volume waha-data (nome pode variar). Ajuste manualmente se necessário."
 

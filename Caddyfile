@@ -14,6 +14,27 @@
 	# POST sem assinatura ainda respondia 200). Dentro de `route`, vale a ordem
 	# escrita.
 	route {
+		# HSTS — o navegador passa a RECUSAR http:// neste domínio por um ano,
+		# sem esperar o redirecionamento.
+		#
+		# O 308 de http→https já existe, mas ele só age DEPOIS que a primeira
+		# requisição saiu em texto claro: numa rede pública, esse instante é
+		# onde a sessão é roubada. O cabeçalho fecha a janela a partir da
+		# primeira visita bem-sucedida.
+		#
+		# `includeSubDomains` alcança só o que está ABAIXO deste host (isto é,
+		# *.crm.…), não o domínio principal da empresa — então não afeta site
+		# institucional nem e-mail.
+		#
+		# SEM `preload`, de propósito: entrar na lista embutida dos navegadores
+		# é praticamente irreversível e vale para o domínio inteiro. Aqui o
+		# cabeçalho expira sozinho se um dia for removido.
+		#
+		# ⚠️ Contrapartida real: com HSTS, certificado vencido vira site
+		# INACESSÍVEL, sem a tela de "prosseguir mesmo assim". O Caddy renova
+		# sozinho, mas se a renovação quebrar, o sintoma é o site sumir.
+		header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
 		# O webhook GLOBAL do WAHA (sem token na URL) não é publicado na internet.
 		#
 		# Nesta stack o WAHA fala com o app pela rede interna do Docker

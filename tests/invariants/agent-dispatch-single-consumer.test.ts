@@ -40,6 +40,7 @@ const DRAIN_KNOBS = {
   intervalMs: 100,
   idleIntervalMs: 100,
   debounceMs: 0, // sem debounce: o job nasce imediatamente drenável no teste
+  debounceTetoMs: 40_000, // irrelevante com debounce 0; presente porque o knob é obrigatório
   reapTimeoutMs: 300_000,
 };
 

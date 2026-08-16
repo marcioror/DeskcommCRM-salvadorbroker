@@ -80,6 +80,11 @@ const envSchema = z.object({
   // Coalescência de rajada inbound: mensagens do MESMO contato dentro desta
   // janela viram UM job (responder em rajada é gatilho de ban). 0 = sem debounce.
   INBOUND_DEBOUNCE_MS: z.coerce.number().int().min(0).default(8_000),
+  // Teto da espera desde a PRIMEIRA mensagem da rajada. A janela acima desliza
+  // a cada mensagem nova (senão ela não é debounce, é cronômetro); este teto é
+  // o que impede um contato que escreve sem parar de adiar a resposta para
+  // sempre. Default 40s = cinco janelas de 8s.
+  INBOUND_DEBOUNCE_MAX_MS: z.coerce.number().int().min(0).default(40_000),
   // Circuito de saúde do número — ritmo do ticker (block/response rate por número).
   NUMBER_HEALTH_INTERVAL_MS: z.coerce.number().int().positive().default(300_000),
   // Cron persistente por contato — knobs, nunca constantes.

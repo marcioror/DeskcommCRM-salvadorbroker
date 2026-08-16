@@ -96,6 +96,9 @@ export {
   DotsThree,
   CaretDown,
   CaretUp,
+  // Botão que abre a gaveta de navegação no celular (TopBar). Nome do produto,
+  // não do desenho: quem lê `MenuHamburguer` sabe o que é sem abrir o arquivo.
+  List as MenuHamburguer,
   CaretDoubleLeft,
   CaretDoubleRight,
   CaretLeft,

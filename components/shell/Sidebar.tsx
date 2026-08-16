@@ -20,7 +20,24 @@ import { GRUPO_NO_RODAPE, NAV_GROUPS, sidebarGroups } from "@/lib/navigation/reg
  * itens e sete `usePermission()` viviam aqui — e divergiam do hub de
  * Configurações e das abas de IA, que mantinham suas próprias listas.
  */
-export function Sidebar({ collapsed }: { collapsed: boolean }) {
+/**
+ * `mobileAberto` só governa telas abaixo de `md`. De `md` para cima a barra é
+ * fixa como sempre foi, e o estado da gaveta é ignorado — por isso ele NÃO
+ * substitui `collapsed`, que é a preferência do usuário no desktop e continua
+ * valendo lá.
+ *
+ * Na gaveta a largura é SEMPRE `w-60`, mesmo com `collapsed`: recolhida a barra
+ * vira uma tira de ícones de 64px, e num celular isso é uma gaveta que ocupa a
+ * tela e não diz o nome de nada. A preferência de desktop não deve decidir a
+ * usabilidade do celular.
+ */
+export function Sidebar({
+  collapsed,
+  mobileAberto = false,
+}: {
+  collapsed: boolean;
+  mobileAberto?: boolean;
+}) {
   // A barra lateral aparece em TODA tela — traduzi-la aqui é o que faz a
   // escolha de idioma virar algo visível no primeiro clique.
   const t = useT();
@@ -50,9 +67,22 @@ export function Sidebar({ collapsed }: { collapsed: boolean }) {
 
   return (
     <aside
+      // `z-40` (era 30) para ficar ACIMA do véu, que é z-30: como gaveta ela
+      // precisa cobrir a página, e não ser coberta por ela.
       className={cn(
-        "fixed inset-y-0 left-0 z-30 flex flex-col border-r bg-card transition-[width] duration-200",
-        collapsed ? "w-16" : "w-60",
+        "fixed inset-y-0 left-0 z-40 flex flex-col border-r bg-card",
+        "transition-[width,transform] duration-200",
+        // Largura: cheia na gaveta; a preferência `collapsed` só vale de md pra cima.
+        collapsed ? "w-60 md:w-16" : "w-60",
+        // Abaixo de md ela vive FORA da tela e entra deslizando. `md:translate-x-0`
+        // devolve a barra fixa no desktop, independente do estado da gaveta.
+        // `invisible` acompanha o `-translate-x-full`, e não é enfeite:
+        // transladar apenas MOVE o elemento — os links continuariam focáveis
+        // pelo Tab e presentes para leitor de tela, num celular onde a gaveta
+        // está fechada. `visibility:hidden` tira dos dois, e `md:visible`
+        // devolve tudo no desktop, onde a barra é fixa e sempre existe.
+        mobileAberto ? "translate-x-0 visible" : "-translate-x-full invisible",
+        "md:translate-x-0 md:visible",
       )}
     >
       <div className={cn("flex items-center border-b px-4 h-14", collapsed ? "justify-center" : "justify-start")}>

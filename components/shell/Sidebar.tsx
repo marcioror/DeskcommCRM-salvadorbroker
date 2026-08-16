@@ -34,9 +34,18 @@ import { GRUPO_NO_RODAPE, NAV_GROUPS, sidebarGroups } from "@/lib/navigation/reg
 export function Sidebar({
   collapsed,
   mobileAberto = false,
+  onNavegar,
 }: {
   collapsed: boolean;
   mobileAberto?: boolean;
+  /**
+   * Fecha a gaveta ao tocar em QUALQUER link. Não dá para depender só da troca
+   * de rota: tocar no item da tela em que você JÁ ESTÁ não muda o `pathname`,
+   * o efeito não dispara, e a gaveta fica aberta por cima da página — nada
+   * acontece aos olhos do usuário. Medido no e2e de 2026-08-16, que reprovou
+   * exatamente nesse passo.
+   */
+  onNavegar?: () => void;
 }) {
   // A barra lateral aparece em TODA tela — traduzi-la aqui é o que faz a
   // escolha de idioma virar algo visível no primeiro clique.
@@ -138,6 +147,7 @@ export function Sidebar({
                     <li key={item.href}>
                       <Link
                         href={item.href}
+                        onClick={onNavegar}
                         title={collapsed ? t(item.label) : undefined}
                         aria-current={isActive ? "page" : undefined}
                         className={cn(
@@ -163,6 +173,7 @@ export function Sidebar({
                   <li>
                     <Link
                       href={group.hub.href}
+                      onClick={onNavegar}
                       title={collapsed ? t(group.hub.label) : undefined}
                       aria-current={pathname === group.hub.href ? "page" : undefined}
                       className={cn(
@@ -187,6 +198,7 @@ export function Sidebar({
         {rodape && (
           <Link
             href={rodape.href}
+            onClick={onNavegar}
             title={collapsed ? t(rodape.label) : undefined}
             aria-current={pathname.startsWith(rodape.href) ? "page" : undefined}
             className={cn(

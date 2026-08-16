@@ -29,6 +29,14 @@ export function AppShell({ sidebarCollapsed, children }: AppShellProps) {
   // Fecha ao navegar. Sem isto, tocar num item do menu troca a página COM a
   // gaveta ainda por cima dela — o usuário chega no destino sem conseguir vê-lo
   // e precisa fechar na mão, toda vez.
+  //
+  // Este efeito é a REDE, não o mecanismo: ele cobre navegação que não nasce de
+  // um clique na barra (redirect, botão dentro da página, voltar do navegador).
+  // O fechamento no clique vive no `onNavegar` passado à Sidebar, e os dois são
+  // necessários — depender só daqui deixa passar o caso de tocar no item da
+  // tela em que você JÁ ESTÁ: o `pathname` não muda, o efeito não dispara, e a
+  // gaveta fica aberta sem nada acontecer aos olhos de quem tocou. Medido: o
+  // e2e de 2026-08-16 reprovou exatamente nesse passo.
   useEffect(() => {
     setMobileAberto(false);
   }, [pathname]);
@@ -46,7 +54,7 @@ export function AppShell({ sidebarCollapsed, children }: AppShellProps) {
 
   return (
     <div className="flex min-h-screen w-full bg-background">
-      <Sidebar collapsed={sidebarCollapsed} mobileAberto={mobileAberto} />
+      <Sidebar collapsed={sidebarCollapsed} mobileAberto={mobileAberto} onNavegar={fechar} />
 
       {/*
         Véu: fecha ao tocar fora, que é como gaveta se comporta em qualquer app.

@@ -121,12 +121,23 @@ test.describe("casca no celular (#203)", () => {
     await page.getByRole("button", { name: "Fechar o menu" }).click();
     await expect(page.locator("aside").getByRole("link", { name: "Contatos" })).toBeHidden();
 
-    // 7. Navegar fecha sozinho. Sem isto o usuário chega no destino com a
-    //    gaveta por cima e precisa fechar na mão, toda vez.
+    // 7. Tocar num item fecha — nos DOIS casos, e eles são mecanismos
+    //    diferentes. Trocar de tela é coberto pelo efeito de rota; tocar no
+    //    item da tela ATUAL não muda o `pathname` e só fecha pelo `onNavegar`
+    //    do clique. Este segundo caso é o que reprovou no e2e de 2026-08-16 —
+    //    a gaveta ficava aberta e, para o usuário, o toque não fazia nada.
+    const linkContatos = page.locator("aside").getByRole("link", { name: "Contatos" });
+
+    // 7a. rota DIFERENTE (estamos em /app/contacts, vamos para o funil)
     await page.getByRole("button", { name: "Abrir o menu" }).click();
-    await page.locator("aside").getByRole("link", { name: "Contatos" }).click();
-    await page.waitForURL(/\/app\/contacts/);
-    await expect(page.locator("aside").getByRole("link", { name: "Contatos" })).toBeHidden();
+    await page.locator("aside").getByRole("link", { name: "Funis" }).click();
+    await page.waitForURL(/\/app\/kanban/);
+    await expect(linkContatos).toBeHidden();
+
+    // 7b. MESMA rota — o caso que passava despercebido
+    await page.getByRole("button", { name: "Abrir o menu" }).click();
+    await page.locator("aside").getByRole("link", { name: "Funis" }).click();
+    await expect(linkContatos).toBeHidden();
   });
 
   test("no desktop nada mudou: a barra continua fixa e visível", async ({ page }) => {

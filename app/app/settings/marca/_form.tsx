@@ -23,6 +23,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { updateMarcaDaOrganizacao } from "@/app/actions/settings/updateMarcaDaOrganizacao";
+import { CampoDeLogo } from "@/components/branding/CampoDeLogo";
 import { TiraDeTons, type ItemDaLegenda } from "@/components/branding/TiraDeTons";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -42,8 +43,20 @@ import {
 import { marcaDaOrganizacaoSchema } from "@/lib/schemas/settings";
 
 interface Props {
-  /** O que está gravado em `settings.branding` desta organização. */
-  readonly gravada: { readonly app_name: string | null; readonly accent_hex: string | null };
+  /**
+   * O que está gravado em `settings.branding` desta organização.
+   *
+   * `logo_path` entra aqui porque a PRÉVIA precisa saber se o logo é desta
+   * camada ou herdado — e as duas frases que a tela escreve são diferentes. Ele
+   * NÃO entra no `Salvar`: o arquivo tem rota própria e escritor próprio no
+   * banco (`fn_definir_logo_da_organizacao`), justamente porque a função da
+   * marca substitui o objeto `branding` inteiro.
+   */
+  readonly gravada: {
+    readonly app_name: string | null;
+    readonly accent_hex: string | null;
+    readonly logo_path: string | null;
+  };
   /** A linha da marca da INSTALAÇÃO — a camada logo abaixo desta. */
   readonly instalacao: LinhaDaInstalacao;
   /** O arquivo de instalação do servidor — o fundo da pilha. */
@@ -132,12 +145,16 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
           camadaDaOrganizacao({
             app_name: nomeLimpo.length > 0 ? nomeLimpo : null,
             accent_hex: hexLimpo.length > 0 ? hexLimpo : null,
+            // GRAVADO, não digitado: o logo não é campo deste formulário — ele
+            // já está no banco quando esta tela renderiza. Entra na prévia para
+            // que o bloco "de onde vem cada coisa" possa responder sobre ele.
+            logo_path: gravada.logo_path,
           }),
           ...abaixo,
         ],
         REGUA_DO_PRODUTO,
       ),
-    [nomeLimpo, hexLimpo, abaixo],
+    [nomeLimpo, hexLimpo, gravada.logo_path, abaixo],
   );
 
   // A MESMA serialização, com o MESMO escopo, que o layout de `/app` roda no
@@ -310,6 +327,24 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
             </p>
           </div>
         ) : null}
+
+        {/*
+          O logo fica na MESMA prancheta que o nome e a cor porque, para quem
+          administra a empresa, é a mesma pergunta ("como minha empresa
+          aparece"). O que o separa é o mecanismo — ele sobe na hora, sem passar
+          pelo Salvar —, e isso a própria caixa explica.
+        */}
+        <CampoDeLogo
+          escopo="organizacao"
+          // Literal, nunca memoizado: a identidade deste objeto é o que diz ao
+          // campo que houve render NOVO do servidor. Ver os Props de CampoDeLogo.
+          logoDaCamada={{
+            url: resolvida.origens.logoUrl === "organizacao" ? resolvida.logoUrl : null,
+          }}
+          logoHerdado={semAOrganizacao.logoUrl}
+          origemDoHerdado="de quem instalou o sistema"
+          nomeEmVigor={resolvida.name}
+        />
       </Card>
 
       {/*
@@ -334,6 +369,7 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
         <div>
           <LinhaDeOrigem campo="Nome" valor={origemEmPortugues(resolvida.origens.nome)} />
           <LinhaDeOrigem campo="Cor" valor={origemEmPortugues(resolvida.origens.cor)} />
+          <LinhaDeOrigem campo="Logo" valor={origemEmPortugues(resolvida.origens.logoUrl)} />
         </div>
 
         {avisos.length > 0 ? (
@@ -393,9 +429,16 @@ export function FormularioDaMarcaDaOrganizacao({ gravada, instalacao, ambiente }
             O aplicativo de verificação em duas etapas continua registrando o nome do sistema:
             o cadastro acontece antes de saber de qual empresa a pessoa é.
           </li>
+          {/*
+            Esta linha dizia "o logo continua sendo o de quem instalou o
+            sistema". Deixou de ser verdade no instante em que o campo de logo
+            acima passou a existir — e frase honesta que envelheceu é pior que
+            frase ausente, porque quem a lê para de procurar o campo.
+          */}
           <li>
-            O logo continua sendo o de quem instalou o sistema — e, quando existe um, o menu
-            mostra o logo no lugar do nome.
+            O logo que você subir aqui aparece no menu lateral, para quem trabalha nesta
+            empresa. A tela de entrada continua com o logo de quem instalou o sistema: ali
+            ainda não dá para saber de qual empresa a pessoa é.
           </li>
         </ul>
       </Card>

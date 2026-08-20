@@ -78,6 +78,12 @@ export function marcaDaOrganizacaoDeSettings(settings: unknown): MarcaDaOrganiza
   return {
     app_name: texto(envelope.app_name),
     accent_hex: texto(envelope.accent_hex),
+    // Caminho no bucket, nunca URL — quem grava é `fn_definir_logo_da_organizacao`
+    // (migration 0158), que assevera o prefixo contra o `organization_id` DENTRO
+    // do banco. `texto()` pelo mesmo motivo dos outros dois: um `logo_path` que
+    // não fosse string desceria para `logoDaCamada` e viraria uma URL montada a
+    // partir de um objeto.
+    logo_path: texto(envelope.logo_path),
   };
 }
 
@@ -85,8 +91,9 @@ export function marcaDaOrganizacaoDeSettings(settings: unknown): MarcaDaOrganiza
  * A pilha inteira: ORGANIZAÇÃO acima, instalação no meio, `.env` embaixo.
  *
  * Precedência POR CAMPO (`primeiroDefinido`, em `resolve.ts`): a organização que
- * definiu só a cor continua com o nome do revendedor, e o logo continua sendo o
- * dele nesta fase inteira — a camada da organização nem fala de logo.
+ * definiu só a cor continua com o nome E o logo do revendedor. Desde a onda do
+ * upload, a camada da organização TAMBÉM fala de logo — e continua sendo por
+ * campo: `logo_path` ausente desce para a instalação, não a apaga.
  */
 export function resolverMarcaDaOrganizacao(
   settings: unknown,

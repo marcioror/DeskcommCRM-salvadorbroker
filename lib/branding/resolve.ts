@@ -34,6 +34,7 @@ import {
   type Regua,
   type Tema,
 } from "./contraste";
+import { logoDaCamada } from "./logo";
 import { normalizarHex } from "./rampa";
 import {
   ALGORITMO_ATUAL,
@@ -362,6 +363,18 @@ export function resolverMarca(
 export type LinhaDaInstalacao = {
   readonly app_name?: string | null;
   readonly logo_url?: string | null;
+  /**
+   * O ARQUIVO subido pela tela, dentro do bucket `brand-logos`. Caminho, nunca
+   * URL — a razão está no cabeçalho de `lib/branding/logo.ts` (DIRC-C: a URL é
+   * função determinística do caminho, e gravá-la amarraria a marca ao host do
+   * projeto Supabase de hoje).
+   *
+   * Convive com `logo_url` em vez de substituí-lo, e a ordem entre os dois é
+   * `logoDaCamada`: o arquivo vence a URL colada. `logo_url` continua existindo
+   * porque é a rede de rollback — o `agent.sh` reverte a IMAGEM, nunca o banco,
+   * então uma instalação pode voltar a rodar código que não conhece esta coluna.
+   */
+  readonly logo_path?: string | null;
   readonly accent_hex?: string | null;
 };
 
@@ -382,17 +395,19 @@ export type LinhaDaInstalacao = {
 export function camadaDaInstalacao(linha: LinhaDaInstalacao | null): CamadaDeMarca {
   if (!linha) return { origem: "banco" };
   const hex = (linha.accent_hex ?? "").trim();
+  // O arquivo subido vence a URL colada, DENTRO desta camada — ver `logoDaCamada`.
+  const logoUrl = logoDaCamada(linha.logo_path, linha.logo_url);
   // Mesma regra do `.env`: campo vazio é ausência de configuração, não cor com
   // defeito. Sem isto, uma linha semeada de um `.env` sem cor emitiria
   // `cor_ausente` em toda instalação de fábrica — e aviso no caso normal ensina
   // o operador a ignorar avisos.
   if (hex.length === 0) {
-    return { origem: "banco", nome: linha.app_name, logoUrl: linha.logo_url };
+    return { origem: "banco", nome: linha.app_name, logoUrl };
   }
   return {
     origem: "banco",
     nome: linha.app_name,
-    logoUrl: linha.logo_url,
+    logoUrl,
     cor: envelopeDeSemente(hex),
   };
 }
@@ -440,6 +455,14 @@ export function camadaDoAmbiente(fonte: {
 export type MarcaDaOrganizacao = {
   readonly app_name?: string | null;
   readonly accent_hex?: string | null;
+  /**
+   * O logo DESTA organização — caminho dentro de `brand-logos`, sob o prefixo do
+   * próprio `organization_id`. Sem `logo_url` par: aqui não há herança de `.env`
+   * a preservar (a chave `APP_LOGO_URL` é da instalação), então uma URL colada
+   * por organização seria contrato novo sem consumidor. Quem não subiu arquivo
+   * continua com o logo da instalação, pela precedência por campo.
+   */
+  readonly logo_path?: string | null;
 };
 
 /**
@@ -449,9 +472,14 @@ export type MarcaDaOrganizacao = {
  * atendentes; a da instalação continua embaixo e continua valendo campo a campo
  * (quem definiu só a cor mantém o nome do revendedor).
  *
- * Sem `logoUrl` de propósito: upload de logo é a fase seguinte, e uma camada que
- * declarasse `logoUrl: null` não seria neutra — não apagaria nada, mas ensinaria
- * a próxima pessoa a achar que o campo já existe.
+ * `logoUrl` É PRODUZIDO AQUI — e esta linha é o produtor que faltava. Até a onda
+ * anterior, `ActiveOrg.marca.logoUrl` (`lib/auth/types.ts`) e a condição
+ * `origens.logoUrl === "organizacao"` (`app/app/layout.tsx`) existiam sem
+ * ninguém do outro lado: o consumidor entrou antes do produtor, de propósito e
+ * declarado, para que o upload por organização fosse só esta camada e não mais
+ * uma passada pela casca inteira. `null` aqui é NEUTRO — `primeiroDefinido`
+ * ignora valor vazio e desce para a instalação —, então a organização que não
+ * subiu arquivo continua com o logo do revendedor.
  *
  * Hex vazio devolve camada SEM a chave `cor`, e não `cor: null`: medido em
  * `resolverCor` (:183-187), `null` emite `cor_ausente` e a chave AUSENTE desce
@@ -466,6 +494,12 @@ export type MarcaDaOrganizacao = {
 export function camadaDaOrganizacao(marca: MarcaDaOrganizacao | null): CamadaDeMarca {
   if (!marca) return { origem: "organizacao" };
   const hex = (marca.accent_hex ?? "").trim();
-  if (hex.length === 0) return { origem: "organizacao", nome: marca.app_name };
-  return { origem: "organizacao", nome: marca.app_name, cor: envelopeDeSemente(hex) };
+  const logoUrl = logoDaCamada(marca.logo_path, null);
+  if (hex.length === 0) return { origem: "organizacao", nome: marca.app_name, logoUrl };
+  return {
+    origem: "organizacao",
+    nome: marca.app_name,
+    logoUrl,
+    cor: envelopeDeSemente(hex),
+  };
 }

@@ -32,7 +32,7 @@
       "col": 0,
       "type": "service",
       "label": "install.sh",
-      "sublabel": "envq APP_NAME/APP_LOGO_URL/SUPPORT_EMAIL/RESEND_* (:1365-1379) · NÃO grava APP_ACCENT_HEX"
+      "sublabel": "envq APP_NAME/APP_LOGO_URL/APP_ACCENT_HEX/SUPPORT_EMAIL/RESEND_* (:1392-1414) · a cor tem validador v_hex na entrevista"
     },
     {
       "id": "env",
@@ -72,6 +72,10 @@
 
     { "id": "updatebranding", "lane": "escrita", "col": 2, "type": "api", "label": "updateBranding (server action)", "sublabel": "gate is_platform_admin + admin client + invalidarMarcaDaInstalacao()" },
     { "id": "updateorg", "lane": "escrita", "col": 2, "type": "api", "label": "updateMarcaDaOrganizacao (server action)", "sublabel": "RPC atômica: SELECT→spread→UPDATE no mesmo jsonb perderia visibility_mode" },
+    { "id": "rotalogo", "lane": "escrita", "col": 2, "type": "api", "label": "POST/DELETE /api/v1/marca/logo", "sublabel": "gate POR ESCOPO · tipo pelos BYTES (file.type só no details) · 512 KB · sobe → grava → só então apaga, com o prefixo asseverado" },
+
+    { "id": "bucketlogos", "lane": "banco", "col": 3, "type": "database", "label": "storage/brand-logos (PÚBLICO)", "sublabel": "o 1º bucket público do repo · zero policy em storage.objects · <prefixo>/<uuid>.<png|jpg> · a URL é DERIVADA do caminho, nunca gravada" },
+    { "id": "fnlogoorg", "lane": "banco", "col": 4, "type": "database", "label": "fn_definir_logo_da_organizacao (0158)", "sublabel": "assevera o prefixo contra p_org DENTRO do banco · merge no CAMPO · a 0157 ganhou forward-fix para não apagar logo_path" },
 
     { "id": "platformbranding", "lane": "banco", "col": 3, "type": "database", "label": "public.platform_branding", "sublabel": "singleton id=1 · sem organization_id · revoke de anon (o baseline dá GRANT ALL por default)" },
     { "id": "orgbranding", "lane": "banco", "col": 3, "type": "database", "label": "organizations.settings.branding", "sublabel": "jsonb com envelope {format, algo, semente_hex} · schema LOOSE: código velho sobre schema novo não pode lançar" },
@@ -88,6 +92,7 @@
 
     { "id": "layout", "lane": "saida", "col": 7, "type": "frontend", "label": "app/layout.tsx", "sublabel": "<EstiloDaMarca/> no <head> + generateMetadata (título com template) + viewport" },
     { "id": "applayout", "lane": "saida", "col": 7, "type": "frontend", "label": "app/app/layout.tsx", "sublabel": "<EstiloDaMarcaDaOrganizacao/> escopado em [data-marca-org] — não alcança /login" },
+    { "id": "marcacliente", "lane": "saida", "col": 8, "type": "frontend", "label": "lib/branding/contexto.tsx", "sublabel": "a marca atravessa por PROP do servidor (useMarcaDaInstalacao) — era branding(), que lê window.__PUBLIC_ENV__ no navegador e process.env no SSR: com logo no banco e APP_LOGO_URL vazio, o servidor desenhava <span> e o cliente <img> (React #418)" },
     { "id": "iconroute", "lane": "saida", "col": 7, "type": "api", "label": "app/icon.tsx", "sublabel": "ImageResponse em runtime · force-dynamic · /icon em PUBLIC_PATHS (sem isso, 307 para /login)" },
     { "id": "invite", "lane": "saida", "col": 7, "type": "service", "label": "lib/email/templates/invite.ts", "sublabel": "assunto + corpo + botão com a marca de quem convidou" },
     { "id": "lgpdemail", "lane": "saida", "col": 7, "type": "service", "label": "lib/lgpd/email-delivery.ts", "sublabel": "diz quem PROCESSOU a solicitação — era 'DeskcommCRM' em 100% dos casos, não em borda" },
@@ -100,7 +105,7 @@
   "edges": [
     { "id": "e1", "from": "installsh", "to": "env", "label": "grava a marca no .env — e o arquivo é escrito com truncamento: chave que o script não grava some no update seguinte" },
     { "id": "e2", "from": "env", "to": "platformbranding", "label": "sementeDoAmbiente(): a 1ª leitura semeia a tabela e marca seeded_from_env" },
-    { "id": "e3", "from": "env", "to": "resolver", "label": "camadaDoAmbiente() — a camada mais baixa da pilha" },
+    { "id": "e3", "from": "env", "to": "resolver", "label": "camadaDoAmbiente() — a camada mais baixa da pilha, e a ÚNICA porta por onde um hex torto entra: lib/env.ts:201 não valida formato (o formulário e o CHECK barram os outros dois caminhos)" },
     { "id": "e4", "from": "registry", "to": "orgmarca", "label": "a porta declarada; sem entrada aqui, navegacao-completude.test.ts reprova o build" },
     { "id": "e5", "from": "registry", "to": "telatenant", "label": "porta de 1ª classe do grupo Configurações" },
     { "id": "e6", "from": "registry", "to": "interface", "label": "a sidebar inteira é renderizada a partir do registro" },
@@ -151,7 +156,17 @@
     { "id": "e51", "from": "lgpdworker", "to": "lgpdemail", "label": "link assinado do export" },
     { "id": "e52", "from": "legalname", "to": "pdf", "label": "o rodapé imprime o CONTROLADOR — a ÚNICA identidade do épico que não é marca", "route": "highlight" },
     { "id": "e53", "from": "pdf", "to": "titular", "label": "Relatório do Art. 18 II (Lei 13.709/2018)" },
-    { "id": "e54", "from": "lgpdemail", "to": "titular", "label": "o e-mail com o link, dizendo quem OPEROU" }
+    { "id": "e54", "from": "lgpdemail", "to": "titular", "label": "o e-mail com o link, dizendo quem OPEROU" },
+    { "id": "e55", "from": "adminmarca", "to": "rotalogo", "label": "CampoDeLogo: o arquivo sobe na hora, FORA do Salvar — o ponteiro tem escritor próprio" },
+    { "id": "e56", "from": "orgmarca", "to": "rotalogo", "label": "mesmo componente, escopo=organizacao — o gate troca, a ordem das verificações não" },
+    { "id": "e57", "from": "rotalogo", "to": "bucketlogos", "label": "upload dos bytes FAREJADOS; o anterior só é apagado DEPOIS de gravar, e só sob o próprio prefixo (podeApagar)" },
+    { "id": "e58", "from": "rotalogo", "to": "platformbranding", "label": "escopo=instalacao: upsert de logo_path (CHECK ^platform/<uuid>.(png|jpg)) + seeded_from_env=false" },
+    { "id": "e59", "from": "rotalogo", "to": "fnlogoorg", "label": "escopo=organizacao: RPC com row_count de volta — a catraca da issue #144" },
+    { "id": "e60", "from": "fnlogoorg", "to": "orgbranding", "label": "jsonb_set em {branding} preservando app_name/accent_hex — merge no CAMPO, não no objeto" },
+    { "id": "e61", "from": "bucketlogos", "to": "resolver", "label": "logoDaCamada(): o ARQUIVO vence a URL colada; urlPublicaDoLogo deriva a URL do caminho + host em runtime" },
+    { "id": "e62", "from": "rotalogo", "to": "auditlog", "label": "reusa platform_branding.updated / org.branding_updated — código de ação novo não responderia pergunta nova" },
+    { "id": "e63", "from": "layout", "to": "marcacliente", "label": "a MESMA marcaResolvida() do título e do CSS desce por prop, no payload do RSC — mesma rota de user/activeOrg" },
+    { "id": "e64", "from": "marcacliente", "to": "interface", "label": "useMarcaDaInstalacao(): SSR e hidratação leem o mesmo objeto, então o logo do revendedor não troca de elemento no meio do caminho" }
   ],
   "cards": [
     {
@@ -187,7 +202,7 @@
         "DOMÍNIO por organização: fora. Zero coluna no schema, o proxy é NOOP nesse eixo, e no Edge não há banco para consultar antes de decidir o host",
         "FONTE por tenant: fora. next/font resolve em BUILD time e a imagem é pré-buildada — um seletor de fonte seria controle decorativo",
         "X-Deskcomm-Signature e sb-deskcomm-auth NÃO são renomeados: o primeiro é contrato de fio com receptores de terceiros, o segundo é a sessão de quem está logado. 'Completar o whitelabel' ali derruba integração de cliente em silêncio",
-        "lib/email/templates/ai-budget-alarm.tsx segue com a nossa marca: não tem rota de cron, não tem linha no docker/scheduler/entrypoint.sh e não tem chamador de runBudgetChecker() fora de um script de QA. Dívida D1, com a condição de saída escrita",
+        "lib/email/templates/ai-budget-alarm.tsx segue com a nossa marca: não tem rota de cron, não tem linha no docker/scheduler/entrypoint.sh e, desde a limpeza do teto de orçamento (0159), não tem chamador nenhum — workers/ai-budget-checker.cron.ts, o único, foi apagado. Dívida D1, com a condição de saída escrita",
         "quem envia e-mail é o APP (via event-log-drain, batido pelo scheduler), NUNCA o contêiner worker — que roda o agent-engine e não importa e-mail nenhum. Quem for provar reiniciando 'o worker' reinicia o processo errado"
       ]
     }

@@ -16,7 +16,7 @@ import {
 } from "@/lib/ui/icons";
 import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
-import { branding } from "@/lib/branding";
+import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 
 interface NavItem {
   href: string;
@@ -47,13 +47,19 @@ interface AdminSidebarProps {
 
 export function AdminSidebar({ userEmail }: AdminSidebarProps) {
   const pathname = usePathname();
+  // Por PROP do servidor, e nunca `branding()`: aquela função lê fontes
+  // diferentes nos dois lados da fronteira (`window.__PUBLIC_ENV__` no
+  // navegador, `process.env` no servidor), e desde que o layout raiz passou a
+  // injetar a marca do BANCO as duas divergem — o nome renderizado no SSR não
+  // batia com o hidratado, que é hydration mismatch. Ver `lib/branding/contexto.tsx`.
+  const marca = useMarcaDaInstalacao();
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r bg-card">
       <div className="flex h-14 items-center border-b px-4">
         <div className="flex flex-col">
           <span className="text-xs uppercase tracking-wider text-muted-foreground">
-            {branding().name}
+            {marca.name}
           </span>
           <span className="text-sm font-semibold tracking-tight">Admin Plataforma</span>
         </div>

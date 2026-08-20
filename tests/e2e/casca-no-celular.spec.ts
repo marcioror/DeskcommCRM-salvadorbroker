@@ -61,6 +61,15 @@ const creds = loadCreds();
  * e um seletor solto mediria um deles — dizendo "o menu está visível" quando o
  * menu está fechado. O `<main>` também é o da casca, o primeiro do documento.
  */
+/**
+ * ⚠️ FUSÃO DE 2026-08-20: a gaveta passou a ser a do UPSTREAM (`MobileSidebar`,
+ * sobre o `Sheet` do Radix), e a nossa implementação paralela foi descartada —
+ * duas gavetas conflitariam em toda sincronização, e a do upstream fecha ao
+ * tocar no item pelo mesmo `onNavigate`. Só os RÓTULOS e o CONTINENTE mudaram:
+ * o botão chama-se "Abrir navegação", o fechar é o "Close" do Sheet, e os links
+ * abertos vivem num `role="dialog"`, não no `<aside>` (que agora é só o desktop,
+ * dentro de um `hidden md:block`). O que esta spec MEDE é o mesmo.
+ */
 const CELULAR = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 800 };
 
@@ -73,6 +82,16 @@ async function login(page: Page, email: string): Promise<void> {
   await page.locator("#password").fill(creds.password);
   await page.getByRole("button", { name: /entrar/i }).click();
   await page.waitForURL(/\/app\//);
+}
+
+/**
+ * A gaveta aberta é o `SheetContent` do Radix — um `role="dialog"`. Escopar
+ * nele é o mesmo cuidado que o `<aside>` resolvia antes: a própria tela de
+ * contatos tem links com o texto "Contatos", e um seletor solto mediria um
+ * deles, dizendo "a gaveta abriu" com a gaveta fechada.
+ */
+function gaveta(page: Page) {
+  return page.getByRole("dialog");
 }
 
 /** O número que o usuário sente: quanto a página vaza para fora da tela. */
@@ -111,32 +130,35 @@ test.describe("casca no celular (#203)", () => {
 
     // 4. O botão existe e abre a gaveta. Sem ele, trocaríamos "menu ocupa tudo"
     //    por "não há menu", que é pior.
-    await page.getByRole("button", { name: "Abrir o menu" }).click();
-    await expect(page.locator("aside").getByRole("link", { name: "Contatos" })).toBeVisible();
+    await page.getByRole("button", { name: "Abrir navegação" }).click();
+    await expect(gaveta(page).getByRole("link", { name: "Contatos" })).toBeVisible();
 
     // 5. Aberta, ela ainda não pode fazer a página vazar.
     expect(await estouroHorizontal(page)).toBeLessThanOrEqual(0);
 
-    // 6. Tocar fora fecha — é como gaveta se comporta em qualquer app.
-    await page.getByRole("button", { name: "Fechar o menu" }).click();
-    await expect(page.locator("aside").getByRole("link", { name: "Contatos" })).toBeHidden();
+    // 6. Dá para fechar sem navegar. No Sheet do upstream quem faz isso é o
+    //    botão de fechar do próprio componente (rótulo "Close", só para leitor
+    //    de tela) — o véu do Radix também fecha, mas clicar nele por coordenada
+    //    é medida frágil.
+    await gaveta(page).getByRole("button", { name: /close|fechar/i }).click();
+    await expect(gaveta(page).getByRole("link", { name: "Contatos" })).toBeHidden();
 
     // 7. Tocar num item fecha — nos DOIS casos, e eles são mecanismos
     //    diferentes. Trocar de tela é coberto pelo efeito de rota; tocar no
     //    item da tela ATUAL não muda o `pathname` e só fecha pelo `onNavegar`
     //    do clique. Este segundo caso é o que reprovou no e2e de 2026-08-16 —
     //    a gaveta ficava aberta e, para o usuário, o toque não fazia nada.
-    const linkContatos = page.locator("aside").getByRole("link", { name: "Contatos" });
+    const linkContatos = gaveta(page).getByRole("link", { name: "Contatos" });
 
     // 7a. rota DIFERENTE (estamos em /app/contacts, vamos para o funil)
-    await page.getByRole("button", { name: "Abrir o menu" }).click();
-    await page.locator("aside").getByRole("link", { name: "Funis" }).click();
+    await page.getByRole("button", { name: "Abrir navegação" }).click();
+    await gaveta(page).getByRole("link", { name: "Funis" }).click();
     await page.waitForURL(/\/app\/kanban/);
     await expect(linkContatos).toBeHidden();
 
     // 7b. MESMA rota — o caso que passava despercebido
-    await page.getByRole("button", { name: "Abrir o menu" }).click();
-    await page.locator("aside").getByRole("link", { name: "Funis" }).click();
+    await page.getByRole("button", { name: "Abrir navegação" }).click();
+    await gaveta(page).getByRole("link", { name: "Funis" }).click();
     await expect(linkContatos).toBeHidden();
   });
 
@@ -154,6 +176,6 @@ test.describe("casca no celular (#203)", () => {
     }
 
     // E o botão de gaveta não aparece: no desktop ele não tem função.
-    await expect(page.getByRole("button", { name: "Abrir o menu" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Abrir navegação" })).toBeHidden();
   });
 });

@@ -17,6 +17,8 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import type { MetaWebhookEnvelope } from "./envelope";
+
 /** Assinatura da Meta: `sha256=<hex>` no header `X-Hub-Signature-256`. */
 export function verifyMetaSignature(
   rawBody: string,
@@ -101,18 +103,12 @@ export interface MessageStatusEvent {
 
 export type MetaWebhookEvent = TemplateStatusEvent | MessageStatusEvent | InboundMessageEvent;
 
-interface MetaChange {
-  field?: string;
-  value?: Record<string, unknown>;
-}
-interface MetaEntry {
-  id?: string;
-  changes?: MetaChange[];
-}
-export interface MetaWebhookEnvelope {
-  object?: string;
-  entry?: MetaEntry[];
-}
+/**
+ * O formato do fio mora em `./envelope.ts`, onde é um schema Zod — e o tipo
+ * NASCE dele (`z.infer`). Aqui era um `interface` escrita à mão, que o
+ * `JSON.parse ... as` da rota prometia sem nunca conferir.
+ */
+export type { MetaWebhookEnvelope } from "./envelope";
 
 /**
  * A Meta manda `rejected_reason: "NONE"` em template APROVADO (medido contra a WABA

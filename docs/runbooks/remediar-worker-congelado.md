@@ -19,10 +19,17 @@
 > default não resolve. Só a **segunda** execução, já com o kit novo em disco, pinou as
 > três e trocou a imagem. Ver §5.0.
 >
-> **Ainda não coberto:** o app não subiu contra um Supabase real (o ensaio usou um
-> Postgres em contêiner como `SUPABASE_DB_URL`), então auth, storage e PostgREST não
-> foram exercitados; e a sessão do WhatsApp foi representada por um arquivo marcador no
-> volume, não por um número pareado de verdade.
+> **Não coberto PELO ENSAIO** — e o escopo desta frase importa, porque ela já mentiu sem
+> ele: nos **ensaios**, o app não subiu contra um Supabase real (usaram um Postgres em
+> contêiner como `SUPABASE_DB_URL`), então auth, storage e PostgREST não foram exercitados,
+> e a sessão do WhatsApp foi representada por um arquivo marcador no volume.
+>
+> **A execução real cobriu os dois** — está no §P4 deste mesmo documento, 340 linhas abaixo:
+> a remediação rodou na produção do projeto, contra o Supabase de verdade
+> (`/api/v1/health` → `1.3.0, healthy`, `supabase: ok`) e com a sessão pareada de verdade no
+> volume (48.607 arquivos, `waha: ok`). Sem a palavra "ensaio", este aviso — que é a primeira
+> coisa que qualquer leitor vê — declarava não provado exatamente o que o documento prova
+> depois, e teria feito alguém repetir um trabalho já feito.
 
 ---
 
@@ -193,10 +200,26 @@ mesma versão. Medido: `APP_IMAGE`, `WORKER_IMAGE` e `SCHEDULER_IMAGE` em `1.3.0
 1. **Rode `update.sh` duas vezes** numa instalação legada — sempre. Com release publicada, a
    primeira traz o worker e a segunda o pina; sem release, a primeira não traz nada e a
    segunda faz as duas coisas.
-2. **Desde a 1.3.0, o agente completa parte disso sozinho — em até 5 minutos.** O
-   `agent.sh` (cron do host) é o único que roda depois da 1ª execução já com o kit novo em
+2. **A partir da PRÓXIMA release, o agente completa parte disso sozinho — em até 5 minutos.**
+   O `agent.sh` (cron do host) é o único que roda depois da 1ª execução já com o kit novo em
    disco, e ele preenche a chave que faltou usando **a versão que o contêiner já está
    rodando** — congelamento puro, nada muda de comportamento agora.
+
+   > **Não conte com isso hoje, e esta linha já mentiu.** Ela dizia *"desde a 1.3.0"*. O
+   > `completar_pin_ausente` entrou em `81b3bd5d` (2026-08-14), **posterior** à v1.3.0
+   > (2026-08-13), e a v1.3.0 continua sendo a tag mais recente:
+   >
+   > ```console
+   > $ git show v1.3.0:hostgator-setup-kit/_common.sh | grep -c completar_pin_ausente
+   > 0
+   > ```
+   >
+   > Ou seja: **nenhuma instalação existente tem esse comportamento.** Quem atendesse um
+   > cliente lendo a versão anterior desta linha diria "espere cinco minutos que se resolve",
+   > e nada aconteceria — para sempre. O erro é o mesmo que este runbook documenta em outro
+   > lugar: **provei presença na `main` e afirmei comportamento na versão publicada.** O kit
+   > que roda na VPS é o da tag (`update.sh` faz `git checkout "$TARGET_TAG"`), não o da
+   > `main`. Confira antes de prometer: `git show <tag>:hostgator-setup-kit/_common.sh`.
 
    **O que ele nunca faz:** sobrescrever valor que já existe no `.env`. Chave ausente é
    omissão do script antigo; chave presente é decisão de quem opera, inclusive a de seguir

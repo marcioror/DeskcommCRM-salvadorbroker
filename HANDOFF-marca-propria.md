@@ -727,7 +727,13 @@ para **qualquer outra sessão** no mesmo banco. Limpo (`null`/`null`). Spec temp
 - Logo e `show_powered_by` não têm controle: `Sidebar.tsx:46` lê o logo do `.env`, e
   `show_powered_by` tem **zero** consumidores. Campo que salva valor que ninguém mostra
   seria controle decorativo.
-- `fallback_at` é hoje inalcançável pela UI (o CHECK do banco barra hex corrompido).
+- `fallback_at` é inalcançável **pela UI** — três guardas, não uma: o botão Salvar
+  desabilitado (`app/admin/(protected)/marca/_form.tsx:313`), o `platformBrandingSchema`
+  na Server Action (`lib/schemas/settings.ts:172`) e o CHECK do banco. **Pelo `.env` é
+  alcançável**, e esse é o caminho que existe: `lib/env.ts:201` é
+  `z.string().optional().default("")`, sem formato — `APP_ACCENT_HEX=verde` desce por
+  `camadaDoAmbiente` e acende o alarme com `semente_invalida`. Coberto por
+  `tests/unit/branding-fallback-alcancavel.test.ts`.
 - **Spec e2e da marca é dívida:** a prova foi por spec temporária, removida porque suja
   o banco compartilhado. Uma spec de verdade precisa de `afterAll` restaurando, e de ser
   declarada em `.github/workflows/e2e.yml` (senão reprova o job **`verify`**, não o `e2e`).
@@ -780,17 +786,40 @@ Por isso o caso de volta foi medido **sem sessão**: `/login` é rota pública, 
 comparação usa o `#b3261e` já medido em `/app`. Mesma propriedade, mesmo rigor, sem
 depender de um login que o ambiente não estava entregando.
 
-### Descoberta lateral
+### Descoberta lateral — ~~correta~~ **REFUTADA por medição** (Onda 1, 2026-08-14)
 
-**Revogar o `platform_admin` removeu a exigência de MFA** do usuário — o `mfa_required`
-vinha de lá. O helper de login do repo trava esperando a tela de TOTP que deixa de
-aparecer, e o sintoma lê como "MFA quebrou". Fica registrado para a próxima sessão.
+> ~~**Revogar o `platform_admin` removeu a exigência de MFA** do usuário — o `mfa_required`
+> vinha de lá. O helper de login do repo trava esperando a tela de TOTP que deixa de
+> aparecer, e o sintoma lê como "MFA quebrou".~~
+
+**Isto é falso, e agir sobre ele levaria a mexer no gate de MFA sem defeito nenhum.**
+
+1. `lib/auth/server.ts:160` — `requiresMfa(role, isPlatformAdmin)` é
+   `isPlatformAdmin || role === "admin"`. `e2e-admin@deskcomm.test` tem role de
+   **tenant** `admin`, então a exigência continua de pé com ou sem a promoção.
+   `platform_admins.mfa_required` é uma coluna da tabela; não é ela que o produto lê
+   nesse caminho.
+2. A causa medida é **rotação do fator TOTP por outra sessão**, que este mesmo
+   documento já registrava duas seções acima ("o fator TOTP mudou de ID"). Medido de
+   novo hoje: `.e2e-creds.json` trazia `factor_id 49c64c17…` e o banco tinha
+   `81ee0438…` — o `seed-e2e-credentials.ts` rotacionou. Com o secret velho, o código
+   é recusado e o login fica preso em `/login/mfa`.
+
+Antes de tocar em código por causa deste sintoma, **meça**:
+
+```sql
+select count(*) from auth.mfa_factors
+ where user_id = (select id from auth.users where email = 'e2e-admin@deskcomm.test')
+   and status = 'verified';
+```
 
 ### Estado deixado no banco local (compartilhado)
 
 - `e2e-admin@deskcomm.test` segue **revogado** de `platform_admins`. É o estado correto do
-  seed base; quem precisa dele promovido é `seed-e2e-system-update.ts`, que repromove ao
-  rodar. Restaurar seria propagar o defeito.
+  seed base. ⚠️ **Atualizado na Onda 1:** a frase "quem precisa dele promovido é
+  `seed-e2e-system-update.ts`, que repromove ao rodar" **deixou de valer** — esse seed
+  agora promove o `e2e-dono@deskcomm.test` e **revoga** o `e2e-admin` a cada execução.
+  Rodá-lo é o conserto de um banco contaminado, não a recontaminação.
 - A marca da org de teste (`E2E Test Org`) ficou gravada com `#b3261e`.
 
 ### Sem cobertura, declarado
@@ -907,13 +936,13 @@ e2e, imagens-ok`.
 
 | # | Dívida | Condição para sair |
 |---|---|---|
-| D1 | Marca no **alarme de orçamento de IA** (`fase: 7` na guarda) | Ganhar rota em `app/api/v1/cron/`, linha no `docker/scheduler/entrypoint.sh` e chamador real de `runBudgetChecker()`. Hoje o efeito de consertar é **zero observável** |
+| D1 | Marca no **alarme de orçamento de IA** (`fase: 7` na guarda) | **Condição reescrita em 2026-08-15** — a anterior apontava para `runBudgetChecker()`, função que deixou de existir: `workers/ai-budget-checker.cron.ts` foi apagado no épico do teto de orçamento (0159/0160) por nunca ter tido agendador. Depois disso `lib/email/templates/ai-budget-alarm.tsx` ficou **sem chamador nenhum**. Sai quando o alarme ganhar cron de verdade (rota em `app/api/v1/cron/` + linha no `docker/scheduler/entrypoint.sh` + um chamador) **ou** quando o template for apagado junto. Redação canônica em `tests/unit/branding.test.ts` (entrada `lib/email/templates/ai-budget-alarm.tsx`) e em `docs/architecture/marca-propria.architecture.json` — os três descrevem a MESMA dívida e agora dizem a mesma coisa. Hoje o efeito de consertar continua sendo **zero observável** |
 | D2 | `white-label.md` em **EN/ES** | Um gate que reprove tradução defasada. Sem ele, três cópias divergem no primeiro conserto seguinte, e guia comercial errado em inglês é pior que ausente |
 | D3 | **Upload de logo** (saiu do épico) e **fonte/tema** por tenant | Logo: bucket + policies + teto de 512 KB + delete-on-replace, com a cota do Supabase do cliente medida. Fonte/tema: exigiria `Font.register` e o arquivo dentro da imagem — o `next/font` resolve em build |
-| D4 | As **120 divergências** entre `lib/audit/actions.ts` e o painel | O conserto certo é **derivar** a lista do union, não copiá-la melhor. A catraca nova impede crescer; encolher é item próprio |
-| D5 | `docs/design-system/screen-flow/03-screen-inventory.md` — seção M diz "15 telas" e tem **17** linhas | Uma passada no inventário inteiro. Corrigir só uma linha deixa dois totais errados |
+| ~~D4~~ | ~~As 120 divergências entre `lib/audit/actions.ts` e o painel~~ | **RESOLVIDA** em `33ce8612`: a lista do painel passou a **derivar** do union e `action-codes.ts` foi apagado. Divergir deixou de ser possível, então a catraca que congelava os 120 foi apagada junto — gate que guarda classe inexistente é ruído. O filtro do painel foi de 89 para 209 códigos |
+| ~~D5~~ | ~~`docs/design-system/screen-flow/03-screen-inventory.md` — seção M diz "15 telas" e tem **17** linhas~~ | **RESOLVIDA** em 2026-08-14, `214f47f0`. A passada no inventário inteiro achou mais do que a dívida dizia: **9 dos 10 totais do doc estavam errados**, não um (C dizia 3/tinha 2; G dizia 10/tinha 11; M dizia 15/tinha 17; abertura "~70", Resumo "~74", P0 "~32", P1 "~30", P2 "~12", realtime "~22" — contra 94 linhas, 41, 46, 6 e 27). `/admin/marca` virou a linha #90 e o total foi a 95. O doc ganhou a seção "Reconciliação com o disco" (42 rotas planejadas e não construídas, 42 páginas construídas fora do plano, 3 que existem sem `page.tsx`), o instrumento `scripts/inventario-de-telas.ts` e o gate `tests/unit/inventario-de-telas.test.ts` |
 | D6 | `marca-emails.sh` não alcança quem instalou colando as 4 credenciais **sem** `SUPABASE_ACCESS_TOKEN` | Uma forma de o operador autorizar a Management API depois da instalação, sem guardar chave mestra no `.env` do cliente |
-| D7 | `fallback_at` é **inalcançável pela UI** — o CHECK do banco barra o hex corrompido antes | Só aparece para quem edita o banco à mão ou vem de clone com valor legado. É o laço de retorno funcionando com gatilho raro, não ausente |
+| ~~D7~~ | ~~`fallback_at` é **inalcançável pela UI** — o CHECK do banco barra o hex corrompido antes~~ ~~Só aparece para quem edita o banco à mão ou vem de clone com valor legado~~ | **NÃO ERA DÍVIDA, E A RAZÃO ESCRITA ESTAVA ERRADA** (medido 2026-08-14, `214f47f0`). As duas saídas que a frase enumerava não existem: *editar o banco à mão* é barrado pelo próprio CHECK que ela cita (a constraint entrou na `create table` da 0155, não depois), e *clone com valor legado* é impossível pelo mesmo motivo — a coluna nunca existiu sem ela. O caminho que **funciona** ficou de fora: o `.env`. `lib/env.ts:201` é `z.string().optional().default("")`, sem formato; `APP_ACCENT_HEX=verde` acende `semente_invalida`. Agora é caso de teste (`tests/unit/branding-fallback-alcancavel.test.ts`, 5 casos), não dívida |
 | D8 | Prova de **instalação fresca ponta a ponta com marca de revendedor** | Mesma lacuna de `vps-fresh-onboarding`: nenhum job prova a jornada de quem compra. É onde eu apostaria o próximo defeito de marca |
 
 ## Próximo passo exato
@@ -922,3 +951,466 @@ O épico está fechado no código e na documentação. Falta o que só o dono fa
 `main`** — autorizado explicitamente por Rafael em 2026-08-13. Ao abrir o PR, o `e2e` roda pela
 primeira vez a `tests/e2e/icone-da-marca.spec.ts`; se ela reprovar por ambiente, o lugar dela é
 `FORA_DO_CI` **com o motivo medido**, nunca uma exclusão preventiva.
+---
+
+## Alocação de migrations da continuação (medida 2026-08-14 @ `11d87a11`)
+
+Três blocos de trabalho reivindicavam **0158** ao mesmo tempo. Colisão de número de
+migration **não** se resolve "cada um re-mede na hora": dois construtores medem o mesmo
+minuto e acham o mesmo número livre. A alocação é central e fica aqui.
+
+| Número | Dono | Onda |
+|---|---|---|
+| **0158** | `logo_no_storage` — bucket + `logo_path` + RPC | 6 |
+| **0159** | `selo_dos_emails_de_acesso` | 8 |
+
+Medido em **todas** as refs locais e remotas (`git branch -a` × `git ls-tree`): o maior
+ocupado é **0157**. Reconte antes de usar.
+
+**Uma migration foi CORTADA:** a que existiria só para trocar um `comment on table`.
+Preço desproporcional — arquivo + apêndice + MANIFEST + `test:db` obrigatório (~6 min de
+Docker) + consumir um número disputado, em troca de uma string em `pg_description` que
+ninguém lê em campo. **O comentário do banco fica desalinhado de propósito.** A mesma
+frase falsa está num arquivo que humanos leem — `hostgator-setup-kit/marca-emails.sh:105-109`,
+que o próximo mantenedor do kit lê antes de mexer em `ACCENT` —, e corrigir *essa* custa
+uma linha. Se alguém quiser alinhar o comentário do banco, que vá de carona numa migration
+que exista por outro motivo.
+
+### E a ordem no apêndice do `baseline.sql` — a premissa em circulação era falsa
+
+"O bloco da varredura anon é o último do arquivo" é **falso**: medido, **quatro blocos
+vêm depois dela**. O que o guarda (`tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts`)
+proíbe depois da linha da varredura são exatamente duas coisas: `create function` e
+`grant … to … anon`.
+
+Consequência prática: a **0158 cria duas funções**, então é obrigatoriamente **antes** da
+varredura — e o plano original mandava colá-la "no fim do arquivo", o que teria deixado
+`pnpm test:unit` vermelho num teste que ele nunca citou.
+
+---
+
+## Incidente de infraestrutura (2026-08-14) — e o que ele bloqueia
+
+O disco encheu no meio da execução (**166 MB livres, 100%**), com o `.env.local`
+temporariamente movido para `/tmp` por um gate. O arquivo foi recuperado íntegro
+(4361 bytes). Limpei **só o que é meu** — 7,0 GB e 1,3 GB em `/tmp/claude-501` são
+de **outras sessões** e não foram tocados (posse se mede, não se infere pela idade).
+
+Sequela: o **daemon do Docker travou** (`docker ps` pendura sem retorno) e o Postgres
+local caiu. Isso bloqueia, enquanto durar:
+
+- **prova em tela** de qualquer onda (precisa do Supabase local),
+- **`pnpm test:db`** (sobe `pgvector/pgvector:pg17` descartável),
+- **`pnpm test:e2e`**.
+
+**O que NÃO está bloqueado:** `typecheck`, `lint`, `lint:channels`, `test:unit`,
+`build` e `test:shell` — que é onde as ondas seguem correndo.
+
+Registro para não virar afirmação otimista: **as ondas cuja prova em tela ficou
+pendente estão marcadas como tal**, e prova pendente por infra **não é** prova feita.
+
+---
+
+## Balanço da continuação (2026-08-14)
+
+| Onda | Entrega | Estado |
+|---|---|---|
+| 0 | Alocação de migrations + números podres | ✅ `f424cf9b` |
+| 1 | Identidade do e2e (usuário dedicado, precondição, gate) | ✅ `1860a747` + `66924aad` |
+| 2 | O logo do banco chega à tela | ✅ `7934e0d4` |
+| 3 | `install.sh` pergunta e grava a cor | ✅ `25910ac6` |
+| 5 | A lista de audit do painel **deriva** do union | ✅ `33ce8612` + `a685f721` |
+| 6 | Upload de logo | ✅ `fea8483d` — **`test:db` pendente** |
+| 9 | Inventário de telas + `fallback_at` alcançável | ✅ `c8fc877d` |
+| 10 | `white-label` em EN/ES com selo | ✅ `590ed059` |
+| **4** | **Specs e2e da marca** | ⛔ **não feita** — ver abaixo |
+| **7** | **Alarme de orçamento de IA** | ⛔ **não feita** — ver abaixo |
+| **8** | **Selo dos e-mails de acesso** (migration 0159) | ⛔ **não feita** — ver abaixo |
+
+### Por que as três não foram feitas — e não é falta de tempo
+
+**O daemon do Docker está fora do ar** desde que o disco encheu (`docker info`
+pendurou >10 min sem devolver byte). Isso derruba `test:db`, `e2e` e prova em tela.
+
+- **Onda 4 (specs e2e):** escrever spec que **nunca roda** é produzir `expect()` que
+  não executa — é exatamente o que o plano cortou no caso de `vps-fresh-onboarding`.
+  Escrevê-las agora só para "entregar" seria encenação.
+- **Onda 7 (alarme de orçamento):** é o **RISCO MAIOR** do plano inteiro, e por um
+  motivo só: ela **liga** algo hoje morto cujo efeito é **negar serviço**. Numa
+  instalação em que alguém preencheu `monthly_limit_cents` há meses — com o contador
+  travado em 0 — o primeiro tick **estrangula a IA da organização**, e o cliente
+  descobre por um agente que parou de responder no WhatsApp. Construir isso **sem
+  poder provar no banco** seria imprudência, não velocidade.
+- **Onda 8 (selo dos e-mails):** traz a migration **0159**, e migration sem `test:db`
+  não se merjeia — é o gate que exercita o `baseline.sql` que o self-hoster aplica.
+
+### O que fica pendente de prova, nominalmente
+
+- `tests/invariants/marca-logo.test.ts` — **escrito e nunca executado**.
+- `install`/`update` do baseline **com a 0158** — não provados.
+- Prova em tela das ondas 2 e 6 (logo na sidebar, no `/login` deslogado, e a troca
+  entre camadas) — roteiro pronto no relatório da onda 6.
+
+**Nada disso é afirmado como feito em commit nenhum.** Prova pendente por infra não
+é prova feita.
+
+---
+
+## Próximo passo exato
+
+Com o Docker de volta: `pnpm test:db`, a prova em tela das ondas 2 e 6, e então as
+ondas 4, 7 e 8 — nessa ordem, a 7 com checkpoint próprio pelo risco declarado.
+
+---
+
+## Merge da `main` (2026-08-14) — `587a494d`
+
+A `main` andou 39 commits enquanto esta branch existia, e uma parte deles é
+**marca própria mergeada por outra sessão**. Convergência independente é o caso
+em que o merge mais engana: os dois lados fizeram a mesma coisa e o git não
+acusa conflito nenhum.
+
+### Três conflitos, e nenhum aceitava escolha de lado
+
+| Arquivo | `ours` perderia | `theirs` perderia | Resolução |
+|---|---|---|---|
+| `lib/audit/actions.ts` | os 8 códigos novos da main | a derivação da onda 5 | **combinado**: 209 + 8 = 217 |
+| `components/admin/audit/action-codes.ts` | — | a deleção | **deleção mantida**, depois de conferir os 8 |
+| `.github/workflows/e2e.yml` | 2 specs da main | `marca-logo.spec.ts` | **combinado**, e rebalanceado |
+
+A ordem importou: **conferi que os 8 códigos da main já estavam no union ANTES
+de manter a deleção**. Na ordem inversa eu teria apagado o arquivo e descoberto
+a perda quando o painel ficasse 8 códigos atrás — que é exatamente o defeito
+que a onda 5 existiu para matar, reintroduzido pelo conserto dele.
+
+### O quarto, que não deu conflito
+
+`app/api/v1/marca/logo/route.ts` chamava `mfaEmDivida(org.role, is_platform_admin)`.
+A main mudou a função para **não receber mais papel**: com a verificação em duas
+etapas agora opcional, consultar a política antes de olhar a sessão faria o fator
+**voluntário** ser ignorado — quem ativasse por vontade própria teria o mesmo
+efeito de não ter ativado. A nova versão é mais estrita: quem TEM fator prova,
+sempre.
+
+Os dois lados mexeram em arquivos diferentes, então **não houve marcador**. Quem
+pegou foi o `typecheck` (TS2554 nas linhas 140 e 169). A irmã
+(`updateMarcaDaOrganizacao.ts`) já tinha sido corrigida pela sessão que mergeou
+na main; a minha ficou para trás porque **nasceu depois**, na onda 6. Vale
+registrar a assimetria: a classe foi tratada, e a instância nova escapou por ser
+nova — não por ser diferente.
+
+### Rebalanceamento do `e2e.yml`, e o número que estava errado
+
+A divisão em `SPECS_PARTE_1`/`PARTE_2` existe por causa do teto de 60 logins por
+IP a cada 300s, compartilhado pela suíte inteira. Medido antes de escolher:
+**175 vs 132** chamadas de login. Como a minha spec tem 13 e a parte 1 era a mais
+carregada, ela foi para a **parte 2**: ficou **162 vs 145**.
+
+⚠️ O número é **proxy** — regex sobre o texto das specs, não login de runtime.
+Serve para equilibrar; não promete que não estoura.
+
+O `CLAUDE.md` dizia **45 de 46**. Agora são **48 de 49** — e a causa do
+apodrecimento estava na própria receita que ele mandava usar:
+
+    grep -oE '[a-z0-9-]+\.spec\.ts' .github/workflows/e2e.yml | sort -u | wc -l
+
+devolve **49**, não 48, porque varre o arquivo inteiro e conta **menções em
+comentário** — inclusive a lista das que ficam de fora, documentada logo abaixo.
+Contava quem é **citado**, não quem é **invocado**, e errava **para cima**: quem
+seguisse a instrução publicaria um número inflado achando ter reconferido.
+Trocada por uma que lê só as `SPECS_PARTE_*`, com controle de sensibilidade
+provado (48 → 49 → 48 ao inserir e remover uma spec fantasma numa **cópia**).
+
+### Gates neste SHA
+
+`typecheck` 0 · `lint` 0 erros · `lint:channels` 0 · `test:shell` 0 ·
+`test:unit` **5 falhas**, todas em `lib/ai/dispatcher/rate-limit.test.ts`.
+
+As 5 são **do disco local, não do merge**, e a medição é esta — uma variável só:
+
+| ambiente | resultado |
+|---|---|
+| com `.env.local` | 5 failed (timeout 15s cada) |
+| sem `.env.local` | 5 passed |
+
+`.env.local` é gitignored: **o CI não o tem**. Nenhum commit desta branch toca
+esse teste. É defeito de DX **herdado**: a suíte prova o fallback em memória
+*para quando o Redis está INALCANÇÁVEL*, e quem tem `UPSTASH_*` de verdade no
+`.env.local` faz o código tentar a rede e estourar. Ou seja, o teste só passa
+para quem **não** configurou Redis — em metade dos ambientes ele mede o oposto
+do que o nome diz. **Registrado, não consertado**: não é escopo desta branch.
+
+### Precondição da `marca-logo.spec.ts` — conferida, e eu estava errado
+
+Achei que a spec presumia o dono já promovido a `platform_admins` e que passaria
+**de carona** no estado deixado por `system-update.spec.ts`. Isso quebraria no
+CI, ainda mais depois de eu ter movido a minha para a outra parte.
+
+Fui conferir: **ela já chama** `seed-e2e-system-update.ts` dentro de
+`loadCreds()`. Meu grep procurou `beforeAll|precondicao|garantir` e a spec faz
+isso no topo do módulo — **o ponto cego era do instrumento, não da spec**. A
+precondição está garantida e é independente da ordem entre as partes.
+
+Fica o registro porque a conclusão errada era a acionável: eu teria "consertado"
+uma spec correta.
+
+---
+
+## O CI como banco de provas (2026-08-14, PR #252)
+
+O Docker desta máquina não sobe — o disco da VM corrompeu (`EXT4-fs error:
+Detected aborted journal`, `I/O error on dev vda1`), sequela de um disco cheio
+mais cedo. Consertar exige reset que apaga contêineres e volumes de outras
+sessões, então não foi feito.
+
+Isso parecia bloquear as quatro provas pendentes. **Não bloqueia:** os jobs
+`invariants` (que roda `pnpm test:db`) e `e2e` rodam no CI, com Docker do
+runner. O PR virou o ambiente de prova — e a `main` fica protegida porque os
+dois são checks **obrigatórios** na branch protection.
+
+### O que a primeira execução real revelou
+
+**`tests/invariants/marca-logo.test.ts`: 21 de 22 passaram.** O que falhou foi
+a **guarda de vacuidade** — a que existe para provar que os outros 21 não passam
+à toa. Ela comparava `p.oid::regprocedure::text` com string literal; o cast de
+saída omite o `public.` quando `public` está no `search_path`, então a contagem
+dava 0 num banco onde a função existe.
+
+O sentido do erro é a lição: guarda de vacuidade falhando **lê-se como "o schema
+não chegou ao banco"**, e o passo natural é mexer na migration — que estava
+certa. Quem desmentiu foram os 21 casos do próprio arquivo que CHAMAM as
+funções e passaram. A explicação chata ("a função não está lá") tinha que ser
+descartada por medição antes de eu aceitar a interessante ("o teste está errado").
+
+### O que a revisão cética achou antes de o CI chegar lá
+
+Um revisor mediu a `marca-logo.spec.ts` na fonte do Playwright 1.62.1 instalado
+e achou defeitos **confirmados**, três deles fatais:
+
+| # | Defeito | Por que passa despercebido |
+|---|---|---|
+| 1 | testes (4) e (5) **nunca fazem login** | `page` é fixture de escopo de TESTE — cada `test` tem contexto novo. O comentário do arquivo afirmava "um login por papel no arquivo inteiro" |
+| 2 | restauração é um `test`, em modo serial | o comentário dizia que `afterAll` "não roda quando a spec estoura". **Medido: roda** — quem não roda são os testes seguintes. Foi escolhido o mecanismo pior para o modo de falha que o próprio comentário nomeia |
+| 3 | `getByText(/SVG não é aceito/i)` | casa o texto de AJUDA estático da tela, que está sempre visível. Passa em t=0 sem o toast existir |
+| 4 | `altura > 0` "prova o download" | `h-7` fixa 28px por CSS: imagem quebrada mede igual. A asserção passa no cenário exato que alega cobrir |
+
+Os três primeiros quebrariam o CI; o 4 é pior num aspecto — faz a spec **afirmar
+ter provado** o download do bucket, que é a razão declarada de ela existir em
+vez de um `curl`.
+
+### E o meu número, que estava errado nos dois sentidos
+
+Rebalancei o `e2e.yml` medindo "carga de login por parte" com um regex que
+contava a **palavra** login — comentário, nome de helper, string. Real: a spec
+faz **3** logins, não 13. E por parte: **63 vs 82**, não 162 vs 145 — o proxy
+**inverteu o sinal**, e me fez mover a spec para a parte mais carregada
+acreditando fazer o contrário.
+
+Pior: o critério era irrelevante desde o começo. O próprio workflow define
+`AUTH_RATE_LIMIT_LOGIN_IP: "1000"`, que desliga o teto no CI. Eu otimizei uma
+restrição que não existe, com um instrumento que apontava para o lado errado.
+
+O que decide a posição é **contaminação**: as partes são passos do mesmo job,
+mesmo banco, sem reset. A spec agora é a **última** da PARTE_2 — se a
+restauração falhar, o resíduo alcança zero specs em vez de 23.
+
+⚠️ E o comentário que explica isso mora **fora** do bloco `>-`: dentro dele `#`
+não é comentário, é conteúdo. Medido antes de commitar — a variável ia de 23
+para **205 tokens**, e cada palavra viraria argumento do `playwright test`.
+
+### Onda 7: o risco herdado estava errado nos três termos
+
+Está em `docs/design/onda-7-alarme-de-orcamento.md`. Resumo: o contador não está
+travado (gatilho vivo em `llm_calls` desde a 0095), ninguém precisa "preencher"
+o limite (`DEFAULT 5000 NOT NULL`, toda org tem), e não estrangula nada (os três
+leitores de `is_throttled` estão mortos). O primeiro tick escreveria **"Pausado"**
+na tela de quase toda org enquanto o agente atende normal.
+
+A descoberta que decide o desenho não estava no plano: `runBudgetReset()`
+também estava morto e era o **único escritor** de `is_throttled: false`. Ligar o
+checker sem ele criaria estado permanente que nem o `update.sh` desfaz. O risco
+era real — por outro caminho, e pior.
+
+**Desfecho (2026-08-15):** os dois crons foram APAGADOS
+(`workers/ai-budget-checker.cron.ts`, `workers/ai-budget-reset.cron.ts`) no épico
+do teto de orçamento, e `is_throttled` foi saneado pela migration 0159. As duas
+funções não existem mais; o parágrafo acima é história do diagnóstico, não estado
+atual do disco.
+
+**Achado ativo hoje, fora do escopo:** `assertBudget` (o enforcement vivo) lê
+`settings.llm.monthly_budget_cents`, que **não tem UI**; a tela mostra
+`ai_budgets.monthly_limit_cents`, que ninguém aplica. A tela de orçamento do
+tenant é decorativa — o usuário mexe e o código ignora.
+
+### Duas pendências fecharam com prova (2º ciclo do CI, `e3f8d12a`)
+
+| Pendência | Antes | Agora |
+|---|---|---|
+| `tests/invariants/marca-logo.test.ts` | escrito, **nunca executado** | **executado e verde**, 22 casos |
+| baseline `install`/`update` com a **0158** | não provado | **provado** — o job aplica com `ON_ERROR_STOP=1` e reaplica |
+
+`Test Files 104 passed (104)`, e os três arquivos de marca aparecem na lista
+executada. Confirmei o arquivo por nome, não só o total do job: "o job passou"
+não prova que o meu teste rodou.
+
+O ciclo anterior tinha dado o defeito e este confirma o conserto — o CI serviu
+como o banco de provas que a máquina não podia ser.
+
+### O #418 é regressão DESTA branch, e não está em produção
+
+Vale a distinção, porque "hydration mismatch na marca" soa como algo que já
+estaria na mão dos clientes:
+
+| | `PublicEnvScript` injeta | servidor lê | resultado |
+|---|---|---|---|
+| `main` | `env.APP_NAME` / `env.APP_LOGO_URL` | `process.env` | **mesma fonte** — concordam |
+| esta branch | marca **resolvida** (banco acima do `.env`) | `process.env` | **divergem → #418** |
+
+A `main` tem a MESMA assimetria em `branding()` — servidor lê `process.env`,
+cliente lê `window.__PUBLIC_ENV__` — e mesmo assim não quebra, porque lá as duas
+pontas leem o `.env`. A divergência nasceu quando a onda 2 fez o cliente ver o
+banco: **consertou metade da fronteira**. Meia travessia é pior que nenhuma —
+sem a onda 2 o logo do banco não aparecia; com ela, aparece e quebra a
+hidratação de toda tela de `/app`.
+
+Duas hipóteses caíram por medição antes desta, e não vale reabri-las:
+`collapsed` vem de cookie lido no servidor (`app/app/layout.tsx:122`), igual dos
+dois lados; e `activeOrg` chega como **prop do servidor**
+(`hooks/auth/AuthProvider.tsx:25-32`), sem fetch no cliente.
+
+### Correção: o que eu disse sobre as 5 falhas de `test:unit` estava errado
+
+Escrevi, no commit do merge e no corpo do PR:
+
+> "quem tem `UPSTASH_*` **de verdade** no `.env.local` faz o código tentar a rede
+> e estourar 15s"
+
+**O `.env.local` deste worktree é cópia BYTE-IDÊNTICA do `.env.example`, com
+todos os valores VAZIOS.** Não há `UPSTASH_*` real nenhum. Medido:
+`cmp -s .env.local .env.example` → idêntico; `UPSTASH_REDIS_REST_URL=` vazio.
+
+E o mecanismo que inventei também não se sustenta: `lib/ai/dispatcher/rate-limit.ts:22`
+faz `if (!url || !token)` e cai no fallback — string vazia é falsy, então o
+código **não** tentaria a rede.
+
+O que continua medido, e é só isto:
+
+| ambiente | resultado |
+|---|---|
+| com `.env.local` | falha |
+| sem `.env.local` | passa |
+
+O **mecanismo** fica como **NÃO MEDIDO**. A pista que sobra veio de outra
+medição: o `.env.local` com valores vazios derruba dezenas de arquivos de teste
+a menos que se exporte `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+e `SUPABASE_SERVICE_ROLE_KEY` — porque os placeholders do setup usam `??=`, que
+**não** sobrepõe string vazia (só `undefined`). Com as três exportadas — a
+condição do CI — a suíte fica em **1 falha / 4693 passam**, e a única é
+`messages-handler-canal-intermediado`, isolada pelo mesmo experimento de uma
+variável (com o arquivo: 1 falha; sem: 11 passam).
+
+O erro aqui não foi errar o palpite — foi **publicar o palpite com a forma de
+medição**. A frase dizia "de verdade", que é afirmação sobre o conteúdo de um
+arquivo que eu não tinha aberto. Bastava um `cmp`.
+
+### ⚠️ O e2e NÃO prova o conserto do #418 — e quase creditei a ele
+
+Contagem de `Minified React error` nos logs dos três ciclos:
+
+| ciclo | `marca-logo` está | conserto do `branding()` | ocorrências |
+|---|---|---|---|
+| 1 | no TOPO da parte 2 | não | **14** |
+| 3 | no FIM da parte 2 | **não** | **0** |
+| 4 | no FIM da parte 2 | sim | **0** |
+
+O erro desapareceu no ciclo **3**, um ciclo ANTES do conserto existir. Quem o
+eliminou foi a **reordenação**: com a spec por último, nenhuma tela roda com logo
+de instalação gravado, e sem logo no banco as duas pontas leem a mesma coisa —
+o mismatch não tem como acontecer.
+
+Se eu tivesse olhado só o ciclo 4, a leitura natural seria "consertei e o CI
+confirma". Estaria errado. O verde de hoje vem da ordem das specs, não da
+correção — e a ordem é proteção frágil: basta a spec falhar no meio de novo para
+o logo ficar gravado.
+
+**O que sustenta o conserto, então:** a sabotagem (voltar a `branding()` deixa 8
+asserções vermelhas), a igualdade SSR-vs-cliente do HTML renderizado, e o
+`next build`. É prova de MECANISMO. Prova de comportamento — "as 7 telas não
+acusam mais #418 com logo gravado" — **não existe**, e só existirá quando alguma
+spec exercitar tela de `/app` com logo de instalação no banco.
+
+Isso é dívida declarada, não pendência esquecida: o caso que faltaria é
+"navegar em `/app/ai/*` depois de subir logo da instalação e conferir o console".
+
+### Retratação nº 2 sobre o #418 — e agora com o mecanismo medido
+
+Registrei acima que o React #418 sumiu "por causa da reordenação, não do
+conserto". **Também estava errado.** A reordenação nunca teve efeito nenhum:
+
+> **O Playwright ordena os arquivos por CAMINHO, não pela ordem em que são
+> passados na linha de comando.**
+
+Medido no run 31838253496: `marca-logo.spec.ts` estava escrita por ÚLTIMO na
+`SPECS_PARTE_2` e executou em **15º de 23**. A linha de progresso do próprio
+run mostra 14 testes completando depois dela:
+
+    ···F°°··············
+
+Então o que eliminou o #418 foi o **`test.afterAll`** que a revisão acrescentou:
+ele limpa as DUAS camadas de marca, e as 14 specs seguintes deixaram de ver logo
+gravado. O conserto de hidratação continua sem prova de comportamento — isso não
+muda —, mas o crédito agora tem dono certo.
+
+**O erro que se repete aqui não é o proxy ruim.** Foi:
+
+1. medir com um regex que contava a palavra "login" → número errado;
+2. ser corrigido, re-medir com outro instrumento → número certo;
+3. mover a spec com base nele **sem nunca perguntar se mover a spec faz alguma
+   coisa**.
+
+Os passos 1 e 2 são sobre precisão. O passo 3 é a falha real: eu refinei a
+medição de uma grandeza que não tinha efeito no mundo. O comentário no
+`e2e.yml` afirmava "é a última de propósito" — uma frase sobre o comportamento
+do Playwright que eu nunca medi, escrita com a mesma confiança das que eu havia
+medido.
+
+### O caso (4): nada foi apagado, e o instrumento não sabia dizer o que viu
+
+O vermelho dizia "a recusa apagou o logo — a gravação não foi atômica". É
+**impossível por construção**: a recusa por bytes sai da rota com 415 em
+`route.ts:399-406`, treze linhas antes da primeira leitura do banco e vinte
+antes do primeiro toque no storage.
+
+O que de fato aconteceu, por cadeia de eliminação — cada elo medido:
+
+| # | Fato | Como se sabe |
+|---|---|---|
+| a | os DOIS `logo_path` seguiam gravados ~6s depois | o `afterAll` clicou "Remover" nas duas camadas e recebeu 200 nas duas; o botão só existe quando a camada TEM logo |
+| b | `marcaDaInstalacao()` nunca degradou | zero ocorrências do aviso no log do run, e a sonda está viva |
+| c | `collapsed` era `false` | cookie inexistente em contexto novo |
+| d | com `logo` truthy a casca SEMPRE desenha `<img>` | `Sidebar.tsx:65,75-76` |
+| e | não houve exceção do servidor na janela | os dois `⨯` do log são de outros instantes |
+
+De (a)+(b)+(c)+(d): qualquer render de `/app` teria produzido `aside img`. Logo
+**o DOM medido não era a casca do app** — foi redirect ou troca de casca. Qual
+delas, **NÃO MEDIDO**.
+
+E não dava para medir, por um detalhe de configuração que vale mais que este
+caso: `playwright.config.ts` tinha `trace: "on-first-retry"` com `retries: 0`.
+As duas linhas estão certas isoladamente e, juntas, significam **trace nunca
+gravado**. O único artefato do run era um `error-context.md` que fotografou a
+página do `afterAll`, não a que falhou.
+
+**Suspeito nº 1, não medido e fora do escopo:** `lib/auth/server.ts:34-38`
+descarta o erro de `supabase.auth.getUser()`. Qualquer falha transitória contra
+o GoTrue vira "não está logado" → `redirect("/login")` em silêncio — e `/login`
+põe o logo num `<div>`, não num `<aside>`. A MESMA função trata isso corretamente
+sessenta linhas abaixo, com o comentário "degradar permissão em silêncio é o
+pior desfecho possível". É a doutrina "falhar fechado na ação, **aberto na
+informação**" ferida no primeiro dos três pontos.
+
+**Amostra n=2, com resultados opostos:** no run anterior (`b804e207`) o caso (4)
+PASSOU e quem reprovou foi o (5); entre os dois SHAs há um único commit, e ele
+só toca documentação. Mesmo binário, vermelho diferente. Chamar de
+"determinístico" ou de "flake" com essa amostra seria afirmar sem medir — o que
+falta é o trace, e é o que este commit passa a produzir.

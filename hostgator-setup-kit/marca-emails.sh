@@ -102,11 +102,18 @@ APP_URL="${NEXT_PUBLIC_APP_URL:-}"
 # lib/branding/regua-do-produto.ts) — o mesmo piso que `lib/branding/saida.ts`
 # usa nos e-mails. Não é uma cor inventada aqui.
 #
-# ⚠️ LIMITE DECLARADO: a cor sai do `.env`, e o `install.sh` não grava
-# APP_ACCENT_HEX (medido: `grep -c APP_ACCENT_HEX install.sh` → 0, contra 7 de
-# APP_NAME). Na prática, quem trocar a cor pela tela `/admin/marca` NÃO vê os
-# e-mails de acesso acompanharem: eles são texto estático dentro do GoTrue e só
-# mudam quando este script roda de novo.
+# A cor sai do `.env`, e desde 2026-08-14 o `install.sh` PERGUNTA e grava
+# `APP_ACCENT_HEX` (campo em `FIELDS`, validado por `v_hex`, escrito pelo `envq`
+# do bloco `} > .env`). Antes disso ele não gravava a chave — medido em
+# `c8fc877d`: `grep -c APP_ACCENT_HEX install.sh` → 0 —, e a consequência não era
+# teórica: o revendedor punha o nome dele na instalação e recebia o VERDE DO
+# PRODUTO no primeiro e-mail que o cliente dele abria, em ~100% das instalações.
+#
+# ⚠️ LIMITE QUE PERMANECE: quem trocar a cor DEPOIS, pela tela `/admin/marca`,
+# NÃO vê os e-mails de acesso acompanharem — eles são texto estático dentro do
+# GoTrue e só mudam quando este script roda de novo. O que a entrevista conserta
+# é o ponto de partida (a cor da instalação nasce certa); a defasagem posterior
+# continua de pé.
 #
 # Esta defasagem é INERENTE ao mecanismo, não a esta escolha de fonte: o GoTrue
 # guarda o texto do e-mail, não uma referência ao nosso resolvedor. Trocar o

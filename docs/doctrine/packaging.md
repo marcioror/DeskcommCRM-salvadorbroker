@@ -387,7 +387,7 @@ parque instalado** percorre, e é o único que a suíte de CI não exercita.
 
 | Camada | Artefato | Garante |
 |---|---|---|
-| CI (mecânico) | `imagens-ok` em `publish-image.yml` | imagem quebrada reprova — **assim que o check entrar na branch protection** (ver invariante 2) |
+| CI (mecânico) | `imagens-ok` em `publish-image.yml` | imagem quebrada **reprova o merge** — é required check da `main`. Meça antes de confiar: `gh api repos/melgarafael/DeskcommCRM/branches/main/protection --jq '.required_status_checks.contexts'` |
 | CI (mecânico) | `tests/unit/packaging-artefato-do-cliente.test.ts` | serviço `build:`-only, pin upstream solto, `pull_policy` trocado e versão que mente reprovam |
 | CI (mecânico) | `tests/shell/update-guard.test.sh` | atualização que não pina as três imagens reprova |
 | CI (mecânico) | `hostgator-setup-kit/test-validators.sh` | instalação que nasce em tag móvel reprova |
@@ -409,9 +409,20 @@ ao defeito foi essa linha. Racional completo no ADR.
 
 **2026-08-13 — a régua de RAM é de operação, não de build.** A mesma consultoria argumentou
 que publicar a imagem derrubaria o requisito de 4 GB para 2 GB. Os 4 GB nunca foram custo de
-build do app: a imagem é pré-buildada desde 2026-07-02. Eles saem de medição de **operação** —
-7 contêineres, `mem_limit` somando 2560m só entre app+worker+waha, e ~150 MB por número de
-WhatsApp conectado. Publicar o worker remove um `pnpm install` da VPS; **não muda o consumo de
+build do app: a imagem é pré-buildada desde 2026-07-02. Eles saem de **operação** — 7
+contêineres, `mem_limit` somando 2560m só entre app+worker+waha, e ~150 MB por número de
+WhatsApp conectado.
+
+> **Correção de 2026-08-14, e ela é sobre a nossa própria régua:** das três parcelas acima,
+> duas são medidas (contêineres e `mem_limit`) e a terceira — os ~150 MB por número — é
+> **herdada** de `docs/research/reference-synthesis.md` (síntese do curso WAHA), nunca medida
+> neste projeto. Ela aparece em sete documentos que se citam entre si, o que a fazia parecer
+> confirmada por repetição. O que **está** medido, na produção do projeto: o contêiner `waha`
+> inteiro em **304,5 MiB com uma sessão pareada**, contra `mem_limit` de 1280 MiB. Isso não
+> decompõe baseline e sessão, e não muda nada abaixo — a régua dos 4 GB é a soma da stack em
+> operação, não o WAHA isolado. Detalhe em `docs/runbooks/deploy.md`.
+
+Publicar o worker remove um `pnpm install` da VPS; **não muda o consumo de
 quem opera**, e portanto não muda o tier recomendado. O ganho a comunicar é confiabilidade e
 capacidade — a instalação deixa de poder falhar por memória no meio, e o agente de IA passa a
 receber atualização —, nunca economia de plano.

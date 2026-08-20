@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import { Sidebar } from "@/components/shell/Sidebar";
 import type { ActiveOrg, AuthUser } from "@/lib/auth/types";
+import type { Branding } from "@/lib/branding";
+import { MarcaDaInstalacaoProvider } from "@/lib/branding/contexto";
 
 /**
  * O CONSUMIDOR do nome por organização — provado por comportamento, não por
@@ -32,15 +34,33 @@ vi.mock("@/components/connections/ConnectionHealthDot", () => ({
 vi.mock("@/components/shell/VersionFooter", () => ({ VersionFooter: () => null }));
 
 /**
- * A marca da INSTALAÇÃO, que é o que a barra mostrava antes desta fase.
+ * A marca da INSTALAÇÃO, como o SERVIDOR a entrega.
  *
- * Sem `logoUrl`: com um logo configurado a barra mostra a imagem no lugar do
- * texto, e nenhum dos dois casos abaixo mediria coisa alguma. Essa ressalva está
- * escrita na tela, no bloco "o que isto ainda não muda".
+ * ⚠️ Isto era um `vi.mock("@/lib/branding")` até a correção do hydration
+ * mismatch. Não é mais: a barra deixou de chamar `branding()` — que lia
+ * `window.__PUBLIC_ENV__` no navegador e `process.env` no SSR, fontes que
+ * divergiram quando o layout raiz passou a injetar a marca do BANCO — e passou a
+ * receber a marca por PROP, via `MarcaDaInstalacaoProvider`. Montar o provedor
+ * aqui é o jeito honesto de simular "o operador gravou um logo na tela de
+ * marca": deste lado da fronteira é exatamente o que o layout raiz faz.
+ *
+ * `logoUrl: null` no padrão porque com logo a barra mostra a imagem NO LUGAR do
+ * texto — os três primeiros casos, que medem nome, não mediriam nada.
  */
-vi.mock("@/lib/branding", () => ({
-  branding: () => ({ name: "Sistema do Revendedor", logoUrl: null, initial: "S" }),
-}));
+let marcaDaInstalacao: Branding = {
+  name: "Sistema do Revendedor",
+  logoUrl: null,
+  initial: "S",
+};
+
+/** A barra como o layout raiz a monta: dentro do provedor da marca. */
+function renderSidebar(props: { collapsed: boolean }) {
+  return render(
+    <MarcaDaInstalacaoProvider marca={marcaDaInstalacao}>
+      <Sidebar collapsed={props.collapsed} />
+    </MarcaDaInstalacaoProvider>,
+  );
+}
 
 const usuario = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -66,13 +86,13 @@ describe("o nome da marca na barra lateral", () => {
     // exatamente o que via antes. É também a guarda de vacuidade do caso
     // seguinte — se a barra nunca mostrasse nome nenhum, os dois passariam.
     contexto = { user: usuario, activeOrg: org };
-    render(<Sidebar collapsed={false} />);
+    renderSidebar({ collapsed: false });
     expect(screen.getByText("Sistema do Revendedor")).toBeTruthy();
   });
 
   it("com marca da organização, o nome dela SUBSTITUI o da instalação", () => {
     contexto = { user: usuario, activeOrg: { ...org, marca: { nome: "Loja da Ana" } } };
-    render(<Sidebar collapsed={false} />);
+    renderSidebar({ collapsed: false });
     expect(screen.getByText("Loja da Ana")).toBeTruthy();
     // A ausência importa tanto quanto a presença: uma barra que mostrasse os
     // dois nomes passaria na asserção de cima e estaria errada.
@@ -81,10 +101,84 @@ describe("o nome da marca na barra lateral", () => {
 
   it("recolhida, a inicial acompanha o nome que a barra mostra", () => {
     // Sem isto, recolher o menu trocaria a marca: o nome viria da organização e
-    // a inicial continuaria vindo de `branding()` — "L" expandido, "S" recolhido.
+    // a inicial continuaria vindo da INSTALAÇÃO — "L" expandido, "S" recolhido.
     contexto = { user: usuario, activeOrg: { ...org, marca: { nome: "Loja da Ana" } } };
-    render(<Sidebar collapsed />);
+    renderSidebar({ collapsed: true });
     expect(screen.getByText("L")).toBeTruthy();
     expect(screen.queryByText("S")).toBeNull();
+  });
+});
+
+/**
+ * O CONSUMIDOR do logo — a outra metade, e a que estava faltando.
+ *
+ * POR QUE ESTE BLOCO EXISTE: medido antes desta onda, `platform_branding.logo_url`
+ * era gravável e ilegível. O único render de logo do produto é esta barra, e ela
+ * lia `window.__PUBLIC_ENV__.APP_LOGO_URL`, que vinha do `.env` cru — o operador
+ * salvava e nada mudava. Estes casos medem a barra DESENHANDO a imagem, não a
+ * presença do símbolo `logoUrl` no arquivo.
+ *
+ * O que eles NÃO provam, declarado: que a marca entregue ao provedor venha mesmo
+ * do banco. Aquilo é a costura do layout raiz (`marcaResolvida()` alimentando o
+ * `<MarcaDaInstalacaoProvider/>`), guardada em `tests/unit/branding.test.ts`, e a
+ * prova de ponta a ponta é pela tela. Nem provam que os dois lados da fronteira
+ * concordam — isso é `tests/unit/marca-sem-divergencia-de-hidratacao.test.tsx`.
+ */
+describe("o logo na barra lateral", () => {
+  const LOGO_DA_INSTALACAO = "https://cdn.exemplo.test/revendedor.png";
+  const LOGO_DA_ORG = "https://cdn.exemplo.test/loja-da-ana.png";
+
+  afterEach(() => {
+    marcaDaInstalacao = { name: "Sistema do Revendedor", logoUrl: null, initial: "S" };
+  });
+
+  const imagem = () => screen.getByRole("img");
+
+  it("com logo da instalação, a barra desenha a imagem no lugar do nome", () => {
+    marcaDaInstalacao = { ...marcaDaInstalacao, logoUrl: LOGO_DA_INSTALACAO };
+    contexto = { user: usuario, activeOrg: org };
+    renderSidebar({ collapsed: false });
+
+    expect(imagem().getAttribute("src")).toBe(LOGO_DA_INSTALACAO);
+    // A ausência importa: uma barra que mostrasse imagem E nome passaria só na
+    // asserção de cima, e o cabeçalho tem 56px de altura para um dos dois.
+    expect(screen.queryByText("Sistema do Revendedor")).toBeNull();
+  });
+
+  it("o logo da organização SUBSTITUI o da instalação", () => {
+    marcaDaInstalacao = { ...marcaDaInstalacao, logoUrl: LOGO_DA_INSTALACAO };
+    contexto = {
+      user: usuario,
+      activeOrg: { ...org, marca: { nome: "Loja da Ana", logoUrl: LOGO_DA_ORG } },
+    };
+    renderSidebar({ collapsed: false });
+
+    expect(imagem().getAttribute("src")).toBe(LOGO_DA_ORG);
+    // O `alt` acompanha a imagem que está ali: com o logo da org, legendar com o
+    // nome do revendedor descreveria a marca errada para quem usa leitor de tela.
+    expect(imagem().getAttribute("alt")).toBe("Loja da Ana");
+  });
+
+  it("logo VAZIO na organização cai para o da instalação, não apaga a marca", () => {
+    // O caso que separa `||` de `??`. Vazio é AUSÊNCIA — a mesma regra que
+    // `resolveBranding` e `primeiroDefinido` aplicam nas camadas de baixo. Com
+    // `??`, `""` venceria a camada de cima e a barra cairia no TEXTO, apagando o
+    // logo do revendedor por causa de um campo em branco.
+    marcaDaInstalacao = { ...marcaDaInstalacao, logoUrl: LOGO_DA_INSTALACAO };
+    contexto = { user: usuario, activeOrg: { ...org, marca: { logoUrl: "" } } };
+    renderSidebar({ collapsed: false });
+
+    expect(imagem().getAttribute("src")).toBe(LOGO_DA_INSTALACAO);
+  });
+
+  it("sem logo nenhum, continua sendo o nome — não uma imagem quebrada", () => {
+    // Guarda de vacuidade dos três de cima: se a barra desenhasse `<img>` sempre,
+    // com `src` vazio, todos passariam pelo `getByRole("img")` e o produto
+    // mostraria o ícone de imagem quebrada em toda instalação de fábrica.
+    contexto = { user: usuario, activeOrg: org };
+    renderSidebar({ collapsed: false });
+
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByText("Sistema do Revendedor")).toBeTruthy();
   });
 });

@@ -20,7 +20,7 @@
  * cliente descobrir mais um problema. Com o `.env` intacto, a marca degrada para
  * o valor da instalação e a tela continua sendo a do cliente.
  *
- * ── O cache: memo de módulo com TTL, invalidado pela escrita ──────────────────
+ * ── O cache: memo do PROCESSO com TTL, invalidado pela escrita ────────────────
  *
  * NÃO é `unstable_cache`/`revalidateTag`, e a decisão é de ÂNCORA, não de gosto:
  *
@@ -30,9 +30,12 @@
  *
  *   2. Na VPS — que é o público-alvo, não a Vercel — há UM processo de app
  *      (`Dockerfile`, `node server.js`, sem cluster e sem réplicas), com os 16
- *      crons do `scheduler` batendo nele por HTTP. Um memo de módulo é quase
- *      perfeito ali: a invalidação da escrita alcança o mesmo processo que
- *      renderiza.
+ *      crons do `scheduler` batendo nele por HTTP.
+ *
+ * ⚠️ Este bloco dizia "memo de MÓDULO" e concluía, de (2), que "a invalidação da
+ * escrita alcança o mesmo processo que renderiza". A premissa é verdadeira e a
+ * conclusão era FALSA, porque um processo não é uma instância de módulo — ver o
+ * comentário do memo lá embaixo, com a medição do build.
  *
  * O TTL existe para o que a invalidação NÃO alcança: edição direta no banco
  * (`psql`), e uma segunda réplica no dia em que existir. Curto o bastante para o
@@ -80,7 +83,24 @@ export type SementeDoAmbiente = {
   readonly accent_hex: string | null;
 };
 
-const COLUNAS = "app_name, logo_url, accent_hex, show_powered_by, seeded_from_env, fallback_at, fallback_reason";
+/**
+ * ⚠️ Coluna nova aqui é TUDO OU NADA por construção, e isso é escolha declarada.
+ *
+ * Código novo sobre schema velho (o rollback pela outra ponta, e o que acontece
+ * num deploy que sobe a `main` sem ninguém aplicar o baseline) faz o PostgREST
+ * devolver `42703` para a linha inteira — não uma linha com a coluna faltando.
+ * `lerLinha` trata isso como "o banco não falou" e o resolvedor cai no `.env`,
+ * com aviso no log. Ou seja: quem não aplicou a 0158 perde a marca DO BANCO,
+ * não só o logo, até aplicar.
+ *
+ * A alternativa (um segundo `select` só para `logo_path`, tolerando o erro dele)
+ * custaria uma ida ao banco por render para proteger um estado que o `install.sh`
+ * e o `update.sh` já resolvem — os dois aplicam o `baseline.sql` antes de subir a
+ * imagem. Mesma exposição que `fallback_at`/`fallback_reason` já tinham desde a
+ * 0155; tratá-la diferente agora criaria duas regras para o mesmo caso.
+ */
+const COLUNAS =
+  "app_name, logo_url, logo_path, accent_hex, show_powered_by, seeded_from_env, fallback_at, fallback_reason";
 
 /**
  * Códigos de recusa — os que significam "a cor configurada NÃO pintou".
@@ -209,11 +229,67 @@ export function motivoDoFallback(
 const TTL_MS = 30_000;
 
 type Memoria = { readonly linha: LinhaDaMarca | null; readonly expiraEm: number };
-let memoria: Memoria | null = null;
 
-/** Chamada pela server action da escrita, no MESMO processo que renderiza. */
+/**
+ * O memo mora no PROCESSO, e não num `let` deste módulo. A diferença não é
+ * estilo: um `let` aqui é por INSTÂNCIA DE MÓDULO, e este módulo é instanciado
+ * DUAS vezes dentro do mesmo processo.
+ *
+ * MEDIDO em 2026-08-14 no `next build` deste repo (Next 16.3, Turbopack). Os
+ * nomes de chunk e os ids são HASHES daquele build — o que se repete em qualquer
+ * build é a FORMA: entrada de rota e entrada de página carregam runtimes
+ * diferentes.
+ *
+ *   .next/server/app/api/v1/marca/logo/route.js
+ *     → require("chunks/[turbopack]_runtime.js")      → chunks/lib_0oox3fh._.js     (id 545718)
+ *   .next/server/app/admin/(protected)/marca/page.js
+ *     → require("chunks/ssr/[turbopack]_runtime.js")  → chunks/ssr/lib_14h72ih._.js (id 301182)
+ *
+ * São dois ARQUIVOS de runtime, e a divisão é limpa: das entradas geradas,
+ * 206/206 `route.js` carregam o primeiro e 98/98 `page.js` carregam o segundo —
+ * zero exceção nos dois lados. Cada um tem o seu
+ * `const moduleCache = Object.create(null)` e ZERO registro em `globalThis`
+ * (conferido nos dois), e dois ids diferentes para este mesmo arquivo. Ou seja:
+ * a rota que GRAVA e a tela que RENDERIZA nunca compartilharam este módulo.
+ * `invalidarMarcaDaInstalacao()` chamada de `app/api/v1/marca/logo/route.ts`
+ * zerava um memo que nenhuma tela lê, e a troca de logo só aparecia quando o TTL
+ * de 30s expirasse sozinho — atrás de um toast que já dizia "Logo atualizado.".
+ *
+ * Para reproduzir a medição num build novo:
+ *
+ *   head -1 '.next/server/app/admin/(protected)/marca/page.js'
+ *   head -1 .next/server/app/api/v1/marca/logo/route.js
+ *   grep -rl 'não deu para ler do banco' .next/server/chunks
+ *
+ * O CONTROLE que separa "a invalidação não funciona" de "a invalidação não
+ * ALCANÇA": a server action `app/actions/settings/updateBranding.ts` chama
+ * exatamente a mesma função e sempre funcionou. Ela é compilada no runtime das
+ * PÁGINAS (`chunks/ssr/…`, medido), então zera o memo que a tela lê. Mesma
+ * função, mesmo processo, resultados opostos — a variável era o runtime.
+ *
+ * `globalThis` é o único endereço que as duas instâncias enxergam (mesmo
+ * processo, mesmo realm), e por isso é ele, e não um módulo "compartilhado":
+ * qualquer módulo novo seria duplicado pelo bundler exatamente como este.
+ *
+ * O que isto NÃO resolve, declarado: o dia em que houver mais de um processo de
+ * app. Ali continua valendo o TTL acima — a mesma garantia que este arquivo
+ * sempre declarou para a edição direta no banco.
+ */
+declare global {
+  var __memoDaMarcaDaInstalacao: Memoria | null | undefined;
+}
+
+function memoEmVigor(): Memoria | null {
+  return globalThis.__memoDaMarcaDaInstalacao ?? null;
+}
+
+function guardarMemo(valor: Memoria | null): void {
+  globalThis.__memoDaMarcaDaInstalacao = valor;
+}
+
+/** Chamada por quem ESCREVE a marca — server action ou rota. */
 export function invalidarMarcaDaInstalacao(): void {
-  memoria = null;
+  guardarMemo(null);
 }
 
 /**
@@ -242,10 +318,11 @@ function avisarUmaVez(chave: string, mensagem: string, contexto: Record<string, 
  */
 export async function marcaDaInstalacao(): Promise<LinhaDaMarca | null> {
   const agora = Date.now();
+  const memoria = memoEmVigor();
   if (memoria && memoria.expiraEm > agora) return memoria.linha;
 
   const linha = await lerOuSemear();
-  memoria = { linha, expiraEm: agora + TTL_MS };
+  guardarMemo({ linha, expiraEm: agora + TTL_MS });
   return linha;
 }
 

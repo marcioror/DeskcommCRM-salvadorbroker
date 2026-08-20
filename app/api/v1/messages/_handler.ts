@@ -607,6 +607,7 @@ export async function sendMessageHandler(
     last_outbound_at: string;
     last_message_at: string;
     last_message_preview: string;
+    unread_count_for_assignee: number;
     bot_silenced_until?: string;
   } = {
     last_outbound_at: now,
@@ -617,6 +618,9 @@ export async function sendMessageHandler(
       media_storage_path: input.media_storage_path,
       type: input.type,
     }),
+    // Resposta humana/CRM zera pendências — espelha fn_mark_conversation_message
+    // outbound, que o envio pelo CRM não chama (só atualiza colunas à mão).
+    unread_count_for_assignee: 0,
   };
   if (ctx.actor.type === "user") {
     const silenceUntil = extendBotSilence(c.bot_silenced_until, now);
@@ -624,6 +628,22 @@ export async function sendMessageHandler(
   }
 
   await supabase.from("conversations").update(conversationUpdate).eq("id", c.id);
+
+  // Envio pelo CRM não passa por `fn_mark_conversation_message` — carimba o
+  // contato aqui para /app/contacts refletir a resposta (migration 0162).
+  //
+  // O `organization_id` entra explícito, e não é redundância: este handler
+  // também é chamado pelo agent-engine com o client de SERVICE ROLE, que
+  // BYPASSA RLS (`lib/agent-engine/edge/crm/mcp-client.ts` diz isso no próprio
+  // cabeçalho: "todo uso filtra organization_id manualmente"). Sem o filtro, a
+  // única coisa entre esta escrita e outro tenant seria a confiança em
+  // `c.contact_id` — e o anti-pattern nº 10 do CLAUDE.md existe justamente
+  // porque essa confiança já falhou antes.
+  await supabase
+    .from("contacts")
+    .update({ last_activity_at: now })
+    .eq("id", c.contact_id)
+    .eq("organization_id", c.organization_id);
 
   const a = actorAuditPayload(ctx.actor);
   await audit({

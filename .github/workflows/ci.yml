@@ -25,7 +25,11 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25, e não os 15 do upstream: os arquivos de teste do fork (proteção de
+    # contato, imóveis) somam ~390s só de montar `environment`, e a suíte
+    # inteira levou 750s no run 32962605518 — que o teto de 15 cortou DEPOIS
+    # de ela terminar, reportando "cancelled" no lugar das 4 falhas reais.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 

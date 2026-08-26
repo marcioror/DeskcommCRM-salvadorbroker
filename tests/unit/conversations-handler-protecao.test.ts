@@ -129,6 +129,10 @@ describe("getConversationHandler — proteção do telefone embutido", () => {
 
 function makeSupabaseForPatch(updatedRow: ReturnType<typeof conversationRow>) {
   const client = {
+    // Assumir agora passa por `fn_conversation_assign` — é ela que cala o
+    // automático na conversa. Aqui só precisa não explodir: o que este arquivo
+    // mede é o telefone da conversa DEVOLVIDA, depois do update.
+    rpc: async () => ({ data: null, error: null }),
     from(table: string) {
       if (table !== "conversations") throw new Error(`fake_supabase: tabela inesperada '${table}'`);
       return {

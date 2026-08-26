@@ -68,9 +68,19 @@ vi.mock("@/lib/supabase/admin", () => ({
         }),
       }),
     },
-    from: () => ({
-      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
-    }),
+    // Cadeia ENCADEÁVEL: a resolução por sessão filtra `organization_id`, o
+    // identificador do provider E `archived_at is null` (issue #236 /
+    // migration 0165). Um stub em que `eq()` já entrega `maybeSingle` deixa de
+    // casar com o código real — e mock que não casa testa o mock.
+    from: () => {
+      const alvo: Record<string, unknown> = {
+        maybeSingle: async () => ({ data: null, error: null }),
+      };
+      alvo.select = () => alvo;
+      alvo.eq = () => alvo;
+      alvo.is = () => alvo;
+      return alvo;
+    },
   }),
 }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => {}) }));

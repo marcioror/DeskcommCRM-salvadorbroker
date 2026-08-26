@@ -31,7 +31,24 @@ TEMPLATE="inv_baseline"
 
 cleanup() {
   echo "==> teardown: removendo container $CONTAINER"
-  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  # `-v` REMOVE OS VOLUMES ANÔNIMOS, e sem ele cada rodada vazava ~68 MB.
+  #
+  # `pgvector/pgvector:pg17` declara `VOLUME /var/lib/postgresql/data` no
+  # Dockerfile (`docker image inspect … .Config.Volumes`), então todo container
+  # criado sem `-v` explícito ganha um volume ANÔNIMO. O `--rm` do `docker run`
+  # cuidaria disso ao término normal, mas quem chega primeiro é este trap, e
+  # `docker rm -f` sem `-v` remove o container e DEIXA o volume.
+  #
+  # Medido, com contagem antes/depois: `docker rm -f` → +1 volume órfão;
+  # `docker rm -fv` → nenhum. Numa máquina de desenvolvimento onde esta suíte
+  # roda dezenas de vezes por dia, isso somou **355 volumes órfãos e 24 GB** —
+  # o suficiente para encher o disco e derrubar o daemon do Docker, que é como
+  # o defeito apareceu (2026-08-25: `No space left on device` em toda escrita,
+  # inclusive a do próprio harness).
+  #
+  # O sintoma não aponta para cá: o disco enche horas depois, e quem paga é a
+  # próxima sessão a rodar qualquer coisa.
+  docker rm -fv "$CONTAINER" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 

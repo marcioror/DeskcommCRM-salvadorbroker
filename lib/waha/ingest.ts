@@ -240,6 +240,7 @@ const NOWEB_MESSAGE_KEY_TYPE: Record<string, string> = {
   audioMessage: "audio",
   documentMessage: "document",
   documentWithCaptionMessage: "document",
+  contactMessage: "contact",
 };
 
 export function resolveMessageType(p: WahaPayload): string {
@@ -263,6 +264,24 @@ export function resolveMessageType(p: WahaPayload): string {
 
 function notifyNameOf(p: WahaPayload): string | null {
   return p._data?.notifyName ?? p._data?.pushName ?? null;
+}
+
+/** Corpo textual: WAHA nem sempre preenche `body` em cartões de contato NOWEB. */
+function bodyOf(p: WahaPayload): string | null {
+  if (p.body) return p.body;
+  const msg = p._data?.message;
+  if (!msg || typeof msg !== "object") return null;
+  // `_data.message` é `unknown` no schema Zod (`lib/waha/envelope.ts`), de
+  // propósito: a forma NOWEB varia por tipo de mensagem e exigi-la aqui só
+  // criaria uma porta nova de descartar a mensagem inteira. O estreitamento é
+  // explícito, no mesmo estilo do `cm as {…}` logo abaixo.
+  const cm = (msg as { contactMessage?: unknown }).contactMessage;
+  if (cm && typeof cm === "object") {
+    const o = cm as { vcard?: string; displayName?: string };
+    if (o.vcard) return o.vcard;
+    if (o.displayName) return o.displayName;
+  }
+  return null;
 }
 
 /**
@@ -446,7 +465,8 @@ async function handleInbound(
   if (parsed.kind === "group") return; // grupos não fazem binding CRM
   if (!p.id) return;
   // WAHA emite eventos vazios p/ status/read-receipt/presence — não viram mensagem.
-  if (!p.body && !mediaUrlOf(p) && !p.hasMedia) return;
+  const texto = bodyOf(p);
+  if (!texto && !mediaUrlOf(p) && !p.hasMedia) return;
   // Daqui para baixo era para ser uma mensagem de verdade: se o chat não é
   // endereçável, PERDEMOS uma — e isso precisa ser contável. O aviso fica depois
   // das guardas acima de propósito; antes delas, todo evento de presença viraria
@@ -492,7 +512,7 @@ async function handleInbound(
       direction: "inbound",
       status: "delivered",
       ack: p.ack ?? null,
-      body: p.body ?? null,
+      body: texto,
       media_url: mediaUrlOf(p),
       media_mime: mediaMimeOf(p),
       sent_via: "external_device",
@@ -553,7 +573,7 @@ async function handleInbound(
     conversationId,
     messageId: insertedMessage?.id ?? null,
     channelSessionId: session.id,
-    texto: p.body ?? null,
+    texto,
     nomeDoContato: notifyNameOf(p),
     requestId,
     origem: "waha_webhook",
@@ -700,7 +720,7 @@ async function handleOutboundFromUserPhone(
       direction: "outbound",
       status: "sent",
       ack: p.ack ?? null,
-      body: p.body ?? null,
+      body: bodyOf(p),
       media_url: mediaUrlOf(p),
       media_mime: mediaMimeOf(p),
       sent_via: "external_device",

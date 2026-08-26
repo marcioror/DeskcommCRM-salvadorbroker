@@ -322,16 +322,93 @@ export class WahaClient {
     }
   }
 
-  async sendMessage(session: string, chatId: string, text: string): Promise<unknown> {
+  /**
+   * `replyTo` = citar uma mensagem, como o "responder em cima" do WhatsApp.
+   *
+   * ─── O defeito que isto conserta ──────────────────────────────────────────
+   *
+   * A citação já existia de ponta a ponta MENOS aqui: a tela deixava escolher a
+   * mensagem, o handler resolvia o `external_id` da citada e gravava
+   * `reply_to_message_id`, e a bolha aparecia pendurada — no CRM. No WhatsApp do
+   * cliente chegava mensagem solta. Ou seja, a tela prometia uma coisa e o
+   * aparelho do outro lado mostrava outra, sem nada ficar vermelho.
+   *
+   * ─── O formato do id, que é onde isto falha em silêncio ───────────────────
+   *
+   * O `reply_to` do WAHA quer o id COMPLETO (`{fromMe}_{chatId}_{bareId}`), não
+   * o cru. E o WAHA é assimétrico: a resposta de envio devolve o cru (`3EB0…`) e
+   * o webhook entrega o completo — ver `bareWaMessageId`.
+   *
+   * Medido numa instalação real: as 1.734 mensagens de ENTRADA têm o id
+   * completo, que é o formato certo. E citar o que o cliente disse é o caso que
+   * importa — quem responde "em cima" está respondendo a ele.
+   *
+   * Por isso o id vai como está, sem reconstrução: inventar o prefixo a partir
+   * da direção acertaria o caso que já funciona e chutaria no resto.
+   */
+  async sendMessage(
+    session: string,
+    chatId: string,
+    text: string,
+    replyTo?: string | null,
+  ): Promise<unknown> {
     const res = await fetch(`${this.baseUrl}/api/sendText`, {
       method: "POST",
       headers: {
         "X-Api-Key": this.apiKey,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ session, chatId, text }),
+      // Só entra quando existe: mandar `reply_to: null` é pedir para citar
+      // "nada", e a API não tem por que ser gentil com isso.
+      body: JSON.stringify({ session, chatId, text, ...(replyTo ? { reply_to: replyTo } : {}) }),
     });
     if (!res.ok) throw new Error(`waha_${res.status}`);
+    return res.json();
+  }
+
+  /**
+   * Confere se o número existe no WhatsApp e devolve o chatId canônico.
+   * Obrigatório antes de vcard em BR — o nono dígito do CRM nem sempre bate com o wa_id.
+   */
+  async checkContactExists(
+    session: string,
+    phoneDigits: string,
+  ): Promise<{ numberExists: boolean; chatId?: string | null; pn?: string | null }> {
+    const url = new URL(`${this.baseUrl}/api/contacts/check-exists`);
+    url.searchParams.set("session", session);
+    url.searchParams.set("phone", phoneDigits.replace(/\D/g, ""));
+    const res = await fetch(url, {
+      headers: { "X-Api-Key": this.apiKey, Accept: "application/json" },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`waha_${res.status}: ${body.slice(0, 200)}`);
+    }
+    return res.json() as Promise<{ numberExists: boolean; chatId?: string | null; pn?: string | null }>;
+  }
+
+  async sendContactVcard(
+    session: string,
+    chatId: string,
+    contacts: Array<{
+      fullName: string;
+      phoneNumber: string;
+      whatsappId: string;
+      vcard: string;
+    }>,
+  ): Promise<unknown> {
+    const res = await fetch(`${this.baseUrl}/api/sendContactVcard`, {
+      method: "POST",
+      headers: {
+        "X-Api-Key": this.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ session, chatId, contacts }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`waha_${res.status}: ${body.slice(0, 200)}`);
+    }
     return res.json();
   }
 

@@ -113,7 +113,12 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
       // A metade que faltava: mensagem do contato vira linha no inbox, move lead,
       // acorda o agente — e carimba `last_inbound_at`, que é o que ABRE a janela
       // de 24h que o gate da Fase 4 calcula.
-      const r = await ingestMetaInbound(admin, e);
+      // A organização vem do TOKEN DO PATH, nunca do corpo: é a mesma fonte que
+      // decide onde os dois updates abaixo escrevem. Sem ela a ingestão
+      // resolvia a sessão só pelo `phone_number_id` do payload — e duas
+      // organizações com o mesmo número faziam a mensagem ser descartada para
+      // as duas, com 200 na resposta (issue #236).
+      const r = await ingestMetaInbound(admin, e, { organizationId: session.organizationId });
       desfechos.push(r.status);
       if (r.status === "failed" || r.status === "no_session") {
         // 2xx continua (a Meta re-entregaria em loop), mas a falha NÃO fica muda:

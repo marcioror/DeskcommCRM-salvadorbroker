@@ -92,6 +92,22 @@ const schema = z.object({
    * incidente.
    */
   WEBHOOK_LOG_ROW_RETENTION_DAYS: diasDeRetencao("WEBHOOK_LOG_ROW_RETENTION_DAYS", 90),
+  /**
+   * Retenção do HISTÓRICO de leads captados (`webhook_lead_captures`).
+   *
+   * Horizonte muito mais longo que o do arquivo forense acima, e a diferença é
+   * de natureza: lá a linha é despejo de depuração, aqui ela É o produto — é o
+   * que a aba "Leads recebidos" mostra quando alguém pergunta de qual campanha
+   * vieram os clientes que fecharam. Uma linha custa ~1 kB, então 300
+   * leads/dia por um ano dão ~110 MB; o ano fiscal cabe.
+   *
+   * Entra como `z.string()` — e não pelo `diasDeRetencao` acima — porque quem
+   * a interpreta é `lib/retencao/politica.ts`, o mesmo módulo da poda da fila e
+   * do expurgo da auditoria. Ele resolve lixo para o lado seguro E devolve a
+   * frase de aviso, que é o que faz o operador saber que o número dele foi
+   * elevado ao piso de 30 dias, em vez de descobrir pela ausência de efeito.
+   */
+  LEAD_CAPTURE_RETENTION_DAYS: z.string().optional().default(""),
 
   // Encryption keys (pgcrypto)
   CPF_ENCRYPTION_KEY: required("CPF_ENCRYPTION_KEY"),
@@ -237,6 +253,23 @@ const schema = z.object({
   // 503 at runtime if missing/short); required in prod for the feature to
   // function. Min 32 chars when present is enforced at use site.
   IMPERSONATE_COOKIE_SECRET: z.string().optional().default(""),
+
+  /**
+   * Retenção do histórico que o cron `data-retention` poda (issue #261).
+   *
+   * As DUAS entram como `z.string()` e nunca como `z.coerce.number()`, pelo
+   * mesmo motivo de `AI_BUDGET_ENFORCEMENT` algumas linhas acima: o `safeParse`
+   * deste arquivo LANÇA quando o schema recusa, e no Next isso derruba toda
+   * requisição com 500 num contêiner que segue `healthy` (o healthcheck é probe
+   * TCP). Quem digita `noventa` às 2h da manhã tentando liberar espaço não pode
+   * derrubar o produto. A interpretação — com padrão, piso e AVISO quando o
+   * valor não vale como escrito — mora em `lib/retencao/politica.ts`.
+   *
+   * Ausentes = o comportamento default (90 dias de fila, 5 anos de auditoria).
+   * Nenhuma instalação precisa editar `.env` para a poda funcionar.
+   */
+  JOB_QUEUE_RETENTION_DAYS: z.string().optional().default(""),
+  AUDIT_LOG_RETENTION_DAYS: z.string().optional().default(""),
 
   // LGPD export (S-08.04)
   LGPD_SIGNING_KEY: z.string().optional().default(""),

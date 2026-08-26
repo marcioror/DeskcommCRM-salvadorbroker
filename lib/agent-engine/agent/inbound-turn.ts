@@ -53,7 +53,7 @@ import { HANDOFF_REASON_ORCAMENTO } from '../edge/llm/orcamento';
 import { MIRROR_WARN_ONLY, mirrorLeadStageToCrm } from '../edge/crm/move-lead-stage';
 import { insertInboxItem } from '../db/repository';
 import { buildNativeMediaParts } from './media-parts';
-import { enqueueJob, type JobRow, type Queryable } from '../queue/queue';
+import { enqueueJob, rescheduleJob, type JobRow, type Queryable } from '../queue/queue';
 import { applyLeadStateUpdate, getLeadState, type LeadStage, type LeadStateRow } from './lead-state';
 import { applySaveLeadNote, buildNotesIndexBlock, getLeadNoteBody } from './lead-notes';
 import { applyScheduleFollowup, type FollowupWindowKnobs } from './schedule-followup';
@@ -79,6 +79,9 @@ import { projetarContexto, projetarRetornoDeTool, turnoProjeta, type ContextoPro
 import { capacidadesEntreguesAoOperador, catalogoEntregueAoOperador } from './entrega-de-capacidade';
 import { composeSystemPrompt, loadOrgMemory, renderOrgMemory } from './org-memory';
 import { matchesHandoffKeyword } from './agent-config';
+import { msAteAJanelaAbrir } from './janela-de-atendimento';
+import { janelaDeEnvioAberta, proximaAberturaDaJanela } from '../pacing/engine';
+import { loadChannelKnobs } from '../pacing/store';
 import { resolveTurnAgent } from './resolve-turn-agent';
 import {
   hasOpenCaseForContact,
@@ -285,6 +288,19 @@ export const AGENT_TOOL_DEFS = {
  * que o modelo não fez não vale um cliente sem resposta.
  */
 export const MAX_VETOS_DE_VOCABULARIO_INTERNO = 2;
+
+/**
+ * Teto de mensagens FÍSICAS enviadas ao lead por turno quando `knobs.maxSendsPerTurn`
+ * está ausente (testes) — produção sempre recebe o knob do env (MAX_SENDS_PER_TURN).
+ *
+ * Existe porque NENHUM gate de before-send limita CONTAGEM por turno — `pacing` só
+ * limita RITMO (tempo entre envios), não quantidade. Sem este teto, um modelo que
+ * decida tratar uma lista de perguntas de qualificação como uma mensagem por pergunta
+ * (em vez de perguntar uma e esperar a resposta) só para no teto genérico de STEPS do
+ * loop de tools (AGENT_MAX_STEPS) — e esse teto conta QUALQUER tool, não só envio.
+ * Medido em produção: um lead recebeu 8 mensagens seguidas do mesmo turno.
+ */
+export const DEFAULT_MAX_SENDS_PER_TURN = 3;
 
 /**
  * Job já saiu de 'running' por decisão do próprio run (ex.: cancelJob no veto
@@ -517,6 +533,13 @@ export interface InboundTurnKnobs {
   notesIndexMaxTokens: number;
   /** teto de steps do loop de tools por run (AGENT_MAX_STEPS) — circuit breaker fino é F2-15 */
   maxSteps: number;
+  /**
+   * Teto de mensagens FÍSICAS enviadas ao lead neste turno (MAX_SENDS_PER_TURN),
+   * send_message + send_template somados, bolhas incluídas. Ausente = usa
+   * `DEFAULT_MAX_SENDS_PER_TURN` — main.ts sempre o preenche pelo knob do env;
+   * testes que não exercitam o teto o omitem sem custo.
+   */
+  maxSendsPerTurn?: number;
   /** atraso do reagendamento em veto/queued herdado da F2-06 (SEND_QUEUED_RETRY_MS) */
   queuedRetryDelayMs: number;
   /** circuit breaker de tools por run (F2-15) — env TOOL_BREAKER_* */
@@ -976,6 +999,24 @@ export async function runAgentTurn(
   );
 }
 
+/**
+ * Este turno termina em mensagem PARA O LEAD? Só esses são adiados pela janela
+ * anti-ban — adiar os outros seria parar trabalho interno por causa de um
+ * horário que não é dele.
+ *
+ *   * `inbound_turn` / `case_reply_turn` — respondem o cliente, sempre.
+ *   * `followup_turn` — só com `purpose: 'send_message'`. Os outros dois
+ *     propósitos do fluxo (`classify`, `plan_timing`) são leitura e
+ *     planejamento: não abrem o WhatsApp de ninguém.
+ *   * `operator_turn` — retaguarda (mexe no funil), nunca fala com o lead.
+ */
+function turnoVaiFalarComOLead(job: JobRow): boolean {
+  if (job.kind === 'inbound_turn' || job.kind === 'case_reply_turn') return true;
+  if (job.kind !== 'followup_turn') return false;
+  const purpose = (job.payload as { purpose?: unknown } | null)?.purpose;
+  return purpose === undefined || purpose === 'send_message';
+}
+
 async function executarTurnoDoAgente(
   deps: InboundTurnDeps,
   job: JobRow,
@@ -988,6 +1029,16 @@ async function executarTurnoDoAgente(
   if (leadId === null) {
     throw new Error('job de turno sem contact_id — o CHECK da fila deveria impedir');
   }
+  // O RELÓGIO, declarado antes de qualquer guarda de janela.
+  //
+  // Ele já existia — 330 linhas ABAIXO, depois das duas guardas que mais
+  // dependem dele. O contrato de `InboundTurnDeps.clock` diz "a janela horária
+  // do gate anti-ban é avaliada nele", e as duas guardas chamavam `new Date()`
+  // cru: o relógio injetado não alcançava justamente o que ele existe para
+  // fixar. Em produção dá no mesmo; no CI, a hora real do runner decidia, e a
+  // suíte de invariantes ficava vermelha das 22h às 7h (fuso do tenant) — nove
+  // horas por dia em que um PR reprova por causa do relógio de parede.
+  const clock = deps.clock ?? ((): Date => new Date());
   const contextKnobs = { historyLimit: deps.knobs.historyLimit, maxTokens: deps.knobs.maxContextTokens };
   // Contexto do RUN em toda linha de log do turno (F2-16): job_id É o run id.
   const runLog = withFields(deps.log, { job_id: job.id, tenant_id: tenantId, lead_id: leadId });
@@ -1011,6 +1062,42 @@ async function executarTurnoDoAgente(
   if (await isLeadInHandoff(pool, tenantId, leadId)) {
     runLog.info('turno pulado — lead em handoff humano (bot silenciado)', { kind: job.kind });
     return;
+  }
+
+  // JANELA ANTI-BAN (7h–22h por padrão, fuso do tenant): fora dela o turno é
+  // ADIADO, não gasto.
+  //
+  // ⚠️ ISTO CONSERTA UMA MENSAGEM PERDIDA, não um custo. O gate de envio
+  // (`pacingGate` em guardrails/before-send.ts) já vetava o envio fora da
+  // janela — mas, no caminho do agente, esse veto vira ERRO DE ENSINO devolvido
+  // ao modelo dentro do tool `send_message`. O turno terminava `ok`, sem
+  // exceção, sem reagendamento e sem mensagem: o lead escrevia 22h e não recebia
+  // NADA, nem naquele momento nem às 7h. Medido em produção (2026-08-18): run
+  // `agent_turn` com status `ok` às 22:56 e zero outbound na conversa.
+  //
+  // O caminho determinístico de re-entrada já fazia o certo — "veto por JANELA
+  // anti-ban não dropa — re-agenda para a próxima abertura" (followup-turn.ts) —
+  // e é essa regra que passa a valer também para a resposta do agente.
+  //
+  // Só a JANELA adia. Cap diário e warm-up continuam com o gate de envio: eles
+  // dependem de quanto já saiu hoje, e antecipá-los aqui adiaria turno que, na
+  // hora do envio, teria passado.
+  if (turnoVaiFalarComOLead(job)) {
+    const { knobs } = await loadChannelKnobs(pool, tenantId, input.channelSessionId, runLog);
+    const agora = clock();
+    if (!janelaDeEnvioAberta(agora, knobs)) {
+      const abertura = proximaAberturaDaJanela(agora, knobs);
+      await rescheduleJob(pool, job.id, ctx.workerId, {
+        delayMs: Math.max(abertura.getTime() - agora.getTime(), 1_000),
+        reason: 'fora da janela anti-ban de envio — turno adiado para a abertura',
+      });
+      runLog.info('turno adiado — fora da janela anti-ban de envio', {
+        janela: `${knobs.windowStartHour}h-${knobs.windowEndHour}h`,
+        timezone: knobs.timezone,
+        abertura: abertura.toISOString(),
+      });
+      throw new JobSettledError('fora da janela anti-ban — job reagendado para a abertura da janela');
+    }
   }
 
   // Fase 3: stickiness do router — qual agente já atende esta conversa. Leituras
@@ -1079,6 +1166,33 @@ async function executarTurnoDoAgente(
       intent: routed.intentName,
     });
   }
+  // Horário de funcionamento da versão publicada (spec da tela: TriggerEditor).
+  // Vale SÓ para o turno inbound: a janela do lojista é sobre QUANDO ele atende
+  // quem chega, e adiar por ela um follow-up já prometido ao lead atrasaria uma
+  // promessa que não é dele. O que segura o follow-up é a janela anti-ban logo
+  // acima (`pacing/engine.ts`), que vale para os dois.
+  //
+  // Adia, não descarta: o job volta a 'pending' na abertura, SEM consumir
+  // attempts (`rescheduleJob`) — quem escreveu 22h é atendido às 8h. O throw é
+  // o contrato de `JobSettledError`: o run já dispôs do job, main.ts no-opa.
+  if (job.kind === 'inbound_turn' && agentConfig?.janelaDeAtendimento != null) {
+    const esperaMs = msAteAJanelaAbrir(agentConfig.janelaDeAtendimento, clock());
+    if (esperaMs !== null) {
+      await rescheduleJob(pool, job.id, ctx.workerId, {
+        delayMs: esperaMs,
+        reason: 'fora do horário de funcionamento do agente — turno adiado para a abertura da janela',
+      });
+      runLog.info('turno adiado — fora do horário de funcionamento configurado na versão publicada', {
+        agent_id: agentConfig.agentId,
+        espera_ms: esperaMs,
+        janela: `${agentConfig.janelaDeAtendimento.start}-${agentConfig.janelaDeAtendimento.end}`,
+      });
+      throw new JobSettledError(
+        'fora do horário de funcionamento — job reagendado para a abertura da janela',
+      );
+    }
+  }
+
   // Fase 3: grava a decisão de roteamento e a aderência da conversa ao agente.
   // Fire-and-forget — falha de telemetria nunca derruba a resposta ao lead.
   if (routed.routerId !== null) {
@@ -1114,9 +1228,26 @@ async function executarTurnoDoAgente(
   const argsAux = (configuredModel: string | undefined): AuxModelArgs =>
     auxModelArgs(configuredModel, agentConfig);
 
+  /**
+   * Os DOIS limites do histórico vêm da versão publicada — e o segundo vinha da
+   * env, que é o defeito.
+   *
+   * A tela oferece "Tamanho máximo desse histórico" por agente e grava
+   * `history_token_window` (default 8.000). O turno lia `historyMessageWindow`
+   * dali e `maxTokens` de `LEAD_CONTEXT_MAX_TOKENS`, uma env com default 1.000
+   * que sequer aparece no `.env.example`: quem configurava 8.000 na tela recebia
+   * 1.000, sem nada dizer que o número não valia. Metade da versão publicada era
+   * lida, metade não.
+   *
+   * O corte não morde na conversa curta de WhatsApp — ali quem limita é a janela
+   * de mensagens (20 por padrão). Ele morde exatamente onde dói: mensagem longa
+   * e áudio transcrito, quando o histórico é a única coisa que sustenta o fio da
+   * conversa. O ramo sem versão publicada segue com os knobs da instalação, que
+   * é o único caso em que ela é a fonte legítima.
+   */
   const turnContextKnobs =
     agentConfig !== null
-      ? { historyLimit: agentConfig.historyMessageWindow, maxTokens: deps.knobs.maxContextTokens }
+      ? { historyLimit: agentConfig.historyMessageWindow, maxTokens: agentConfig.historyTokenWindow }
       : contextKnobs;
 
   // Ritual de abertura: playbook por ponteiro + checkpoint + contexto curado.
@@ -1287,7 +1418,6 @@ async function executarTurnoDoAgente(
   const turnCrmCfg =
     agentConfig !== null ? { ...deps.crmCfg, agentActorId: agentConfig.agentId } : deps.crmCfg;
   const channel = (deps.channel ?? ((p: pg.Pool) => new WahaChannelAdapter(p, turnCrmCfg)))(pool);
-  const clock = deps.clock ?? ((): Date => new Date());
   // STOP lido no turno (fonte: CRM via get_lead_context) — combinado com o cache
   // durável leads.is_opted_out no gate 1 da cadeia (F2-13).
   const optedOutThisTurn = openingContext.context.contact.is_blocked;
@@ -1309,6 +1439,11 @@ async function executarTurnoDoAgente(
 
   // Estado do RUN — vive só neste closure (isolamento por construção, acc 3).
   let seq = 0;
+  // Teto de mensagens físicas por turno (F2-15b) — `seq` JÁ é a contagem certa: ele só
+  // avança quando o envio de fato sai pro canal (send_message + send_template, bolhas
+  // incluídas), nunca em veto de gate. Checar `seq` antes de tentar o próximo envio
+  // barra o modelo sem gastar uma chamada de before-send à toa.
+  const maxSendsPerTurn = deps.knobs.maxSendsPerTurn ?? DEFAULT_MAX_SENDS_PER_TURN;
   // F3-11: estágio que o MODELO confirmou via update_lead_state neste turno (a máquina
   // F2-10 é a única porta). Comparado com a sugestão do classificador no fim → divergência.
   let confirmedStage: LeadStage | null = null;
@@ -1457,6 +1592,17 @@ async function executarTurnoDoAgente(
     send_template: tool({
       ...AGENT_TOOL_DEFS.send_template,
       execute: async ({ template_name, language, values }) => {
+        if (seq >= maxSendsPerTurn) {
+          return {
+            ok: false,
+            error: {
+              code: 'max_sends_per_turn',
+              message:
+                `você já enviou ${seq} mensagens neste turno (teto: ${maxSendsPerTurn}). ` +
+                'NÃO envie mais nada agora — encerre o turno e espere a resposta do lead.',
+            },
+          };
+        }
         // O texto RENDERIZADO vai como `body` da cadeia: os gates de promessa,
         // spinning e disclosure avaliam exatamente o que o contato vai ler. Sem
         // isso, "usar template" seria a forma de escapar dos guardrails de conteúdo.
@@ -1589,6 +1735,17 @@ async function executarTurnoDoAgente(
     send_message: tool({
       ...AGENT_TOOL_DEFS.send_message,
       execute: async ({ body }) => {
+        if (seq >= maxSendsPerTurn) {
+          return {
+            ok: false,
+            error: {
+              code: 'max_sends_per_turn',
+              message:
+                `você já enviou ${seq} mensagens neste turno (teto: ${maxSendsPerTurn}). ` +
+                'NÃO envie mais nada agora — encerre o turno e espere a resposta do lead.',
+            },
+          };
+        }
         // F4-04: sinaliza (independente do gate F4-01/F4-08) se ESTA candidata é uma
         // promessa fora de tabela — usado só para correlacionar com o jailbreak no fim do
         // turno. A detecção é determinística (decidePromise); sem tabela do tenant = no-op.

@@ -178,6 +178,12 @@ fonte só (`lib/onboarding/passos.ts`) — eram três listas que discordavam. Ga
 | J6.8 | call_webhook com URL interna (SSRF) | bloqueado com erro claro |
 | J6.9 | Run falho → botão Reenviar | novo run; sucesso após receiver voltar |
 | J6.10 | Automação SEM cron configurado | hoje: morre em silêncio — **candidato a bug de produto** |
+| J6.11 | **Automação com envio que FALHA** (WhatsApp fora do ar) | aba Atividade diz **Falhou**, com a frase que explica o que conferir — nunca "Sucesso". Achado do relato de 2026-08-24: dizia Sucesso com a mensagem em `failed` (`automacao-diz-a-verdade.spec.ts`) |
+| J6.12 | Automação adiada pela janela de envio do número | aba Atividade mostra **Aguardando horário** com o instante da nova tentativa — antes não gravava linha nenhuma e a tela ficava vazia |
+| J6.13 | Formulário preenchido entra | aba **Leads recebidos** mostra a linha com quem/contato/fonte/quando/origem; o painel traz TODOS os campos, IP, página e UTM (`historico-de-captacao.spec.ts`) |
+| J6.14 | **Formulário com campos que o mapeamento não reconhece** | a captação aparece como **Não entrou**, com o motivo em português e os campos crus — antes o site recebia 400 e não sobrava rastro nenhum na tela |
+| J6.15 | `viewer` tenta abrir o histórico | redirecionado; a RLS de `webhook_lead_captures` exige `manager` (o formulário é PII) |
+| J6.16 | Ação **"Mensagem escrita pela IA"** no ENTÃO | pede agente publicado + número + o contexto do que fazer com os dados; o agente sabe que é abordagem pós-formulário |
 
 ## J8 — O cliente não morre por falta de resposta `[P1]`
 
@@ -226,6 +232,58 @@ Evidência: `.superpowers/evidence/ia-360-w3/`.
 | J8.9 | Status da conversa escalada em português | o cabeçalho mostrava `pending` cru | FAIL → PASS |
 
 Bugs desta jornada estão detalhados em `HANDOFF-ia-360.md` (BUG-01 a BUG-05).
+
+---
+
+## J11 — Saber quem está no comando da conversa `[P0]`
+
+**Por que P0:** é a leitura que o atendente faz ANTES de qualquer ação, em toda
+conversa que abre. J5.5 cobre transferir e J8 cobre a passagem IA↔humano; nenhuma
+das duas cobria *ler o estado* — e foi exatamente aí que o dono do produto
+relatou as quatro confusões.
+
+**A causa não era de tela.** Medido no HEAD 927dfa51: `lib/agent-engine/` nunca
+lê `assignee_kind` nem `assigned_to_user_id` (`grep -rn` → rc=1) e
+`fn_conversation_assign` nunca tocava `bot_silenced_until`. Um atendente clicava
+"Assumir" e o atendimento automático continuava respondendo o MESMO cliente — ele
+só calava por 5 minutos deslizantes quando a pessoa ENVIAVA (`extendBotSilence`).
+Nenhum selo de "você está no comando" podia ser verdade enquanto isso valesse.
+
+Spec: `tests/e2e/inbox-quem-manda.spec.ts` (seed próprio, conversa nova a cada
+execução). Evidência: `.superpowers/evidence/inbox-quem-manda/`.
+Regra na tela: `lib/inbox/comando-da-conversa.ts` (+ 17 casos unitários).
+Regra no banco: `tests/invariants/comando-cala-o-automatico.test.ts` (6 casos).
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J11.1 | Conversa normal diz quem manda | selo de comando mostra o automático — não a mesma cara de uma conversa largada na fila | PASS |
+| J11.2 | Assumir muda o selo para a PESSOA, com nome | `OwnerBadge` com as iniciais e o nome do atendente | PASS |
+| J11.3 | Assumir **para** o automático de verdade | `bot_silenced_until='infinity'` no banco — a tela mudar de cor não prova que o motor parou | PASS |
+| J11.4 | O selo diz o PORQUÊ, não só que está pausado | "alguém assumiu" / "pausado para este cliente" / "volta em instantes" pedem ações diferentes e tinham a mesma frase | PASS |
+| J11.5 | Existe caminho para DESLIGAR pela tela | botão "Pausar o automático" — antes só existia o de ligar | PASS |
+| J11.6 | A volta existe e limpa o silêncio | "Devolver ao automático" → `bot_silenced_until` nulo | PASS |
+| J11.7 | A troca de comando aparece na linha do tempo | "Assumiu a conversa" com o NOME de quem agiu, não "Você/time" | PASS |
+| J11.8 | O rodízio NÃO cala o automático | `reason='routing'` não mexe no silêncio — senão uma org em round_robin perde a IA inteira | PASS (invariante) |
+| J11.9 | Fechar devolve o comando | o silêncio é limpo ao fechar, senão vaza para o próximo episódio (a ingestão reusa a MESMA linha de conversa) | PASS (invariante) |
+
+| J11.10 | A conversa que o automático ESCALOU aparece na Fila | `status='pending'` sem dono entra na aba e é contada pelo badge | FAIL → PASS |
+| J11.11 | O número da fila é o MESMO para o cliente e para a equipe | `getQueuePosition` (o "você é o 5º" que o cliente ouve) e `getQueuePositions` (o "3º" da tela) contam os mesmos estados | FAIL → PASS |
+
+**O achado que esta jornada abriu, e como ele cresceu.** A primeira rodada
+registrou aqui "a conversa escalada não aparece em aba nenhuma" como pendência de
+PR próprio. Ao medir, o defeito era maior e mais barato: a definição de "está na
+fila" estava copiada em SEIS sítios que **não concordavam entre si** — o trigger
+de roteamento do banco e a função que responde ao cliente contavam `open+pending`;
+a aba, o badge, o painel do gerente e a posição mostrada na tela contavam só
+`open`. Daí as duas consequências: a conversa que mais precisa de uma pessoa era a
+única invisível, e o número de fila prometido ao cliente pelo WhatsApp não batia
+com o que a equipe via.
+
+Conserto: `CONVERSATION_QUEUE_STATUSES` (uma definição, quatro consumidores) +
+separação entre o vocabulário de LEITURA (7 valores, o do banco) e o de ESCRITA
+(5 — quem grava `pending` é o motor, e um cliente REST não pode fingir uma
+escalação). Guardado por `tests/unit/fila-tem-uma-definicao-so.test.ts`, que varre
+o fonte dos quatro sítios e compara o CONJUNTO do trigger com o da constante.
 
 ---
 
@@ -787,6 +845,29 @@ qualquer caso acima, rode `source .env && echo "$APP_NAME|$SUPPORT_EMAIL"` e con
 que você digitou está no arquivo — sintoma de marca ausente costuma ser isto, não o
 resolvedor.
 
+---
+
+## Por que uma IA publicada não responde — seis causas medidas numa VPS real (2026-08-18/19)
+
+Investigação dirigida pela tela numa instalação EasyPanel com WhatsApp real,
+agente publicado e o dono relatando "a IA não responde". Nenhuma das seis causas
+aparecia como erro para quem operava: a conversa mostrava **"IA atendendo"** o
+tempo todo. É a jornada `J3`/`J8` vista de perto, e o padrão é sempre o mesmo —
+**um lugar que engole a resposta e devolve sucesso**.
+
+| # | Onde | Defeito | Como foi provado | Correção |
+|---|---|---|---|---|
+| 1 | `edge/crm/session-watchdog.ts` | Hold `go_live` (número novo) mandava **todo `inbound_turn`** para `run_after='infinity'` — não só o disparo proativo. O único sinal era um item de Central `info` falando de "outbound" | item aberto na Central + zero `llm_calls` para a conversa | hold reason-aware: `go_live` retém só `followup_turn` |
+| 2 | `resolve-turn-agent.ts` | Roteador **ativo com zero membros e sem fallback** derrubava a sessão inteira no agente genérico, que caía em `settings.llm` sem credencial → `LlmNotConfiguredError` → 5 tentativas → job morto | `GET /api/v1/ai/routers` (`member_count: 0`) + aviso `Job descartado após esgotar tentativas` | sem fallback, atende o agente publicado da sessão |
+| 3 | `agent/inbound-turn.ts` | Fora da **janela anti-ban** (7h–22h) o veto do `pacingGate` virava erro de ensino ao modelo: turno terminava `ok`, sem envio e sem reagendamento | run `agent_turn` `ok` às 22:56 e **zero outbound** na conversa | reagenda o job para a abertura (doutrina `restricao-de-canal.md` §2) |
+| 4 | `agent/agent-config.ts` | **Horário de funcionamento** da versão publicada (08:00–18:00 seg–sex) não era lido por ninguém vivo — só pelo dispatcher legado, hoje NO-OP | agente respondendo 21:55 de uma terça | janela lida no turno; fora dela, adia |
+| 5 | `followup/node-handlers.ts` | Enrollment morria com `action_turn_never_completed` em ~25 min esperando a janela abrir | enrollment `dead` no nó de abertura com o worker vivo | backoff + orçamento de ~11h |
+| 6 | `ai/log-invocation.ts` + card do agente | Duas telas mentindo: `erro_legado` no lugar de `limite_ou_saldo` (chave sem saldo), e o card anunciando o modelo da **criação** (`claude-sonnet-5`) enquanto o motor rodava o da **versão publicada** (`nvidia/nemotron-…:free`) | `/app/ai/runs` + `GET /versions` | `normalizarErro` no caminho legado; card lê a versão publicada |
+
+**Lição para o mapa:** nenhum desses casos falha com tela vermelha. Todos falham
+com **status verde e mensagem ausente**. Um caso de jornada que só verifica "a
+tela não deu erro" passa em todos os seis — a prova precisa ser sempre *a
+mensagem chegou no WhatsApp do lead*.
 ## O sistema cabe num telefone de 390px? (2026-08-20)
 
 Origem: issue #203 — em 390px o shell reservava a faixa do sidebar de desktop

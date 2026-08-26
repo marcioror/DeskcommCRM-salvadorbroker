@@ -32,6 +32,27 @@ done
 # em 401. Ver `recusar_projeto_de_outra_arvore` em _common.sh.
 recusar_projeto_de_outra_arvore || die "Atualização interrompida para não quebrar a instalação que está no ar."
 
+# ── 0b. Esta instalação roda imagens de OUTRO namespace? ─────────────────────
+# Antes de tudo, pela mesma razão da guarda acima: daqui pra baixo o script faz
+# `git fetch origin` + `git checkout <tag>` e REESCREVE APP_IMAGE/WORKER_IMAGE/
+# SCHEDULER_IMAGE a partir de `IMG_NS`, que é literal e constante. Num fork —
+# que publica as PRÓPRIAS imagens e carrega código que o upstream não tem — as
+# duas coisas juntas trocam a instalação inteira pela oficial, em silêncio: o
+# dono clica "Atualizar agora" na tela esperando uma versão nova e recebe outro
+# produto, sem as customizações dele e sem nenhuma mensagem dizendo isso.
+#
+# O sinal é o `.env`, não o remote do git: é o `.env` que decide qual imagem
+# sobe, e é ele que o `docker compose` lê. Só decide quando dá pra ter certeza —
+# um APP_IMAGE sem barra é ID de imagem LOCAL (estado que um rollback deixa
+# para trás), e recusar ali prenderia o dono fora do caminho de atualização.
+case "${APP_IMAGE:-}" in
+  */*)
+    if [ "${APP_IMAGE%/*}" != "$IMG_NS" ] && [ "${DESKCOMM_ACEITO_PERDER_CUSTOMIZACOES:-}" != "1" ]; then
+      refuse "esta instalação roda imagens próprias (${APP_IMAGE%/*}), e não as oficiais (${IMG_NS}). Atualizar por aqui traria o código e as imagens oficiais por cima dos seus, e as customizações desta instalação seriam perdidas sem aviso. Quem mantém esta instalação atualiza ela à mão. Se você tem certeza de que quer trocar o seu sistema pelo oficial, rode de novo com DESKCOMM_ACEITO_PERDER_CUSTOMIZACOES=1"
+    fi
+    ;;
+esac
+
 # ── 0. Liga o agente da tela ANTES de qualquer decisão de versão ─────────────
 # Instalar o cron aqui, e não no fim, é o que faz o bootstrap ter fim: os
 # caminhos "já está na versão mais recente" e "essa versão é anterior à sua"

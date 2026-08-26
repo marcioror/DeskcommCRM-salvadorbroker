@@ -175,6 +175,38 @@ echo "── 3. --force é a saída explícita de quem quer mesmo voltar"
 run_update --to v0.9.0 --force
 check "passou da guarda e rodou o backup" test -f "$BACKUP_MARK"
 
+echo "── 3b. Instalação com imagens de OUTRO namespace é recusada antes do backup"
+# O modo de falha que isto prende: num fork, `git checkout <tag do upstream>` +
+# a reescrita de APP_IMAGE a partir de IMG_NS trocam o sistema inteiro pelo
+# oficial em SILÊNCIO — o dono clica "Atualizar agora" e recebe outro produto.
+ENV_ORIGINAL="$(cat .env)"
+troca_ns() { grep -v '^APP_IMAGE=' .env > .env.t; echo "APP_IMAGE=$1" >> .env.t; mv .env.t .env; }
+
+troca_ns "ghcr.io/outrodono/deskcommcrm:latest"
+run_update --to v0.9.0 --force
+check "aborta com status != 0" test "$RC" -ne 0
+check "nomeia o namespace de quem instalou" grep -q "ghcr.io/outrodono" "$OUTFILE"
+check "nomeia o namespace oficial, para o dono comparar" grep -q "ghcr.io/melgarafael" "$OUTFILE"
+check "diz o que se perderia, sem jargão" grep -q "customizações desta instalação seriam perdidas" "$OUTFILE"
+check "NÃO chegou a rodar o backup — recusa antes de tocar em nada" test ! -f "$BACKUP_MARK"
+
+# A saída explícita, no mesmo desenho do DESKCOMM_ASSUMIR_PROJETO: quem quer
+# mesmo trocar o próprio sistema pelo oficial consegue, mas tem que dizer isso.
+rm -f "$BACKUP_MARK"
+DESKCOMM_ACEITO_PERDER_CUSTOMIZACOES=1 bash hostgator-setup-kit/update.sh --to v0.9.0 --force > "$OUTFILE" 2>&1 || true
+check "com DESKCOMM_ACEITO_PERDER_CUSTOMIZACOES=1 a guarda sai da frente" test -f "$BACKUP_MARK"
+
+# APP_IMAGE sem barra é ID de imagem LOCAL — o estado que um rollback deixa
+# para trás. Recusar ali prenderia o dono FORA do caminho de atualização, que
+# é justamente quando ele mais precisa dele.
+troca_ns "a1b2c3d4e5f6"
+run_update --to v0.9.0
+check "ID de imagem local não dispara esta guarda" \
+  bash -c '! grep -q "imagens próprias" "$0"' "$OUTFILE"
+
+printf '%s\n' "$ENV_ORIGINAL" > .env
+chmod 600 .env
+
 echo "── 4. Atualização de verdade grava a imagem no .env, sem duplicar a chave"
 # Estado de quem sofreu um rollback antes: o agente deixou a imagem apontando
 # para um ID local e a política em "missing" (ID não se puxa do registro).

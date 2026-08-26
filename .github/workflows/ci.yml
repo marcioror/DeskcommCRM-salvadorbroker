@@ -42,8 +42,15 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # O `tsc` desta árvore encosta no teto de heap padrão do Node: passou em
+      # 77s no run 32962605518 e MORREU em 92s no 32967326531, com o mesmo
+      # código de produto (o commit no meio só mexeu em e2e.yml). Ou seja, não
+      # é regressão — é sorte de GC. O runner tem 16 GB; 6 GB de heap tira o
+      # limite do caminho sem esconder crescimento real.
       - name: Typecheck
         run: pnpm typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
 
       - name: Lint
         run: pnpm lint

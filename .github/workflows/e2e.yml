@@ -59,7 +59,13 @@ permissions:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 45, e não os 30 do upstream. O run 32873581066 do Rafael levou 29,0 min
+    # contra teto de 30 — a suíte dele já raspa o limite na casa dele. O fork
+    # acrescenta `properties.spec.ts` e `casca-no-celular.spec.ts`, e isso basta
+    # para estourar: o run 32964528107 foi cortado aos 30,3 min com a parte 2
+    # ainda servindo requisição, e o GitHub reportou "cancelled" — que não
+    # distingue teto batido de teste vermelho.
+    timeout-minutes: 45
     # ─────────────────────────────────────────────────────────────────────────
     # A COBERTURA DEIXA DE SER PROSA DIGITADA À MÃO.
     #

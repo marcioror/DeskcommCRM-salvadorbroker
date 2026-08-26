@@ -28,6 +28,7 @@ function baseCtx(contact: Record<string, unknown>): ActionCtx {
     admin: {} as ActionCtx["admin"],
     organizationId: "org-1",
     ruleId: "rule-1",
+    ruleName: "Regra de teste",
     requestId: "req-1",
     event: {} as ActionCtx["event"],
     context: { contact },

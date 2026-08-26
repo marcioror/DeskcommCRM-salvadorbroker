@@ -178,6 +178,12 @@ fonte só (`lib/onboarding/passos.ts`) — eram três listas que discordavam. Ga
 | J6.8 | call_webhook com URL interna (SSRF) | bloqueado com erro claro |
 | J6.9 | Run falho → botão Reenviar | novo run; sucesso após receiver voltar |
 | J6.10 | Automação SEM cron configurado | hoje: morre em silêncio — **candidato a bug de produto** |
+| J6.11 | **Automação com envio que FALHA** (WhatsApp fora do ar) | aba Atividade diz **Falhou**, com a frase que explica o que conferir — nunca "Sucesso". Achado do relato de 2026-08-24: dizia Sucesso com a mensagem em `failed` (`automacao-diz-a-verdade.spec.ts`) |
+| J6.12 | Automação adiada pela janela de envio do número | aba Atividade mostra **Aguardando horário** com o instante da nova tentativa — antes não gravava linha nenhuma e a tela ficava vazia |
+| J6.13 | Formulário preenchido entra | aba **Leads recebidos** mostra a linha com quem/contato/fonte/quando/origem; o painel traz TODOS os campos, IP, página e UTM (`historico-de-captacao.spec.ts`) |
+| J6.14 | **Formulário com campos que o mapeamento não reconhece** | a captação aparece como **Não entrou**, com o motivo em português e os campos crus — antes o site recebia 400 e não sobrava rastro nenhum na tela |
+| J6.15 | `viewer` tenta abrir o histórico | redirecionado; a RLS de `webhook_lead_captures` exige `manager` (o formulário é PII) |
+| J6.16 | Ação **"Mensagem escrita pela IA"** no ENTÃO | pede agente publicado + número + o contexto do que fazer com os dados; o agente sabe que é abordagem pós-formulário |
 
 ## J8 — O cliente não morre por falta de resposta `[P1]`
 
@@ -226,6 +232,58 @@ Evidência: `.superpowers/evidence/ia-360-w3/`.
 | J8.9 | Status da conversa escalada em português | o cabeçalho mostrava `pending` cru | FAIL → PASS |
 
 Bugs desta jornada estão detalhados em `HANDOFF-ia-360.md` (BUG-01 a BUG-05).
+
+---
+
+## J11 — Saber quem está no comando da conversa `[P0]`
+
+**Por que P0:** é a leitura que o atendente faz ANTES de qualquer ação, em toda
+conversa que abre. J5.5 cobre transferir e J8 cobre a passagem IA↔humano; nenhuma
+das duas cobria *ler o estado* — e foi exatamente aí que o dono do produto
+relatou as quatro confusões.
+
+**A causa não era de tela.** Medido no HEAD 927dfa51: `lib/agent-engine/` nunca
+lê `assignee_kind` nem `assigned_to_user_id` (`grep -rn` → rc=1) e
+`fn_conversation_assign` nunca tocava `bot_silenced_until`. Um atendente clicava
+"Assumir" e o atendimento automático continuava respondendo o MESMO cliente — ele
+só calava por 5 minutos deslizantes quando a pessoa ENVIAVA (`extendBotSilence`).
+Nenhum selo de "você está no comando" podia ser verdade enquanto isso valesse.
+
+Spec: `tests/e2e/inbox-quem-manda.spec.ts` (seed próprio, conversa nova a cada
+execução). Evidência: `.superpowers/evidence/inbox-quem-manda/`.
+Regra na tela: `lib/inbox/comando-da-conversa.ts` (+ 17 casos unitários).
+Regra no banco: `tests/invariants/comando-cala-o-automatico.test.ts` (6 casos).
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J11.1 | Conversa normal diz quem manda | selo de comando mostra o automático — não a mesma cara de uma conversa largada na fila | PASS |
+| J11.2 | Assumir muda o selo para a PESSOA, com nome | `OwnerBadge` com as iniciais e o nome do atendente | PASS |
+| J11.3 | Assumir **para** o automático de verdade | `bot_silenced_until='infinity'` no banco — a tela mudar de cor não prova que o motor parou | PASS |
+| J11.4 | O selo diz o PORQUÊ, não só que está pausado | "alguém assumiu" / "pausado para este cliente" / "volta em instantes" pedem ações diferentes e tinham a mesma frase | PASS |
+| J11.5 | Existe caminho para DESLIGAR pela tela | botão "Pausar o automático" — antes só existia o de ligar | PASS |
+| J11.6 | A volta existe e limpa o silêncio | "Devolver ao automático" → `bot_silenced_until` nulo | PASS |
+| J11.7 | A troca de comando aparece na linha do tempo | "Assumiu a conversa" com o NOME de quem agiu, não "Você/time" | PASS |
+| J11.8 | O rodízio NÃO cala o automático | `reason='routing'` não mexe no silêncio — senão uma org em round_robin perde a IA inteira | PASS (invariante) |
+| J11.9 | Fechar devolve o comando | o silêncio é limpo ao fechar, senão vaza para o próximo episódio (a ingestão reusa a MESMA linha de conversa) | PASS (invariante) |
+
+| J11.10 | A conversa que o automático ESCALOU aparece na Fila | `status='pending'` sem dono entra na aba e é contada pelo badge | FAIL → PASS |
+| J11.11 | O número da fila é o MESMO para o cliente e para a equipe | `getQueuePosition` (o "você é o 5º" que o cliente ouve) e `getQueuePositions` (o "3º" da tela) contam os mesmos estados | FAIL → PASS |
+
+**O achado que esta jornada abriu, e como ele cresceu.** A primeira rodada
+registrou aqui "a conversa escalada não aparece em aba nenhuma" como pendência de
+PR próprio. Ao medir, o defeito era maior e mais barato: a definição de "está na
+fila" estava copiada em SEIS sítios que **não concordavam entre si** — o trigger
+de roteamento do banco e a função que responde ao cliente contavam `open+pending`;
+a aba, o badge, o painel do gerente e a posição mostrada na tela contavam só
+`open`. Daí as duas consequências: a conversa que mais precisa de uma pessoa era a
+única invisível, e o número de fila prometido ao cliente pelo WhatsApp não batia
+com o que a equipe via.
+
+Conserto: `CONVERSATION_QUEUE_STATUSES` (uma definição, quatro consumidores) +
+separação entre o vocabulário de LEITURA (7 valores, o do banco) e o de ESCRITA
+(5 — quem grava `pending` é o motor, e um cliente REST não pode fingir uma
+escalação). Guardado por `tests/unit/fila-tem-uma-definicao-so.test.ts`, que varre
+o fonte dos quatro sítios e compara o CONJUNTO do trigger com o da constante.
 
 ---
 
@@ -280,6 +338,57 @@ atendente abriria o card e não veria que uma pessoa segurou o fluxo — que é 
 pelo critério que já estava escrito lá: decisão humana não colapsa.
 
 ---
+
+## J10 — Marca própria: o revendedor põe a cara dele no sistema `[P0]`
+
+Contexto do código: o épico de marca própria (PR #248 e a continuação). São
+**duas camadas** que nunca se misturam — a da INSTALAÇÃO, que o dono do servidor
+define e vale para todo mundo, inclusive nas telas de acesso de quem ainda não
+entrou; e a da ORGANIZAÇÃO, que o admin do tenant define e vale só dentro dela.
+Specs: `tests/e2e/marca-logo.spec.ts`; invariantes de banco em
+`tests/invariants/marca-{logo,da-instalacao,da-organizacao}.test.ts`.
+
+`[P0]` porque é primeira impressão em dois sentidos: é o que o revendedor mostra
+ao cliente dele, e a tela de acesso é a primeira coisa que qualquer usuário vê.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J10.1 | O dono do servidor sobe o logo da instalação | aparece na barra lateral dele, e a prévia mostra sobre fundo claro E escuro | **NÃO EXECUTADO** |
+| J10.2 | Quem NÃO entrou vê o logo do dono na tela de acesso | as 6 telas públicas mostram a marca da instalação, sem sessão | **NÃO EXECUTADO** |
+| J10.3 | O logo da EMPRESA troca a barra dela e não vaza | a camada da organização não alcança a tela de acesso, que é da instalação | **NÃO EXECUTADO** |
+| J10.4 | SVG renomeado com extensão de imagem comum | recusado **pelos bytes**, não pela extensão, com a razão dita em português — SVG executa código quando aberto direto pelo endereço | **NÃO EXECUTADO** |
+| J10.5 | Remover o logo da empresa | devolve o da camada de baixo (a instalação), não "nenhum" | **NÃO EXECUTADO** |
+| J10.6 | O instalador pergunta a cor da marca | `APP_ACCENT_HEX` no `install.sh`, com validação — o revendedor não recebe o verde do produto | PASS (`tests/shell/`) |
+| J10.7 | Nome com apóstrofo (`Sant'Ana Odontologia`) | o `.env` sobrevive: 18/18 nos três consumidores de compose | PASS |
+| J10.8 | Cor escura de marca não quebra o contraste | o anel de foco respeita o piso de 3:1 em ambos os temas | PASS (unit) |
+
+**Bug de produto achado ao executar (2026-08-14), e é o que justifica esta jornada
+existir.** O caso J10.1 reprovou no CI, e não por defeito do teste: quem sobe o
+logo lia `"Logo atualizado."` e **a tela não mudava**, por até 30 segundos.
+
+A causa não era a que qualquer um chutaria. `lib/branding/instalacao.ts` é
+instanciado **duas vezes dentro do mesmo processo** — o Turbopack emite um runtime
+de servidor para as 206 rotas de API e outro para as 98 páginas, cada um com o
+próprio cache de módulos. A rota de upload invalidava um memo que **nenhuma tela
+lê**; a troca só aparecia quando o TTL expirasse sozinho.
+
+O que fecha o diagnóstico é o controle: a server action que troca nome e cor
+chama a MESMA função e sempre funcionou, porque é compilada no runtime das
+páginas. Mesma função, mesmo processo, resultados opostos — a variável era o
+runtime.
+
+Isto é exatamente o que a doutrina de QA Visual existe para pegar: nenhum teste
+unitário veria, porque a lógica está certa; o defeito mora em como o bundler
+divide o servidor. Só aparece exercitando o produto pela tela.
+
+> ⚠️ **Os cinco `NÃO EXECUTADO` são honestos, não pendências esquecidas.** A spec
+> existe, tem 6 casos e está na `SPECS_PARTE_2` do CI — mas nunca rodou: o Docker
+> da máquina de desenvolvimento está com o disco da VM corrompido, e o `e2e` do
+> CI é a primeira execução dela na vida. Um revisor cético mediu a spec na fonte
+> do Playwright e achou 3 defeitos que a reprovariam (testes sem login, e a
+> restauração feita como `test` num `describe` serial — que é justamente o que
+> não roda quando um caso falha). Corrigidos antes da primeira execução; o
+> resultado real entra aqui quando o CI disser.
 
 ## J7 — Exploração completa `[P2]`
 
@@ -668,8 +777,9 @@ software que ele não contratou. Não há gravidade média nisso.
 | `M4` `[P1]` | **Cadastro de MFA**: o app autenticador registra a marca da instalação | **ENTREGUE, PROVA CONTRA GoTrue REAL NÃO LOCALIZADA.** `app/actions/auth/enrollMfa.ts:59` passa `issuer: marca.nome` — o campo que de fato grava no celular (`friendlyName` **não** entra na URI `otpauth://`, medido contra GoTrue v2.188.1). O plano exigia repetir o rig de enroll real antes de fechar; não achei registro dessa execução. **Vale só para quem enrolar depois: trocar o `issuer` não reescreve fator já cadastrado** |
 | `M5` `[P1]` | **Export de LGPD**: o PDF nomeia o **controlador** (`legal_name`) e o DPO — **nunca** a marca do revendedor | **COBERTO POR TESTE.** O teste isola o rodapé e exige que o texto entre `Controlador:` e `· Relatório LGPD` seja **exatamente** o `legal_name` (a primeira versão só checava `/deskcomm/i` e teria deixado passar a marca de um revendedor). Vigiado também no mapa de arquitetura, que reprova quem ligar o PDF ao resolvedor de marca. **Armadilha viva:** `legal_name` nasce igual ao nome fantasia — o caso ruim é o valor plausível e errado, e quem resolve é a tela `/app/settings/tenant` |
 | `M6` `[P1]` | **Marca por organização**: a cor da org pinta `/app` e **não** vaza para o `/login` | **PASS na tela** (2026-08-13), com admin de tenant PURO — a precondição falhou primeiro e era a armadilha prevista (`e2e-admin` **era** `platform_admin`; medi `count=1`, revoguei, reafirmei `count=0`, só então testei). `#b3261e` no claro, `#f16051` no escuro, persistido no reload, e **ausente** em `/login` sem sessão. Evidência: `evidence/org-1-tela.png`, `evidence/org-2-digitado.png`, `evidence/org-3-salvo.png`, `evidence/org-4-recarregado.png`, `evidence/org-5-login.png` |
-| `M7` `[P2]` | Cor inválida: cai para o padrão, o estado fica gravado e a tela **mostra** por quê | **PASS na tela** para a recusa (hex inválido → **Salvar desabilitado**, evidência `evidence/marca-3-invalido.png`). `fallback_at`/`fallback_reason` são gravados por `registrarEstadoDaMarca()` e lidos por `/admin/marca`. **Dívida conhecida:** pela UI o caminho é inalcançável — o CHECK do banco barra o hex corrompido antes —, então o estado do degrade só aparece para quem editar o banco à mão ou vier de um clone com valor legado |
+| `M7` `[P2]` | Cor inválida: cai para o padrão, o estado fica gravado e a tela **mostra** por quê | **PASS na tela** para a recusa (hex inválido → **Salvar desabilitado**, evidência `evidence/marca-3-invalido.png`). `fallback_at`/`fallback_reason` são gravados por `registrarEstadoDaMarca()` e lidos por `/admin/marca`. **Corrigido em 2026-08-14 (`214f47f0`) o que esta célula dizia:** ela afirmava que o estado "só aparece para quem editar o banco à mão ou vier de um clone com valor legado" — e nenhuma das duas é possível, porque o CHECK `^#[0-9a-f]{6}$` entrou na `create table` da migration 0155 e a coluna nunca existiu sem ele. O caminho que **existe** é o `.env`: `lib/env.ts:201` não valida formato (`z.string().optional().default("")`, e o docblock explica por quê), então `APP_ACCENT_HEX=verde` acende `semente_invalida`. Coberto por `tests/unit/branding-fallback-alcancavel.test.ts`. **NÃO medido pela tela:** forçar esse caminho no browser exigiria subir a stack com `.env` hostil — o teste roda o código real de resolução, não o render |
 | `M8` `[P0]` | O revendedor **descobre** que dá para trocar a marca | **PASS estrutural.** `/app/settings/marca` está declarada em `lib/navigation/registry.ts` (grupo Configurações, `sidebar:false` — tarefa de uma vez, o hub e o ⌘K garantem a descoberta), e `tests/unit/navegacao-completude.test.ts` reprova tela sem porta. `/admin/marca` é de platform admin e fica fora dessa varredura por construção |
+| `M9` `[P0]` | **Logo por arquivo**: o dono do servidor sobe um PNG e ele aparece na barra lateral E no `/login` **deslogado**; a empresa sobe o dela e a fachada NÃO muda; SVG renomeado é recusado com a razão; remover devolve o logo da camada de baixo | **SPEC ESCRITA, EXECUÇÃO PENDENTE POR INFRA.** `tests/e2e/marca-logo.spec.ts` no disco e inscrita em `SPECS_PARTE_2` (`.github/workflows/e2e.yml:148`, como ÚLTIMA da lista — se a restauração dela falhar, o alcance da contaminação é zero spec), com os 6 casos e as medições por ferramenta (`src` + `naturalWidth`). ⚠️ **A régua desta linha já esteve errada:** ela dizia `getBoundingClientRect().height`, "porque `src` certo com altura 0 é o sintoma de bucket privado". É falso — os `<img>` de marca têm altura fixada por CSS (`h-7`, `h-10`), e o medido em chromium é `boa={"nat":1,"altura":28}` contra `quebrada={"nat":0,"altura":28}`: a altura passava nos dois. Quem prova o download é `naturalWidth`. **NÃO MEDIDO: nenhuma execução da spec.** O daemon do Docker está fora do ar nesta janela (`docker info` pendura >60s), e sem ele não há Supabase local, nem `pnpm test:db`, nem Playwright contra um banco fresco. Prova pendente por infra **não é prova feita**. O que ESTÁ medido é o lado unitário (`tests/unit/branding-logo-arquivo.test.ts`, 19 casos, com 3 sabotagens de contagem prevista) e a estrutura do banco (`tests/invariants/marca-logo.test.ts`, escrito e **não executado**) |
 
 **O que esta jornada ainda NÃO cobre, e é onde eu apostaria o próximo defeito:** a instalação
 fresca ponta a ponta com a marca de um revendedor — `install.sh` numa VPS, respondendo
@@ -677,4 +787,104 @@ fresca ponta a ponta com a marca de um revendedor — `install.sh` numa VPS, res
 ícone, e-mail de acesso, convite, endereço de suporte). É a mesma lacuna de
 `vps-fresh-onboarding`: os testes provam que cada peça faz o que diz, não que a jornada de
 quem compra funciona inteira. Os defeitos de marca que mais custam caro moram exatamente aí,
-porque são vistos primeiro por um terceiro.
+porque são vistos primeiro por um terceiro. **A receita para fechá-la está em J10, abaixo.**
+
+## J10 — Instalação fresca com a marca do revendedor `[P0]` (receita manual)
+
+**Por que isto é receita escrita e não spec.** O lugar natural desses casos seria
+`tests/e2e/vps-fresh-onboarding.spec.ts`, e ela é a **única** spec do repo fora do CI —
+`.github/workflows/e2e.yml`, bloco `FORA_DO_CI`. Nenhum job a invoca. Acrescentar dois
+`expect()` ali produziria asserção que nunca executa, com a aparência de cobertura: pior que
+a ausência, porque a ausência pelo menos se vê. Enquanto a spec não tiver quem a rode, o
+artefato honesto é o procedimento — com os comandos exatos, para que a execução seja
+repetível por outra pessoa e o resultado seja comparável.
+
+**Estado:** `NÃO EXECUTADA`. Quem executar, troque por `PASS`/`FAIL` com data, SHA e as
+evidências, e mova os achados para a tabela de defeitos.
+
+**Pré-condição:** VPS limpa com acesso SSH, um domínio apontado para ela, um projeto
+Supabase novo (ou `SUPABASE_ACCESS_TOKEN` exportado, para o `install.sh` criar), e uma chave
+da Anthropic. **Deliberadamente SEM `RESEND_API_KEY`** — é o estado do primeiro deploy, e é
+onde moram os piores defeitos de primeira impressão (`lib/email/resend.ts:94-108` devolve
+`{ok:false,"not_configured"}` **em silêncio**).
+
+```bash
+# 1. Na VPS, com o kit na pasta corrente
+bash install.sh
+#    Responda com uma marca que NÃO seja a nossa — é o ponto do teste:
+#      APP_NAME        → Vendas Turbo
+#      APP_ACCENT_HEX  → #f2c94c   (o instalador valida a forma: # + 6 dígitos)
+#      SUPPORT_EMAIL   → suporte@vendasturbo.exemplo
+#      RESEND_API_KEY  → (Enter, pule)
+#    ⚠️ Até `c8fc877d` o instalador NÃO perguntava a cor (`grep -c APP_ACCENT_HEX
+#       install.sh` → 0), e todo revendedor recebia o verde do produto nos e-mails
+#       de acesso. Se a pergunta não aparecer na sua execução, é regressão — o
+#       caso da VPS limpa em `test-validators.sh` a vigia.
+
+# 2. Confira que o domínio responde 307 (redirect para o login), não 404
+curl -s -o /dev/null -w '%{http_code}\n' https://<DOMAIN>/
+
+# 3. Logue como o admin criado pelo install, abra /admin/marca e grave a cor
+#    (`#f2c94c` serve). Depois SAIA da sessão.
+```
+
+| # | Caso | O que conferir | Como |
+|---|---|---|---|
+| `J10.1` | **Aba** — quem abre o domínio vê o nome do revendedor | O `<title>` contém `Vendas Turbo` e **não** contém `Deskcomm` | `curl -s https://<DOMAIN>/login \| grep -o '<title>[^<]*</title>'` |
+| `J10.2` | **Ícone** — o favicon carrega **deslogado**, na cor do revendedor | `/icon` responde 200 e o SVG tem o accent DERIVADO (não a semente crua) | `curl -s -o /dev/null -w '%{http_code}\n' https://<DOMAIN>/icon` e abrir a aba no browser |
+| `J10.3` | **E-mail de acesso** — o "confirme sua conta" do GoTrue chega com a marca | Rodar `bash marca-emails.sh` e conferir na caixa real. **Sem `SUPABASE_ACCESS_TOKEN`, o script imprime o passo manual e a instalação segue** — esse ramo também é PASS, e é o caminho da maioria | caixa de entrada de verdade, não log |
+| `J10.4` | **Convite** — sem `RESEND_API_KEY`, a tela mostra o `accept_url` em vez de falhar calada | `/app/team/invite` → convidar → a tela exibe o link | pela tela |
+| `J10.5` | **Endereço de suporte** — o cliente do revendedor nunca vê o nosso | `SUPPORT_EMAIL` (resolvido em `lib/branding/saida.ts:238`) aparece em `/app/settings/billing` e em `/account-suspended`; sem ele, o parágrafo some em vez de mostrar um endereço nosso | pela tela, nas duas rotas |
+
+**Armadilha conhecida (mede-se antes de concluir):** o bloco que escreve o `.env` é
+truncante (`} > .env`) e reescreve o arquivo a partir de uma **lista fechada de `envq`**.
+Chave que o kit não conhece é preservada no fim do arquivo (`PRESERVADAS`, `install.sh:1251`);
+chave que a entrevista **pergunta e a lista de `envq` não tem** é respondida e perdida, sem
+erro. É por isso que perguntar sem gravar é pior que não perguntar. Antes de dar `FAIL` em
+qualquer caso acima, rode `source .env && echo "$APP_NAME|$SUPPORT_EMAIL"` e confirme que o
+que você digitou está no arquivo — sintoma de marca ausente costuma ser isto, não o
+resolvedor.
+
+---
+
+## Por que uma IA publicada não responde — seis causas medidas numa VPS real (2026-08-18/19)
+
+Investigação dirigida pela tela numa instalação EasyPanel com WhatsApp real,
+agente publicado e o dono relatando "a IA não responde". Nenhuma das seis causas
+aparecia como erro para quem operava: a conversa mostrava **"IA atendendo"** o
+tempo todo. É a jornada `J3`/`J8` vista de perto, e o padrão é sempre o mesmo —
+**um lugar que engole a resposta e devolve sucesso**.
+
+| # | Onde | Defeito | Como foi provado | Correção |
+|---|---|---|---|---|
+| 1 | `edge/crm/session-watchdog.ts` | Hold `go_live` (número novo) mandava **todo `inbound_turn`** para `run_after='infinity'` — não só o disparo proativo. O único sinal era um item de Central `info` falando de "outbound" | item aberto na Central + zero `llm_calls` para a conversa | hold reason-aware: `go_live` retém só `followup_turn` |
+| 2 | `resolve-turn-agent.ts` | Roteador **ativo com zero membros e sem fallback** derrubava a sessão inteira no agente genérico, que caía em `settings.llm` sem credencial → `LlmNotConfiguredError` → 5 tentativas → job morto | `GET /api/v1/ai/routers` (`member_count: 0`) + aviso `Job descartado após esgotar tentativas` | sem fallback, atende o agente publicado da sessão |
+| 3 | `agent/inbound-turn.ts` | Fora da **janela anti-ban** (7h–22h) o veto do `pacingGate` virava erro de ensino ao modelo: turno terminava `ok`, sem envio e sem reagendamento | run `agent_turn` `ok` às 22:56 e **zero outbound** na conversa | reagenda o job para a abertura (doutrina `restricao-de-canal.md` §2) |
+| 4 | `agent/agent-config.ts` | **Horário de funcionamento** da versão publicada (08:00–18:00 seg–sex) não era lido por ninguém vivo — só pelo dispatcher legado, hoje NO-OP | agente respondendo 21:55 de uma terça | janela lida no turno; fora dela, adia |
+| 5 | `followup/node-handlers.ts` | Enrollment morria com `action_turn_never_completed` em ~25 min esperando a janela abrir | enrollment `dead` no nó de abertura com o worker vivo | backoff + orçamento de ~11h |
+| 6 | `ai/log-invocation.ts` + card do agente | Duas telas mentindo: `erro_legado` no lugar de `limite_ou_saldo` (chave sem saldo), e o card anunciando o modelo da **criação** (`claude-sonnet-5`) enquanto o motor rodava o da **versão publicada** (`nvidia/nemotron-…:free`) | `/app/ai/runs` + `GET /versions` | `normalizarErro` no caminho legado; card lê a versão publicada |
+
+**Lição para o mapa:** nenhum desses casos falha com tela vermelha. Todos falham
+com **status verde e mensagem ausente**. Um caso de jornada que só verifica "a
+tela não deu erro" passa em todos os seis — a prova precisa ser sempre *a
+mensagem chegou no WhatsApp do lead*.
+## O sistema cabe num telefone de 390px? (2026-08-20)
+
+Origem: issue #203 — em 390px o shell reservava a faixa do sidebar de desktop
+(`ml-60`/`ml-16`) e o header vazava para fora, medido `scrollWidth=462` contra
+`clientWidth=390`. O usuário leigo abre o CRM no celular; barra horizontal na
+primeira tela é a primeira impressão.
+
+| caso | prioridade | estado |
+|---|---|---|
+| Em 390×844, o sidebar de desktop sai da árvore acessível e a navegação vira gaveta | `[P1]` | **PASS**, medido por ferramenta em `tests/e2e/navegacao.spec.ts` (bloco `mobile`): `documentElement.scrollWidth <= clientWidth + 1` depois do login, com a gaveta aberta, e depois de navegar por ela. Evidência em `.superpowers/evidence/nav-mobile-390-drawer-aberta.png` — a captura é apoio, quem afirma é a medida |
+| `/admin` em 390px | — | **NÃO COBERTO.** `components/admin/AdminSidebar.tsx:58` é `w-60` sem prefixo responsivo: o mesmo defeito da #203, instância não consertada. Público é só platform admin, por isso ficou como issue e não como bloqueio |
+| Estouro DENTRO do `<main>` | — | **NÃO COBERTO.** `AppShell.tsx` dá `overflow-auto` ao `<main>`, que é contêiner de rolagem próprio: conteúdo largo rola lá dentro sem aumentar `documentElement.scrollWidth`. A sonda é fiel ao sintoma da #203 e não prova que as telas densas (Kanban, Inbox) são usáveis em 390px |
+
+**Armadilha que custou dois testes verdes:** `loginComoAdmin` espera a virada da
+janela TOTP entre logins consecutivos (o servidor recusa código repetido), e
+essa espera sozinha estoura o teto global de 30 s do `playwright.config.ts`.
+Toda spec que usa o helper sobe o teto (240 s em quatro delas, 90 s em uma) —
+isso não está escrito em lugar nenhum, e quem adota o helper sem subir o teto vê
+dois testes alheios estourarem sem call log de locator. Se você for adotar o
+helper numa spec nova: `test.describe.configure({ timeout: 120_000 })`.

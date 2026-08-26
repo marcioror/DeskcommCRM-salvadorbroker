@@ -185,6 +185,25 @@ v_email() {
   return 1
 }
 
+# A cor da marca. Aceita SÓ `#` + 6 dígitos hex, e essa estreiteza é medida, não
+# gosto: o `marca-emails.sh:125` reconhece exatamente essa forma e cai calado no
+# verde do produto em qualquer outra (`case "$ACCENT" in \#[0-9a-fA-F]x6`),
+# enquanto o `ehHexValido` de `lib/branding/rampa.ts:49` aceita mais quatro
+# formas (`#abc`, `abc`, `aabbcc` além de `#aabbcc`) e pinta a tela com elas. Um
+# validador frouxo produziria o pior desfecho possível: a cor do revendedor na
+# TELA e o verde do produto no PRIMEIRO e-mail que o cliente dele recebe — e
+# split-brain de marca ninguém percebe, porque cada metade parece certa sozinha.
+#
+# Vazio passa porque o campo é opcional. Na entrevista o `ask_one` sequer chama
+# o validador nesse caso (ele trata `-z "$input"` antes), então o `''` aqui é
+# para quem reusar a função fora dela — e para que tirar o `opcional` do campo
+# amanhã não vire uma instalação travada em quem não quer cor nenhuma.
+v_hex() {
+  case "$1" in ''|'#'[0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F]) return 0;; esac
+  echo "Use um código de cor como #7a5cd6 — cerquilha e 6 dígitos —, ou Enter para a cor do sistema"
+  return 1
+}
+
 v_supabase_url() {
   case "$1" in
     https://*.supabase.co) ;;
@@ -196,7 +215,7 @@ v_supabase_url() {
     *) echo "A URL precisa começar com https://. Na nuvem ela fica em Settings > API > Project URL (termina em .supabase.co); num Supabase próprio, é o endereço do seu servidor."; return 1;;
   esac
   local code
-  code="$(curl -s -o /dev/null -w '%{http_code}' -m 15 "$1/auth/v1/health" 2>/dev/null || echo 000)"
+  code="$(curl -s -o /dev/null -w '%{http_code}' -m 15 "$1/auth/v1/health" 2>/dev/null)" || code=000
   if [ "$code" = "000" ]; then
     echo "Não consegui alcançar $1 — confira se o projeto existe, está ativo (projeto pausado não responde) e se o VPS tem internet."
     return 1
@@ -229,14 +248,14 @@ v_sb_key() {
     # Rota de administração: a anon leva 401 aqui. É o que separa uma da outra.
     code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 \
       -H "apikey: $key" -H "Authorization: Bearer $key" \
-      "$url/auth/v1/admin/users?page=1&per_page=1" 2>/dev/null || echo 000)"
+      "$url/auth/v1/admin/users?page=1&per_page=1" 2>/dev/null)" || code=000
   else
     # /auth/v1/settings é a rota que a anon PODE abrir. Não use /rest/v1/: ele
     # responde 401 "Only the service_role API key can be used for this endpoint"
     # até para a anon correta — validador que reprova o dado certo é pior que
     # nenhum. Provado nesta VPS: settings dá 200 para as chaves do projeto e 401
     # para lixo e para JWT de outro projeto.
-    code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 -H "apikey: $key" "$url/auth/v1/settings" 2>/dev/null || echo 000)"
+    code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 -H "apikey: $key" "$url/auth/v1/settings" 2>/dev/null)" || code=000
   fi
   case "$code" in
     2*) return 0;;
@@ -305,7 +324,7 @@ v_anthropic() {
   case "$1" in sk-ant-*) ;; *) echo "A chave da Anthropic começa com 'sk-ant-'. Pegue em console.anthropic.com > API Keys."; return 1;; esac
   local code
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://api.anthropic.com/v1/models \
-    -H "x-api-key: $1" -H "anthropic-version: 2023-06-01" 2>/dev/null || echo 000)"
+    -H "x-api-key: $1" -H "anthropic-version: 2023-06-01" 2>/dev/null)" || code=000
   case "$code" in
     2*) return 0;;
     000) c_ylw "  ⚠ não consegui checar a chave online; sigo com ela."; return 0;;
@@ -325,7 +344,7 @@ v_openrouter() {
   case "$1" in sk-or-*) ;; *) echo "A chave da OpenRouter começa com 'sk-or-'. Pegue em openrouter.ai/keys."; return 1;; esac
   local code
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://openrouter.ai/api/v1/key \
-    -H "Authorization: Bearer $1" 2>/dev/null || echo 000)"
+    -H "Authorization: Bearer $1" 2>/dev/null)" || code=000
   case "$code" in
     2*) return 0;;
     000) c_ylw "  ⚠ não consegui checar a chave online; sigo com ela."; return 0;;
@@ -339,7 +358,7 @@ v_openai() {
   case "$1" in sk-*) ;; *) echo "A chave da OpenAI começa com 'sk-'. Pegue em platform.openai.com > API keys (ou deixe em branco)."; return 1;; esac
   local code
   code="$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://api.openai.com/v1/models \
-    -H "Authorization: Bearer $1" 2>/dev/null || echo 000)"
+    -H "Authorization: Bearer $1" 2>/dev/null)" || code=000
   case "$code" in
     2*) return 0;;
     000) c_ylw "  ⚠ não consegui checar a chave online; sigo com ela."; return 0;;
@@ -526,12 +545,31 @@ porta_publicavel() {  # porta_publicavel <porta>
 # deixando passar proxy que não fosse Traefik), e nas duas o erro só apareceu
 # rodando de verdade numa VPS.
 # Ecoa: caddy | traefik | bloqueia
-decide_proxy() {  # decide_proxy <portas_ocupadas> <projeto_do_dono> <projeto_atual> <imagem> <nome>
+decide_proxy() {  # decide_proxy <portas_ocupadas> <projeto_do_dono> <projeto_atual> <imagem> <nome> [árvore_do_dono] [árvore_atual]
   local ocupadas="${1:-}" dono_proj="${2:-}" meu_proj="${3:-}" img="${4:-}" nome="${5:-}"
+  local dono_dir="${6:-}" meu_dir="${7:-}"
   [ -z "$ocupadas" ] && { printf 'caddy'; return 0; }
   # As portas estão com ESTA MESMA instalação, já no ar: é a re-execução, que o
   # próprio kit ensina como caminho para corrigir uma resposta.
-  [ -n "$dono_proj" ] && [ "$dono_proj" = "$meu_proj" ] && { printf 'caddy'; return 0; }
+  #
+  # Só que "mesma instalação" NÃO é o mesmo que "mesmo nome de projeto": o nome
+  # é o basename da pasta, e toda cópia do repo se chama DeskcommCRM. Duas
+  # árvores irmãs (/root/DeskcommCRM e /root/apagar7/DeskcommCRM) colidem no
+  # nome `deskcommcrm` e esta linha as declarava re-execução uma da outra —
+  # exatamente o caso que a varredura de portas foi escrita para pegar. Medido
+  # numa VPS de produção em 2026-08-24: a instalação de uma aula passou por
+  # aqui, recriou os contêineres do CRM no ar com o .env dela e trocou o banco
+  # da instalação de produção, sem um aviso. Quem separa as duas é a ÁRVORE.
+  #
+  # Árvore desconhecida (contêiner sem o label, ou criado fora do compose) cai
+  # no comportamento anterior de propósito: não dá para AFIRMAR cópia irmã, e
+  # fechar no escuro quebraria a re-execução legítima que o kit ensina.
+  if [ -n "$dono_proj" ] && [ "$dono_proj" = "$meu_proj" ]; then
+    if [ -n "$dono_dir" ] && [ -n "$meu_dir" ] && [ "$dono_dir" != "$meu_dir" ]; then
+      printf 'bloqueia'; return 0
+    fi
+    printf 'caddy'; return 0
+  fi
   eh_traefik "$img" "$nome" && { printf 'traefik'; return 0; }
   printf 'bloqueia'
 }
@@ -731,6 +769,35 @@ fi
 PROJECT_DIR="$(pwd)"
 source "$KIT_DIR/_common.sh"
 
+# ── O invariante 8 também vale para quem INSTALA ────────────────────────────
+#
+# `recusar_projeto_de_outra_arvore` já protegia o `update.sh` (:33) e o
+# `agent.sh` (:45), e não protegia este arquivo — a porta por onde o incidente
+# entrou. O painel de cópia irmã, mais abaixo, cobre o caso em que a instalação
+# do ar é a DONA das portas 80/443; este guarda é o que vale sempre, porque
+# pergunta pelos CONTÊINERES do projeto, não pelo proxy:
+#
+#   - VPS com Traefik do painel (Coolify/Hostinger): lá `decide_proxy` sai por
+#     `traefik` antes de comparar árvore, e o painel nunca é alcançado;
+#   - pasta que já concluiu uma instalação: o próprio install.sh grava
+#     REVERSE_PROXY no .env (:1413), e na rodada seguinte o `if [ -z ... ]` que
+#     embrulha o painel é falso — o instalador desligava o próprio guarda;
+#   - portas 80/443 livres: `decide_proxy` devolve `caddy` na primeira linha.
+#
+# Nos três, `docker compose ... up -d` subia sobre o parque da produção com o
+# .env desta pasta (outro banco, outras chaves) — o sintoma medido foi a senha
+# "parar de funcionar" e as conexões de WhatsApp caírem.
+#
+# AQUI e não no preflight: `projeto_pertence_a_outra_arvore` compara contra
+# `PROJECT_DIR`, que só existe a partir da linha acima. E antes da coleta de
+# config, para não pedir dado nenhum a quem vai ser recusado.
+#
+# Instalação NOVA não é afetada: sem contêiner do projeto no ar, a função
+# devolve vazio e o guarda deixa passar. Re-executar na MESMA pasta idem — a
+# árvore é a mesma. `DESKCOMM_ASSUMIR_PROJETO=1` é a saída para quem move a
+# instalação de lugar de propósito, e é a mesma dos outros dois call sites.
+recusar_projeto_de_outra_arvore || die "Instalação interrompida para não derrubar o CRM que já está no ar nesta VPS."
+
 # ── 3. Coleta de config ─────────────────────────────────────────────────────
 fase 2 "Suas informações"
 step "Configuração"
@@ -772,13 +839,18 @@ porta_publicavel 443 || { portas_ocupadas="${portas_ocupadas:+$portas_ocupadas e
 # O "|| true" não é decorativo: numa atribuição o status do pipeline vira o
 # status do script, e sob `set -e` + `pipefail` um docker ps que falhe (ou um
 # SIGPIPE do consumidor) mataria o instalador mudo, no meio da fase 2.
-dono_portas=""; dono_projeto=""; dono_imagem=""
+dono_portas=""; dono_projeto=""; dono_imagem=""; dono_arvore=""
 if [ -n "$portas_ocupadas" ]; then
   _dono="$(docker ps --format '{{.Names}}|{{.Label "com.docker.compose.project"}}|{{.Image}}|{{.Ports}}' 2>/dev/null | dono_das_portas || true)"
   if [ -n "$_dono" ]; then
     dono_portas="${_dono%%|*}"; _resto="${_dono#*|}"
     dono_projeto="${_resto%%|*}"; dono_imagem="${_resto#*|}"
     unset _resto
+    # De qual cópia do repo saiu esse contêiner. É o que separa "sou eu rodando
+    # de novo" de "é a instalação irmã que está no ar" quando as duas pastas se
+    # chamam DeskcommCRM e por isso compartilham o nome do projeto.
+    dono_arvore="$(docker inspect "$dono_portas" --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' 2>/dev/null || true)"
+    dono_arvore="${dono_arvore%/}"
   fi
   unset _dono
 fi
@@ -813,7 +885,8 @@ if [ -z "${REVERSE_PROXY:-}" ]; then
   # A exclusão da própria instalação acontece AQUI, não na varredura: o teste de
   # bind não tem como se auto-excluir, então filtrar o nosso contêiner antes só
   # produzia um "ocupado por ninguém" — bloqueio sem um comando sequer.
-  case "$(decide_proxy "$portas_ocupadas" "$dono_projeto" "$proj_atual" "$dono_imagem" "$dono_portas")" in
+  _minha_arvore="${PROJECT_DIR:-$PWD}"; _minha_arvore="${_minha_arvore%/}"
+  case "$(decide_proxy "$portas_ocupadas" "$dono_projeto" "$proj_atual" "$dono_imagem" "$dono_portas" "$dono_arvore" "$_minha_arvore")" in
   caddy)
     REVERSE_PROXY=caddy
     [ -n "$portas_ocupadas" ] && c_dim "  (as portas 80/443 já estão com esta instalação — seguindo)"
@@ -860,6 +933,24 @@ e, se for mesmo um Traefik, ponha REVERSE_PROXY=traefik no .env e rode de novo."
     # for conhecida — "(imagem )" vazio era o sintoma de um campo perdido.
     ocupante="${dono_portas:+pelo contêiner '${dono_portas}'${dono_imagem:+ (imagem ${dono_imagem})}}"
     ocupante="${ocupante:-por um programa do próprio servidor}"
+    # Cópia irmã tem um diagnóstico próprio: o painel genérico abaixo fala de
+    # "porta ocupada", e quem lê isso numa pasta recém-clonada não liga o aviso
+    # à instalação que está no ar — foi assim que uma aula subiu por cima de uma
+    # produção. Aqui o nome das DUAS pastas aparece.
+    if [ -n "$dono_arvore" ] && [ "$dono_projeto" = "$proj_atual" ] && [ "$dono_arvore" != "$_minha_arvore" ]; then
+      c_red "✖ Já existe um DeskcommCRM NO AR nesta VPS, instalado em ${dono_arvore}."
+      printf '\n%s\n'   "  Esta pasta (${_minha_arvore}) é outra cópia do repo. As duas se chamam"
+      printf '%s\n'     "  DeskcommCRM, então o Docker dá às duas o MESMO nome de projeto"
+      printf '%s\n\n'   "  ('${proj_atual}') — e instalar aqui recriaria os contêineres daquela."
+      printf '%s\n'     "  Na prática: o CRM que está no ar passaria a rodar com o .env DESTA pasta"
+      printf '%s\n\n'   "  (outro banco, outras chaves), e as conexões de WhatsApp cairiam."
+      printf '%s\n'     "  Quer atualizar o que já existe? Use aquela pasta:"
+      printf '%s\n\n'   "       cd ${dono_arvore} && bash hostgator-setup-kit/update.sh"
+      printf '%s\n'     "  Quer mesmo uma SEGUNDA instalação nesta VPS? Ela precisa de nome de"
+      printf '%s\n'     "  projeto e domínio próprios — ponha no .env desta pasta, antes de rodar:"
+      printf '%s\n\n'   "       COMPOSE_PROJECT_NAME=deskcomm-$(basename "${_minha_arvore}" | tr 'A-Z' 'a-z')-2"
+      die "Instalação interrompida para não derrubar o DeskcommCRM que está no ar em ${dono_arvore}."
+    fi
     # Concordância com o número de portas: "A porta 80 e 443 já está ocupada"
     # saiu na prova real e denuncia texto montado sem olhar o próprio dado.
     if [ "$n_ocupadas" -gt 1 ]; then
@@ -1072,6 +1163,11 @@ FIELDS=(
   "OWNER_EMAIL|E-mail do primeiro admin (dono)||v_email||"
   "OWNER_PASSWORD|Senha do primeiro admin (mínimo 8 caracteres)||v_password|secret|"
   "APP_NAME|Nome que aparece na interface (Enter para o padrão)|DeskcommCRM|||"
+  # Sem default, e `opcional`: em `--yes` o `ask_one` devolve 0 sem associar a
+  # variável (campo sem default e sem `opcional` morre em `die`), e o `envq` lá
+  # embaixo usa `${APP_ACCENT_HEX:-}`. Enter = a cor do produto, que é o
+  # comportamento de sempre para quem não tem marca própria.
+  "APP_ACCENT_HEX|Cor da sua marca em hex, ex.: #7a5cd6 (Enter usa a cor do sistema)||v_hex||opcional"
   "SUPPORT_EMAIL|E-mail de suporte que SEUS clientes veem (Enter pula)||v_email||opcional"
   "RESEND_API_KEY|Chave da Resend — envia convite e e-mail de LGPD (resend.com/api-keys, Enter pula)|||secret|opcional"
   "RESEND_FROM_EMAIL|Remetente dos e-mails, de um domínio verificado na Resend (Enter pula)||v_email||opcional"
@@ -1261,7 +1357,7 @@ if [ -f .env ]; then
   #
   # NÃO recarregue o .env aqui. Havia um `set -a; . ./.env; set +a` neste ponto,
   # justificado por "carregar o .env atual primeiro faz `${X:-}` cair de volta no
-  # valor que já existia" — e essa premissa é FALSA: `install.sh:674` já faz
+  # valor que já existia" — e essa premissa é FALSA: `install.sh:757` já faz
   # `load_env .env` antes da entrevista, e `_common.sh:266` faz `printf -v` +
   # `export` incondicionalmente. O arquivo já está carregado e exportado aqui.
   #
@@ -1362,8 +1458,19 @@ esac
   envq NEXT_PUBLIC_ADMIN_URL "$NEXT_PUBLIC_ADMIN_URL"
   printf '# Marca da instalação (white-label). Preencha APP_LOGO_URL com a URL de uma\n'
   printf '# imagem pública para trocar o texto por logo na sidebar. Ver lib/branding.ts.\n'
+  printf '# APP_ACCENT_HEX é a SEMENTE da cor: o banco (platform_branding) manda depois\n'
+  printf '# da primeira leitura, mas é daqui que sai a cor dos e-mails de acesso, que o\n'
+  printf '# marca-emails.sh empurra para o GoTrue e o banco não alcança.\n'
   envq APP_NAME "$APP_NAME"
   envq APP_LOGO_URL "${APP_LOGO_URL:-}"
+  # Perguntar sem gravar seria PIOR que não perguntar: este bloco fecha com
+  # `} > .env`, que TRUNCA o arquivo a partir da lista fechada de `envq` acima e
+  # abaixo — a pessoa responderia a cor e a perderia em silêncio, na mesma
+  # execução. Enquanto a chave esteve fora desta lista, ela também não entrava em
+  # `CONHECIDAS` (o grep de `envq` logo acima), então uma cor posta à mão no .env
+  # sobrevivia por acaso, pelo laço de preservação — e não é de acaso que a
+  # entrevista precisa.
+  envq APP_ACCENT_HEX "${APP_ACCENT_HEX:-}"
   printf '# Endereço de suporte que o CLIENTE FINAL vê (conta suspensa, cobrança).\n'
   printf '# Vazio = a tela não mostra endereço nenhum.\n'
   envq SUPPORT_EMAIL "${SUPPORT_EMAIL:-}"
@@ -1419,6 +1526,10 @@ esac
   printf '# então ligar isto sem um WAHA Plus (ou proxy que assine) para a ingestão\n'
   printf '# de mensagens. A rota global já não é publicada na internet (ver Caddyfile).\n'
   envq WAHA_WEBHOOK_REQUIRE_SIGNATURE "${WAHA_WEBHOOK_REQUIRE_SIGNATURE:-false}"
+  printf '# Retoma as sessões já pareadas quando o contêiner do transporte reinicia.\n'
+  printf '# Sem isto o número segue pareado no volume e MUDO até alguém abrir a tela\n'
+  printf '# e clicar Reconectar — nada entra nem sai nesse meio-tempo.\n'
+  envq WHATSAPP_RESTART_ALL_SESSIONS "${WHATSAPP_RESTART_ALL_SESSIONS:-True}"
   # PINADA. Sem a tag, `devlikeapro/waha` é `:latest`, e esta linha gravava isso
   # no .env de todo cliente — por cima do default pinado do compose, que então
   # nunca chegava a ninguém. O `dc pull` de cada update entregava qualquer versão
@@ -1492,16 +1603,23 @@ fi
 
 # ── 7. Aplica o schema (baseline) no Supabase — via container postgres ───────
 step "Aplicando o schema no Supabase (baseline.sql)"
+# Tudo daqui até o fim da etapa 8 fala com o banco por `url_do_schema`
+# (_common.sh), não pela string que vai para o `.env`: criar extensão, aplicar o
+# baseline e promover o dono exigem o DONO do banco, e num Supabase próprio a
+# string do app é — por recomendação nossa — uma role menor. Sem
+# `SUPABASE_DB_ADMIN_URL` declarada as duas são a mesma, que é o caso da nuvem.
 if [ -f supabase/baseline.sql ]; then
   # O baseline é um pg_dump: referencia public.vector, public.citext e gin_trgm_ops
   # (pg_trgm) mas NÃO cria as extensões. Supabase não as habilita no schema public por
   # padrão — criamos aqui, senão o schema quebra no meio (ex.: "type public.vector does
   # not exist"). Idempotente (if not exists).
-  docker run --rm postgres:17-alpine psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -c \
+  docker run --rm postgres:17-alpine psql "$(url_do_schema)" -v ON_ERROR_STOP=1 -c \
     "create extension if not exists vector with schema public; create extension if not exists citext with schema public; create extension if not exists pg_trgm with schema public;" \
     >/dev/null 2>&1 \
     && c_grn "✓ extensões (vector, citext, pg_trgm) habilitadas no public" \
-    || c_ylw "⚠ não consegui habilitar as extensões — o schema pode falhar abaixo."
+    || { c_ylw "⚠ não consegui habilitar as extensões — o schema pode falhar abaixo."
+         c_ylw "  Supabase próprio? Criar extensão exige o dono do banco: rode de novo com"
+         c_ylw "  SUPABASE_DB_ADMIN_URL='postgresql://<dono>:<senha>@<host>:5432/postgres'"; }
   SCHEMA_LOG="$PROJECT_DIR/baseline-apply.log"
   # Banco novo ou re-execução? Re-aplicar com ON_ERROR_STOP pararia no primeiro
   # "já existe" (ex.: multiple primary keys) e PULARIA o resto do arquivo —
@@ -1512,13 +1630,13 @@ if [ -f supabase/baseline.sql ]; then
   # dentro da substituição e, com `set -e` + `pipefail`, derruba o instalador sem
   # imprimir nada (o 2>/dev/null já tinha engolido a causa). Preferimos seguir e
   # deixar o erro aparecer no ponto em que dá para explicá-lo.
-  has_schema="$(docker run --rm postgres:17-alpine psql "$SUPABASE_DB_URL" -tAc \
+  has_schema="$(docker run --rm postgres:17-alpine psql "$(url_do_schema)" -tAc \
     "select 1 from information_schema.tables where table_schema='public' and table_name='organizations' limit 1" 2>/dev/null | tr -d '[:space:]' || true)"
 
   if [ "$has_schema" = "1" ]; then
     c_ylw "• schema já existe — re-aplicando em modo update (erros 'já existe' são esperados e ficam no log)"
     raw="$(docker run --rm -i -v "$PROJECT_DIR/supabase/baseline.sql:/baseline.sql:ro" \
-          postgres:17-alpine psql "$SUPABASE_DB_URL" -q -f /baseline.sql 2>&1 || true)"
+          postgres:17-alpine psql "$(url_do_schema)" -q -f /baseline.sql 2>&1 || true)"
     printf '%s\n' "$raw" > "$SCHEMA_LOG"
     benign='already exists|multiple primary keys|multiple default values|is already a member|already a partition'
     unexpected="$(printf '%s\n' "$raw" | grep -iE 'ERROR|FATAL' | grep -viE "$benign" || true)"
@@ -1530,17 +1648,20 @@ if [ -f supabase/baseline.sql ]; then
     fi
   else
     if docker run --rm -i -v "$PROJECT_DIR/supabase/baseline.sql:/baseline.sql:ro" \
-        postgres:17-alpine psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f /baseline.sql \
+        postgres:17-alpine psql "$(url_do_schema)" -v ON_ERROR_STOP=1 -f /baseline.sql \
         > "$SCHEMA_LOG" 2>&1; then
       c_grn "✓ schema aplicado (log: $SCHEMA_LOG)"
     else
       tail -5 "$SCHEMA_LOG"
-      die "baseline falhou num banco NOVO — o schema ficaria incompleto (sem RLS). Log completo: $SCHEMA_LOG"
+      die "baseline falhou num banco NOVO — o schema ficaria incompleto (sem RLS). Log completo: $SCHEMA_LOG
+     Se o erro fala em permissão: o baseline exige o DONO do banco. Num Supabase próprio,
+     rode de novo com SUPABASE_DB_ADMIN_URL='postgresql://<dono>:<senha>@<host>:5432/postgres'
+     — ela roda só o schema e NÃO é gravada no .env dos contêineres."
     fi
   fi
 
   # Verificação real, não wishful thinking: o app precisa das tabelas core.
-  n_tables="$(docker run --rm postgres:17-alpine psql "$SUPABASE_DB_URL" -tAc \
+  n_tables="$(docker run --rm postgres:17-alpine psql "$(url_do_schema)" -tAc \
     "select count(*) from information_schema.tables where table_schema='public'" 2>/dev/null | tr -d '[:space:]')"
   if [ "${n_tables:-0}" -ge 30 ]; then
     c_grn "✓ verificação: ${n_tables} tabelas no schema public"
@@ -1579,9 +1700,11 @@ curl -fsS -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
 # 2) Resolve o id direto do auth.users e cria org + membership + platform_admin.
 #    Resolver o uid DENTRO do SQL evita parsing frágil de JSON e funciona tanto para
 #    usuário recém-criado quanto para um que já existia (re-execução).
-docker run --rm -i postgres:17-alpine psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 <<SQL \
+docker run --rm -i postgres:17-alpine psql "$(url_do_schema)" -v ON_ERROR_STOP=1 <<SQL \
   && c_grn "✓ dono criado e promovido a super-admin" \
-  || die "Não consegui promover o admin. Confira a service_role key, a URL e a connection string do Supabase."
+  || die "Não consegui promover o admin. Confira a service_role key, a URL e a connection string do Supabase.
+     Este passo lê auth.users e escreve em public: num Supabase próprio ele precisa do dono do
+     banco — declare SUPABASE_DB_ADMIN_URL e rode de novo."
 do \$\$
 declare v_org uuid; v_uid uuid;
 begin

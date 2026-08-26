@@ -52,12 +52,30 @@ describe("camadaDaOrganizacao — o que a fábrica declara e o que ela cala", ()
     }
   });
 
-  it("NUNCA declara logo — upload é a fase seguinte", () => {
-    // Uma camada que declarasse `logoUrl: null` não apagaria nada, mas ensinaria
-    // a próxima pessoa a achar que o campo já existe. O logo da instalação
-    // continua valendo por precedência de campo.
-    expect("logoUrl" in camadaDaOrganizacao({ app_name: "Loja da Ana" })).toBe(false);
-    expect("logoUrl" in camadaDaOrganizacao({ accent_hex: "#b3261e" })).toBe(false);
+  /**
+   * ESTE CASO TROCOU DE AFIRMAÇÃO, E A ANTIGA ESTÁ AQUI DE PROPÓSITO.
+   *
+   * Ele congelava "NUNCA declara logo — upload é a fase seguinte", com a razão
+   * de que uma camada declarando `logoUrl: null` ensinaria a próxima pessoa a
+   * achar que o campo já existia. A fase seguinte é ESTA: `camadaDaOrganizacao`
+   * passou a declarar o logo a partir de `settings.branding.logo_path`. Apagar o
+   * caso e seguir deixaria a propriedade que sobrou — `null` é NEUTRO, não apaga
+   * a camada de baixo — sem nenhuma guarda, que é justamente o modo de falha que
+   * o caso antigo protegia por outro caminho.
+   */
+  it("declara logo, e `null` continua sendo NEUTRO (não apaga a camada de baixo)", () => {
+    expect("logoUrl" in camadaDaOrganizacao({ app_name: "Loja da Ana" })).toBe(true);
+    expect(camadaDaOrganizacao({ app_name: "Loja da Ana" }).logoUrl).toBeNull();
+    expect(camadaDaOrganizacao({ accent_hex: "#b3261e" }).logoUrl).toBeNull();
+
+    // Sem `logo_path`, a instalação continua sendo quem pinta o logo — a
+    // asserção de que `null` desce em vez de apagar.
+    const marca = resolverMarcaDaOrganizacao(
+      { branding: { app_name: "Loja da Ana" } },
+      INSTALACAO,
+      AMBIENTE,
+    );
+    expect(marca.origens.logoUrl).not.toBe("organizacao");
   });
 
   it("um hex vira envelope da versão de hoje, não a rampa derivada", () => {
@@ -175,10 +193,11 @@ describe("ler `settings.branding` sem confiar em nada", () => {
   it("campo de tipo errado vira `null`, não desce para a derivação", () => {
     // Um `accent_hex` numérico produziria um `envelope_malformado` apontando para
     // o campo errado no diagnóstico — o admin procuraria o defeito no lugar errado.
-    expect(marcaDaOrganizacaoDeSettings({ branding: { app_name: 7, accent_hex: { a: 1 } } })).toEqual({
-      app_name: null,
-      accent_hex: null,
-    });
+    expect(
+      marcaDaOrganizacaoDeSettings({
+        branding: { app_name: 7, accent_hex: { a: 1 }, logo_path: ["x"] },
+      }),
+    ).toEqual({ app_name: null, accent_hex: null, logo_path: null });
   });
 
   it("lê os dois campos e ignora o que não conhece", () => {
@@ -187,9 +206,23 @@ describe("ler `settings.branding` sem confiar em nada", () => {
     expect(
       marcaDaOrganizacaoDeSettings({
         visibility_mode: "own",
-        branding: { app_name: "Loja da Ana", accent_hex: "#b3261e", logo_url: "https://x/y.svg", updated_by: "u" },
+        branding: {
+          app_name: "Loja da Ana",
+          accent_hex: "#b3261e",
+          logo_path: "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.png",
+          // `logo_url` NÃO é lido nesta camada, e continua no fixture de
+          // propósito: é chave que existe no jsonb de clones antigos e a
+          // asserção de que ela é IGNORADA é a metade do caso que uma leitura
+          // "por spread" quebraria em silêncio.
+          logo_url: "https://x/y.svg",
+          updated_by: "u",
+        },
       }),
-    ).toEqual({ app_name: "Loja da Ana", accent_hex: "#b3261e" });
+    ).toEqual({
+      app_name: "Loja da Ana",
+      accent_hex: "#b3261e",
+      logo_path: "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.png",
+    });
   });
 });
 

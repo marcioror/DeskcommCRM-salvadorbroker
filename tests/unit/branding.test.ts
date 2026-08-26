@@ -52,6 +52,7 @@ describe("guarda de white-label (self-host)", () => {
     path.join(RAIZ, "app/public-env-script.tsx"),
     "utf8",
   );
+  const layoutRaiz = fs.readFileSync(path.join(RAIZ, "app/layout.tsx"), "utf8");
 
   it("não usa prefixo NEXT_PUBLIC_ para a marca", () => {
     // POR QUE ESTE TESTE EXISTE: a convenção do Next empurra qualquer valor lido
@@ -68,10 +69,58 @@ describe("guarda de white-label (self-host)", () => {
     // Sem estas duas chaves no payload, os client components (Sidebar,
     // AdminSidebar) caem no padrão e só a marca do servidor muda — a instalação
     // ficaria com o nome do revendedor no título da aba e o nosso na sidebar.
-    expect(publicEnvScript).toMatch(/APP_NAME:\s*env\.APP_NAME/);
-    expect(publicEnvScript).toMatch(/APP_LOGO_URL:\s*env\.APP_LOGO_URL/);
+    //
+    // As duas liam `env.APP_NAME` / `env.APP_LOGO_URL` — o arquivo de instalação
+    // CRU — e a consequência foi medida: `platform_branding.logo_url` e
+    // `MarcaDeSaida.logoUrl` existiam sem nenhum leitor, porque o único render de
+    // logo do produto (`components/shell/Sidebar.tsx`) lê daqui. O operador
+    // salvava um valor que nada mostrava, e a tela dizia "salvo". Passam a vir da
+    // marca RESOLVIDA (banco acima, `.env` embaixo).
+    expect(publicEnvScript).toMatch(/APP_NAME:\s*marca\.name/);
+    expect(publicEnvScript).toMatch(/APP_LOGO_URL:\s*marca\.logoUrl/);
   });
 
+  it("a marca do payload vem do resolvedor, e não do `.env` por outro nome", () => {
+    // As duas asserções de cima passariam com um `marca` montado ali mesmo a
+    // partir de `env` — o defeito voltaria com outra roupa e o gate ficaria
+    // verde. Estas duas fecham as pontas: nenhuma chave de marca sai de `env`
+    // dentro do script, e quem preenche a prop é o layout raiz, com a MESMA
+    // função que o título da aba e o CSS já usam.
+    expect(publicEnvScript).not.toMatch(/APP_(NAME|LOGO_URL):\s*env\./);
+    expect(layoutRaiz).toMatch(/<PublicEnvScript\s+marca=\{/);
+    expect(layoutRaiz).toMatch(/marcaResolvida\(\)/);
+  });
+
+  it("o layout raiz resolve a marca UMA vez para os quatro consumidores", () => {
+    // Guarda de vacuidade das duas de cima: se `marcaResolvida` deixasse de ser
+    // a fonte da aba ou do CSS, o casamento de `marcaResolvida()` acima
+    // continuaria verdadeiro e mediria um resolvedor que só o script usa — que é
+    // exatamente a divergência ("aba com uma marca, barra com outra") que o
+    // cabeçalho daquela função existe para impedir.
+    expect(
+      layoutRaiz.match(/await marcaResolvida\(\)/g) ?? [],
+      "os quatro consumidores do layout raiz são `generateMetadata` (aba), " +
+        "`EstiloDaMarca` (cor), `MarcaNoNavegador` (`window.__PUBLIC_ENV__`) e " +
+        "`MarcaDosClientComponents` (o contexto que os `\"use client\"` leem). " +
+        "Consumidor a mais é legítimo — atualize o número. Consumidor a MENOS " +
+        "significa que alguém voltou a montar a pilha por fora.",
+    ).toHaveLength(4);
+  });
+
+  it("os client components recebem a marca por PROP, não por fonte só-do-navegador", () => {
+    // POR QUE ESTE CASO EXISTE: a asserção `APP_NAME: marca.name` acima ficou
+    // verde enquanto o produto emitia React #418 em 7 de 7 telas de `/app/ai/*`.
+    // Ela mede o que chega ao NAVEGADOR, e o defeito era o outro lado: o SSR de
+    // um `"use client"` não tem `window`, então `branding()` lia `process.env` e
+    // renderizava `<span>` onde o cliente hidratava `<img>`.
+    //
+    // O que fecha a ponta é a marca atravessar por PROP — a mesma rota de
+    // `user`/`activeOrg`. As duas asserções são o par mínimo: o provedor existe
+    // no layout raiz E ele envolve `children` (um provedor montado ao lado, sem
+    // envolver a árvore, deixaria todo consumidor no padrão do produto).
+    expect(layoutRaiz).toMatch(/<MarcaDaInstalacaoProvider\s+marca=\{/);
+    expect(layoutRaiz).toMatch(/<MarcaDosClientComponents>\s*\n\s*<ThemeProvider>\{children\}/);
+  });
 });
 
 describe("nome do arquivo de códigos de recuperação", () => {
@@ -244,7 +293,7 @@ const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
     categoria: "DIVIDA",
     fase: 7,
     motivo:
-      "template sem caminho de produção: sem rota em app/api/v1/cron/, sem linha no docker/scheduler/entrypoint.sh e sem chamador de runBudgetChecker() fora de scripts/qa-wave-11.ts (medido). Marcar isto não muda nada que um usuário veja, e a única 'prova' possível seria invocar a função à mão — o que prova a função, não o produto. Sai quando o alarme ganhar cron de verdade",
+      "template sem caminho de produção: sem rota em app/api/v1/cron/, sem linha no docker/scheduler/entrypoint.sh e, desde a limpeza do teto de orçamento (0159), sem chamador NENHUM — o único era workers/ai-budget-checker.cron.ts, que foi apagado por nunca ter tido agendador. Marcar isto não muda nada que um usuário veja, e a única 'prova' possível seria invocar a função à mão — o que prova a função, não o produto. Sai quando o alarme ganhar cron de verdade (ou quando o template for apagado junto)",
     marcas: ["deskcommcrm"],
   },
 

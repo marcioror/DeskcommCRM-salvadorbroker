@@ -95,7 +95,7 @@ describe("listConversationsHandler — proteção do telefone embutido", () => {
     const result = await listConversationsHandler(
       supabase,
       ctxFor({ type: "user", id: OUTRO_USER, role: "agent" }),
-      { limit: 20 },
+      { status: undefined, limit: 20 },
     );
     const conv = result.conversations[0] as unknown as { contacts: { phone_number: string | null; contact_protected: boolean } };
     expect(conv.contacts.phone_number).toBeNull();
@@ -107,7 +107,7 @@ describe("listConversationsHandler — proteção do telefone embutido", () => {
     const result = await listConversationsHandler(
       supabase,
       ctxFor({ type: "user", id: OUTRO_USER, role: "manager" }),
-      { limit: 20 },
+      { status: undefined, limit: 20 },
     );
     const conv = result.conversations[0] as unknown as { contacts: { phone_number: string | null } };
     expect(conv.contacts.phone_number).toBe("+5531988887777");
@@ -129,6 +129,10 @@ describe("getConversationHandler — proteção do telefone embutido", () => {
 
 function makeSupabaseForPatch(updatedRow: ReturnType<typeof conversationRow>) {
   const client = {
+    // Assumir agora passa por `fn_conversation_assign` — é ela que cala o
+    // automático na conversa. Aqui só precisa não explodir: o que este arquivo
+    // mede é o telefone da conversa DEVOLVIDA, depois do update.
+    rpc: async () => ({ data: null, error: null }),
     from(table: string) {
       if (table !== "conversations") throw new Error(`fake_supabase: tabela inesperada '${table}'`);
       return {

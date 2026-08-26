@@ -21,6 +21,12 @@ import {
 import { ARCHIVED_AT, queryTolerantToMissingArchived } from "@/lib/channels/archived";
 import { conferirDefinicao } from "@/lib/channels/conferir-definicao";
 import { isMediaPathOwnedBy } from "@/lib/messaging/media/upload-validation";
+import {
+  buildVcard,
+  normalizePhoneForDisplay,
+  parseDialablePhone,
+  phoneToWhatsappId,
+} from "@/lib/messaging/contact-card";
 import type { ListMessagesQuery, SendMessageInput } from "@/lib/schemas";
 import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-session";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -106,7 +112,7 @@ async function removerEcoDoProprioEnvio(
 }
 
 const MSG_COLS =
-  "id, organization_id, conversation_id, channel_session_id, contact_id, external_id, type, direction, status, ack, error_code, error_message, body, media_url, media_mime, media_size_bytes, media_storage_path, sent_via, sent_by_user_id, sent_at, delivered_at, read_at, metadata, edited_at, revoked_at, created_at";
+  "id, organization_id, conversation_id, channel_session_id, contact_id, external_id, type, direction, status, ack, error_code, error_message, body, media_url, media_mime, media_size_bytes, media_storage_path, sent_via, sent_by_user_id, sent_at, delivered_at, read_at, metadata, edited_at, revoked_at, reply_to_message_id, created_at";
 
 function actorAuditPayload(actor: Actor): {
   actorUserId: string | null;
@@ -338,9 +344,131 @@ export async function sendMessageHandler(
     );
   }
 
+  let outboundBody = input.body ?? null;
+  let outboundMetadata: Record<string, unknown> = { ...(input.metadata ?? {}) };
+
+  if (input.type === "contact") {
+    const sharedId = input.metadata?.shared_contact_id;
+    const inline = input.metadata?.shared_contact;
+
+    if (typeof sharedId === "string" && sharedId.length > 0) {
+      const { data: shared, error: sharedErr } = await supabase
+        .from("contacts")
+        .select("id, display_name, name, phone_number, is_anonymized, is_blocked")
+        .eq("id", sharedId)
+        .eq("organization_id", ctx.organization_id)
+        .maybeSingle();
+      if (sharedErr) {
+        throw new ApiError(500, "internal_error", undefined, ctx.requestId, sharedErr.message);
+      }
+      if (!shared) {
+        throw new ApiError(404, "not_found", undefined, ctx.requestId, "Contato não encontrado.");
+      }
+      const row = shared as {
+        id: string;
+        display_name: string | null;
+        name: string | null;
+        phone_number: string | null;
+        is_anonymized: boolean;
+        is_blocked: boolean;
+      };
+      if (row.is_anonymized) {
+        throw new ApiError(
+          422,
+          "contact_anonymized",
+          undefined,
+          ctx.requestId,
+          "Contato anonimizado não pode ser compartilhado.",
+        );
+      }
+      if (!row.phone_number) {
+        throw new ApiError(
+          422,
+          "missing_phone_number",
+          undefined,
+          ctx.requestId,
+          "Contato sem telefone para envio como cartão.",
+        );
+      }
+      const displayName = row.display_name ?? row.name ?? row.phone_number;
+      outboundBody = displayName;
+      outboundMetadata = {
+        ...outboundMetadata,
+        shared_contact: {
+          contact_id: row.id,
+          name: displayName,
+          phone_number: row.phone_number,
+        },
+      };
+    } else if (inline && typeof inline === "object" && !Array.isArray(inline)) {
+      const o = inline as Record<string, unknown>;
+      const rawPhone = typeof o.phone_number === "string" ? o.phone_number : "";
+      const phone = parseDialablePhone(rawPhone);
+      if (!phone) {
+        throw new ApiError(
+          422,
+          "invalid_payload",
+          undefined,
+          ctx.requestId,
+          "Telefone inválido para envio como cartão.",
+        );
+      }
+      const nameRaw = typeof o.name === "string" ? o.name.trim() : "";
+      const displayName = nameRaw || phone;
+      outboundBody = displayName;
+      outboundMetadata = {
+        ...outboundMetadata,
+        shared_contact: { name: displayName, phone_number: phone },
+      };
+    } else {
+      throw new ApiError(
+        422,
+        "invalid_payload",
+        undefined,
+        ctx.requestId,
+        "Informe metadata.shared_contact_id ou metadata.shared_contact com telefone.",
+      );
+    }
+  }
+
   const now = new Date().toISOString();
+  // ─── A CITAÇÃO, e a checagem que ela obriga ────────────────────────────────
+  //
+  // O id da citada vem do CLIENTE. Sem confirmar que ela é da MESMA conversa,
+  // alguém poderia citar uma mensagem de outra conversa — e a citação é
+  // renderizada com o texto, então isso vaza conteúdo de um atendimento para
+  // dentro de outro. O filtro de conversa é o que fecha isso; o de organização
+  // vem de brinde por `conversation_id` já ser desta org.
+  //
+  // Recusar em silêncio (citar nada) seria pior que recusar alto: quem clicou
+  // "responder" veria a mensagem sair sem o fio e não saberia por quê.
+  let citada: { id: string; external_id: string | null } | null = null;
+  if (input.reply_to_message_id) {
+    const { data: alvo } = await supabase
+      .from("messages")
+      .select("id, external_id")
+      .eq("id", input.reply_to_message_id)
+      .eq("organization_id", ctx.organization_id)
+      .eq("conversation_id", c.id)
+      .maybeSingle();
+
+    if (!alvo) {
+      throw new ApiError(
+        422,
+        "validation_error",
+        undefined,
+        ctx.requestId,
+        "A mensagem citada não é desta conversa.",
+      );
+    }
+    citada = alvo as { id: string; external_id: string | null };
+  }
+
   const insertRow = {
     organization_id: c.organization_id,
+    // Guardado mesmo quando o canal não sabe citar: o fio existe no NOSSO
+    // histórico de qualquer jeito, e é o que a tela desenha.
+    reply_to_message_id: citada?.id ?? null,
     conversation_id: c.id,
     channel_session_id: c.channel_session_id,
     contact_id: c.contact_id,
@@ -487,6 +615,7 @@ export async function sendMessageHandler(
         externalId = adapter.sendTemplate
           ? (
               await adapter.sendTemplate({
+                organizationId: ctx.organization_id,
                 sessionRef: resolveSessionRef(c.channel_sessions),
                 to: chatId,
                 providerConversationId: c.provider_conversation_id,
@@ -513,6 +642,7 @@ export async function sendMessageHandler(
         }
         const filename = input.media_storage_path.split("/").pop() ?? undefined;
         ({ externalId } = await adapter.send({
+          organizationId: ctx.organization_id,
           sessionRef: resolveSessionRef(c.channel_sessions),
           to: chatId,
           providerConversationId: c.provider_conversation_id,
@@ -523,14 +653,47 @@ export async function sendMessageHandler(
             filename,
             caption: input.body ?? null,
           },
+          // O id que a PLATAFORMA conhece, lido da linha citada agora — não uma
+          // cópia guardada no envio, que poderia divergir da linha.
+          replyToExternalId: citada?.external_id ?? null,
+        }));
+      } else if (input.type === "contact") {
+        const sc = outboundMetadata.shared_contact as
+          | { name: string; phone_number: string }
+          | undefined;
+        if (!sc?.phone_number) {
+          throw new Error("contact_payload_missing");
+        }
+        // O envelope leva o cartão em formato AGNÓSTICO (vCard é formato, não
+        // provider). Quem traduz para o payload do transporte é o adapter — o
+        // de QR inclusive REESCREVE `whatsappId` e `vcard` depois de resolver o
+        // wa_id real, então montá-los aqui com o nome do provider seria, além
+        // de proibido pelo invariante 1, trabalho jogado fora.
+        const telefone = normalizePhoneForDisplay(sc.phone_number);
+        const nome = sc.name?.trim() || telefone;
+        ({ externalId } = await adapter.send({
+          organizationId: ctx.organization_id,
+          sessionRef: resolveSessionRef(c.channel_sessions),
+          to: chatId,
+          providerConversationId: c.provider_conversation_id,
+          kind: "contact",
+          body: outboundBody ?? nome,
+          contact: {
+            fullName: nome,
+            phoneNumber: telefone,
+            whatsappId: phoneToWhatsappId(telefone),
+            vcard: buildVcard(nome, telefone),
+          },
         }));
       } else {
         ({ externalId } = await adapter.send({
+          organizationId: ctx.organization_id,
           sessionRef: resolveSessionRef(c.channel_sessions),
           to: chatId,
           providerConversationId: c.provider_conversation_id,
           kind: input.type,
           body: input.body ?? "",
+          replyToExternalId: citada?.external_id ?? null,
         }));
       }
       await removerEcoDoProprioEnvio(
@@ -607,6 +770,7 @@ export async function sendMessageHandler(
     last_outbound_at: string;
     last_message_at: string;
     last_message_preview: string;
+    unread_count_for_assignee: number;
     bot_silenced_until?: string;
   } = {
     last_outbound_at: now,
@@ -617,6 +781,9 @@ export async function sendMessageHandler(
       media_storage_path: input.media_storage_path,
       type: input.type,
     }),
+    // Resposta humana/CRM zera pendências — espelha fn_mark_conversation_message
+    // outbound, que o envio pelo CRM não chama (só atualiza colunas à mão).
+    unread_count_for_assignee: 0,
   };
   if (ctx.actor.type === "user") {
     const silenceUntil = extendBotSilence(c.bot_silenced_until, now);
@@ -624,6 +791,22 @@ export async function sendMessageHandler(
   }
 
   await supabase.from("conversations").update(conversationUpdate).eq("id", c.id);
+
+  // Envio pelo CRM não passa por `fn_mark_conversation_message` — carimba o
+  // contato aqui para /app/contacts refletir a resposta (migration 0162).
+  //
+  // O `organization_id` entra explícito, e não é redundância: este handler
+  // também é chamado pelo agent-engine com o client de SERVICE ROLE, que
+  // BYPASSA RLS (`lib/agent-engine/edge/crm/mcp-client.ts` diz isso no próprio
+  // cabeçalho: "todo uso filtra organization_id manualmente"). Sem o filtro, a
+  // única coisa entre esta escrita e outro tenant seria a confiança em
+  // `c.contact_id` — e o anti-pattern nº 10 do CLAUDE.md existe justamente
+  // porque essa confiança já falhou antes.
+  await supabase
+    .from("contacts")
+    .update({ last_activity_at: now })
+    .eq("id", c.contact_id)
+    .eq("organization_id", c.organization_id);
 
   const a = actorAuditPayload(ctx.actor);
   await audit({

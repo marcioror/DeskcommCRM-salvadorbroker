@@ -76,6 +76,11 @@ export default async function MarcaDaOrganizacaoPage() {
         gravada={{
           app_name: gravada?.app_name ?? null,
           accent_hex: gravada?.accent_hex ?? null,
+          // O CAMINHO no bucket, não a URL: quem converte é `logoDaCamada`, do
+          // lado do navegador, com a base do Storage injetada em runtime. Mandar
+          // a URL pronta do servidor faria a tela ter uma segunda regra de
+          // montagem, e a que divergisse seria a que ninguém abre.
+          logo_path: gravada?.logo_path ?? null,
         }}
         // As DUAS camadas de baixo descem para o formulário, e não uma resolução
         // já pronta: a prévia ao vivo remonta a pilha inteira a cada tecla, pelo
@@ -85,6 +90,7 @@ export default async function MarcaDaOrganizacaoPage() {
         instalacao={{
           app_name: linha?.app_name ?? null,
           logo_url: linha?.logo_url ?? null,
+          logo_path: linha?.logo_path ?? null,
           accent_hex: linha?.accent_hex ?? null,
         }}
         // Só os três campos de marca do ambiente, nunca o objeto `env` inteiro:

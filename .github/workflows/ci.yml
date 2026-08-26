@@ -5,10 +5,31 @@ on:
   push:
     branches: [main]
 
+# O GITHUB_TOKEN destes jobs serve a `actions/checkout` (clone) e a
+# `actions/setup-node` (manifest de `actions/node-versions`, repo público) —
+# `contents: read` cobre os dois, que é o escopo que o próprio modelo de dados do
+# CodeQL prescreve para essas duas actions. O `cache: pnpm` NÃO usa este token
+# (usa ACTIONS_RUNTIME_TOKEN), `pnpm/action-setup` não tem input de token, e
+# nenhum passo `run:` enxerga o token — ele só entra no ambiente via
+# `secrets.GITHUB_TOKEN`, que não aparece em nenhum destes workflows.
+#
+# No topo, e não por job, porque os dois jobs precisam do mesmo escopo e job
+# acrescentado depois nasce restrito em vez de herdar o default do repositório.
+# Esse default hoje é `read` (medido em actions/permissions/workflow), então isto
+# não corrige vazamento em vigor: tira a garantia de uma configuração que muda
+# fora do repo, num clique, sem PR e sem deixar rastro aqui. `packages: write`
+# continua por job em publish-image.yml — mesma regra, menor escopo que precisa.
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25, e não os 15 do upstream: os arquivos de teste do fork (proteção de
+    # contato, imóveis) somam ~390s só de montar `environment`, e a suíte
+    # inteira levou 750s no run 32962605518 — que o teto de 15 cortou DEPOIS
+    # de ela terminar, reportando "cancelled" no lugar das 4 falhas reais.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -21,8 +42,15 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # O `tsc` desta árvore encosta no teto de heap padrão do Node: passou em
+      # 77s no run 32962605518 e MORREU em 92s no 32967326531, com o mesmo
+      # código de produto (o commit no meio só mexeu em e2e.yml). Ou seja, não
+      # é regressão — é sorte de GC. O runner tem 16 GB; 6 GB de heap tira o
+      # limite do caminho sem esconder crescimento real.
       - name: Typecheck
         run: pnpm typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
 
       - name: Lint
         run: pnpm lint

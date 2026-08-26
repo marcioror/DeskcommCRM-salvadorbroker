@@ -56,7 +56,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       ?.visibility_mode;
     activeOrg = { ...activeOrg, visibility_mode: mode ?? DEFAULT_VISIBILITY_MODE };
 
-    // `marcaDaInstalacao()` é memoizada por TTL no módulo (`lib/branding/
+    // `marcaDaInstalacao()` é memoizada por TTL no PROCESSO (`lib/branding/
     // instalacao.ts`), e a derivação da cor é cacheada por régua+semente em
     // `resolve.ts` — a marca custa uma consulta a cada 30s e um lookup de Map
     // por render, não uma derivação de rampa por requisição.
@@ -79,13 +79,32 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       cssDaOrganizacao = cssDaMarca(marca.cor, ESCOPO_DA_ORGANIZACAO).css;
     }
 
-    // O nome só desce para o menu quando foi a organização que o definiu. Sem
-    // esta condição, `marca.name` seria o nome da instalação (ou o padrão do
-    // produto) e o menu passaria a ler um caminho novo para exibir exatamente o
-    // que já exibia — trocando a fonte sem trocar o valor, que é como se cria
-    // uma regressão invisível.
-    if (marca.origens.nome === "organizacao") {
-      activeOrg = { ...activeOrg, marca: { nome: marca.name } };
+    // Desce para o menu CAMPO A CAMPO, e só o campo que a organização definiu.
+    // Sem a condição por campo, `marca.name` seria o nome da instalação (ou o
+    // padrão do produto) e o menu passaria a ler um caminho novo para exibir
+    // exatamente o que já exibia — trocando a fonte sem trocar o valor, que é
+    // como se cria uma regressão invisível. E, com o logo no mesmo objeto, uma
+    // condição só (a do nome) faria a organização que definiu apenas a cor
+    // arrastar junto um `logoUrl` que ela não escolheu.
+    //
+    // `origens` é a resposta de `primeiroDefinido` (`lib/branding/resolve.ts`),
+    // que ignora valor vazio e desce: quando ele diz "organizacao", o valor é
+    // não-vazio e já veio trimado — por isso a barra lateral nunca recebe `""`
+    // desta origem.
+    //
+    // `origens.logoUrl === "organizacao"` passou a ser ALCANÇÁVEL na onda do
+    // upload: `camadaDaOrganizacao` declara o logo a partir de
+    // `settings.branding.logo_path`. A condição foi escrita aqui uma onda ANTES
+    // do produtor existir, de propósito — foi o que fez o upload por organização
+    // ser só a camada, sem mais uma passada pela casca inteira.
+    const marcaDoTenant = {
+      ...(marca.origens.nome === "organizacao" ? { nome: marca.name } : {}),
+      ...(marca.origens.logoUrl === "organizacao" && marca.logoUrl !== null
+        ? { logoUrl: marca.logoUrl }
+        : {}),
+    };
+    if (Object.keys(marcaDoTenant).length > 0) {
+      activeOrg = { ...activeOrg, marca: marcaDoTenant };
     }
   }
 

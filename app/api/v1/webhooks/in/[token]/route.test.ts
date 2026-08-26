@@ -92,6 +92,14 @@ function makeAdmin(cfg: AdminCfg = {}) {
           }),
         };
       }
+      if (table === "webhook_lead_captures") {
+        // O histórico de captação da 1.5.0: `registrarCaptacao` dá um insert e
+        // só lê o `error`. Gravar não é o que este arquivo mede — ele mede que
+        // o `title` do lead nunca vira telefone/e-mail.
+        return {
+          insert: () => Promise.resolve({ error: null }),
+        };
+      }
       throw new Error(`tabela inesperada no stub: ${table}`);
     },
   };

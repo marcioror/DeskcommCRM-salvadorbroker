@@ -64,6 +64,16 @@ export default async function Page() {
     REGUA_DO_PRODUTO,
   );
 
+  // O que apareceria SEM o arquivo subido — a MESMA pilha com `logo_path`
+  // zerado, e não uma leitura solta de `APP_LOGO_URL`. É assim que a prévia
+  // responde "e se eu remover?" sem que a tela invente uma segunda regra de
+  // precedência: quem herda pode ser a URL colada no banco ou a do arquivo de
+  // instalação, e só o resolvedor sabe qual das duas.
+  const semOArquivo = resolverMarca(
+    [camadaDaInstalacao(linha ? { ...linha, logo_path: null } : null), camadaDoAmbiente(env)],
+    REGUA_DO_PRODUTO,
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -77,12 +87,15 @@ export default async function Page() {
         gravada={{
           app_name: linha?.app_name ?? null,
           logo_url: linha?.logo_url ?? null,
+          logo_path: linha?.logo_path ?? null,
           accent_hex: linha?.accent_hex ?? null,
           // `true` é o default da coluna: sem linha ainda, é o valor que o
           // `upsert` gravaria de qualquer forma.
           show_powered_by: linha?.show_powered_by ?? true,
         }}
         nomeEmVigor={marca.name}
+        logoEmVigor={marca.logoUrl}
+        logoDoAmbiente={semOArquivo.logoUrl}
         origens={marca.origens}
         // `seeded_from_env` ligado significa que a linha é cópia do arquivo de
         // instalação, não escolha de alguém nesta tela. Sem linha, também não é.

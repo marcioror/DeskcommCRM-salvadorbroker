@@ -43,19 +43,49 @@ function contactRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function makeSupabase(rows: ReturnType<typeof contactRow>[]) {
+/**
+ * Linha de `conversations` como `withConversas` a pede. Vazio por padrão: o que
+ * estas asserções medem é telefone/e-mail, não o atalho para o inbox.
+ */
+type ConversaRow = {
+  id: string;
+  contact_id: string;
+  last_message_preview: string | null;
+  last_message_at: string | null;
+  unread_count_for_assignee: number | null;
+};
+
+/**
+ * O dublê conhece DUAS tabelas desde a fusão de 2026-08-20: o upstream passou a
+ * anexar a conversa mais recente de cada contato (`withConversas`), e os dois
+ * caminhos — lista e detalhe — consultam `conversations` depois de `contacts`.
+ * Sem esta segunda porta os quatro casos morriam em "tabela inesperada", que
+ * parece defeito da proteção e é só o dublê desatualizado.
+ *
+ * O `throw` para tabela desconhecida FICA: é ele que transforma "o handler
+ * passou a ler outra coisa" em falha explícita, em vez de um `undefined`
+ * silencioso que deixaria a asserção verde sobre nada.
+ */
+function makeSupabase(
+  rows: ReturnType<typeof contactRow>[],
+  conversas: ConversaRow[] = [],
+) {
   const client = {
     from(table: string) {
-      if (table !== "contacts") throw new Error(`fake_supabase: tabela inesperada '${table}'`);
+      if (table !== "contacts" && table !== "conversations") {
+        throw new Error(`fake_supabase: tabela inesperada '${table}'`);
+      }
+      const dados: unknown[] = table === "contacts" ? rows : conversas;
       const builder = {
         select: () => builder,
         eq: () => builder,
+        in: () => builder,
         order: () => builder,
         limit: () => builder,
         or: () => builder,
-        maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
-        then: (resolve: (v: { data: typeof rows; error: null }) => void) =>
-          resolve({ data: rows, error: null }),
+        maybeSingle: async () => ({ data: dados[0] ?? null, error: null }),
+        then: (resolve: (v: { data: unknown[]; error: null }) => void) =>
+          resolve({ data: dados, error: null }),
       };
       return builder;
     },

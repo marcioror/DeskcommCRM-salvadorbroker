@@ -19,12 +19,18 @@ quebra no clone fresco é um bug de produto, não um detalhe de ambiente.
 
 ## Stack (CONFIRMADO em `package.json`)
 
-Next.js 16.3 (App Router) · React 19.2 · TypeScript 6.0 estrito · Tailwind 3.4 ·
+Next.js 16 (App Router) · React 19 · TypeScript 6 estrito · Tailwind 3 ·
 shadcn/ui · Supabase (Postgres + Auth + Realtime + Storage) · Upstash Redis ·
 Vercel AI Gateway (`@ai-sdk/anthropic|openai|google`) · WAHA Plus (engine NOWEB) ·
-Zod 4 · Vitest 4 · Playwright 1.62 · Sentry 10.
-Runtime: **Node ≥22** (`.nvmrc` = 22; o job `ci` roda 22, mas o `perf` ainda builda em 20 —
-divergência com `engines`, registrada como bug). Gerenciador: **pnpm 9.15.9** (`packageManager`).
+Zod 4 · Vitest 4 · Playwright 1 · Sentry 10.
+
+Só a **major**, de propósito: é onde o idioma muda, e é o que
+`tests/unit/agents-md-versoes.test.ts` verifica contra o `package.json`. Declarar a minor
+aqui fazia todo bump do Dependabot reprovar o `verify` (5 dos 8 pacotes) e não cobria nada
+que a major já não cobrisse — issue #235. Para a versão exata, `package.json` é a fonte.
+
+Runtime: **Node ≥22** (`.nvmrc` = 22; os quatro workflows fixam `node-version: 22` —
+`ci` ×2, `perf`, `e2e`). Gerenciador: **pnpm 9.15.9** (`packageManager`).
 Versão do produto: **1.0.0** (`CHANGELOG.md`, SemVer — mudança que afeta quem roda VPS entra lá).
 
 ## Estrutura que importa
@@ -151,12 +157,18 @@ verify, build-and-size, invariants, e2e, imagens-ok
 Medido em 2026-08-14 @ `741c4ec8`, com o comando ao lado de cada número:
 
 - **257** arquivos de teste unitário em `tests/unit/` (`git ls-files 'tests/unit/*.test.ts' 'tests/unit/*.test.tsx' | wc -l`). O repo tem **491** arquivos `*.test.ts(x)` no total (`git ls-files '*.test.ts' '*.test.tsx' | wc -l`) — a diferença vive junto ao código, fora de `tests/`, e também roda em `test:unit`.
-- **102** arquivos de invariante de banco em `tests/invariants/` (`git ls-files 'tests/invariants/*.test.ts' | wc -l`) — RLS/isolamento cross-tenant,
-  RBAC, governança (G1–G6). Excluídos do `test:unit` de propósito; rodam via `pnpm test:db`
-  **e no job `invariants` do CI**.
-- **46** specs Playwright em `tests/e2e/` (`ls tests/e2e/*.spec.ts | wc -l`). **45 rodam no CI** (via `e2e.yml`,
-  **obrigatório**). A única de fora é `vps-fresh-onboarding`, por dependência de serviço externo
-  (WAHA/Redis/Resend/Nuvemshop). Ver issue #63.
+- Arquivos de invariante de banco em `tests/invariants/` — RLS/isolamento cross-tenant, RBAC,
+  governança (G1–G6). Excluídos do `test:unit` de propósito; rodam via `pnpm test:db` **e no job
+  `invariants` do CI**. Quantos: `git ls-files 'tests/invariants/*.test.ts' | wc -l`.
+- Specs Playwright em `tests/e2e/`, **todas no CI menos uma** (via `e2e.yml`, **obrigatório**). A
+  única de fora é `vps-fresh-onboarding`, por dependência de serviço externo
+  (WAHA/Redis/Resend/Nuvemshop). Ver issue #63. Quantas: `ls tests/e2e/*.spec.ts | wc -l`.
+
+> **Os dois números saíram daqui, e é decisão, não descuido.** Estavam em 102 e 46/45 quando o
+> medido era 114 e 51/50 — envelheceram porque toda entrega que acrescenta um teste os falsifica,
+> e nenhum gate lê prosa. Onde a afirmação pode virar comando, ela vira: comando não envelhece.
+> O que continua vigiado por gate é o que importa — `tests/unit/e2e-cobertura-completa.test.ts`
+> reprova toda spec nova que não esteja em `SPECS_PARTE_*` ou em `FORA_DO_CI` com motivo escrito.
 
 ## Limitações conhecidas (estado em 2026-07-29, contra `origin/main` @ 789dfa6)
 
@@ -165,12 +177,19 @@ Medido em 2026-08-14 @ `741c4ec8`, com o comando ao lado de cada número:
   instalação fresca, que é o produto que se vende, continua sem gate. Se você mexeu nela, a
   prova é sua. *(Corrigido em 2026-08-14; a redação anterior — "4 das 32, não-obrigatório" —
   mudava a régua de qualquer triagem que a lesse.)*
-- Rate limit HTTP existe em **2** pontos do código (webhook de captação e dispatcher de IA);
-  login, signup, aceite de convite, crons e MCP estão sem. Não há lockout por conta no login.
+- Rate limit HTTP: `lib/auth/rate-limit.ts` cobre **login, signup, recuperação de senha e
+  aceite de convite** (contando por IP **e** por identificador hasheado); `checkRateLimit` cobre
+  o webhook de captação e o dispatcher de IA. **Crons e MCP seguem sem.** Meça antes de agir:
+  `grep -rln 'authRateLimited\|checkRateLimit(' app lib --include='*.ts' --include='*.tsx'`.
+  Esta linha dizia "existe em 2 pontos; login e signup estão sem" — era o estado anterior à
+  issue #64, e o `docs/threat-model.md` ainda carrega a versão velha, com nota de reauditoria.
 - Fallback do rate limit é **em memória** — sem Upstash configurado o limite é por processo.
 - `Idempotency-Key` implementado em **1** rota, apesar de o contrato prometer nos POSTs de criação.
-- **6 vars de `lib/env.ts` faltam no `.env.example`**, incluindo 3 secrets. Se você adicionar
-  env var, adicione nos dois lugares (item 9 do DoD).
+- **`.env.example` está completo** — medido em 2026-08-14: das 45 chaves de `lib/env.ts`, a
+  única ausente é `NODE_ENV`, que não é configuração do operador. Esta linha dizia que faltavam
+  6, "incluindo 3 secrets"; os três (`IMPERSONATE_COOKIE_SECRET`, `INTERNAL_CRON_SECRET`,
+  `LGPD_SIGNING_KEY`) estão lá. Se você adicionar env var, adicione nos dois lugares (item 9 do
+  DoD) — a regra continua valendo, o que caiu foi a dívida.
 - `lib/auth/invite-token.ts` cai em `"dev-fallback"` como secret HMAC se nenhum secret existir
   (inalcançável em produção, porque `INTERNAL_SECRET` é obrigatório e derruba o boot).
 - **89 dos 169 handlers de `app/api/**` usam service role** — sem gate automático para o filtro de
@@ -206,7 +225,7 @@ Lei completa em [`docs/doctrine/packaging.md`](docs/doctrine/packaging.md). O n�
 
 ## Critério de conclusão
 
-Vale a **Definition of Done de 15 itens em [`CLAUDE.md`](CLAUDE.md)**. Não declare pronto
+Vale a **Definition of Done em [`CLAUDE.md`](CLAUDE.md)** — conte lá em vez de confiar num número aqui (`sed -n '/^## Definition of Done/,/^Um staff engineer/p' CLAUDE.md | grep -cE '^[0-9]+\. '`; esta linha já disse 15 e o DoD tem 16). A régua tem que DELIMITAR a seção: a primeira versão desta linha oferecia `grep -c '^[0-9]\+\. \*\*' CLAUDE.md`, que devolve **25** — casa toda linha numerada em negrito do arquivo (anti-patterns, packaging, higiene de branches, migrations) e perde os itens 1–10 do próprio DoD, que não são negrito. Trocar o número pelo comando só ajuda se o comando responder à pergunta. Não declare pronto
 sem: typecheck/lint zerados, testes relevantes verdes, RLS testada se tocou tabela
 tenant-aware, migration + baseline + MANIFEST se mudou schema, prova visual se mudou UI, e a
 regra de packaging acima se mudou o artefato que o self-hoster instala.
@@ -219,3 +238,13 @@ Este repositório tem PRDs, specs, regras de negócio e doutrina escritos
 Se a regra não está escrita, diga que não está e pergunte — não preencha a lacuna com
 suposição plausível. Ao documentar, marque o que é `CONFIRMADO` (provado por código) e o
 que é `INFERIDO`.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { branding } from "@/lib/branding";
+import { useMarcaDaInstalacao } from "@/lib/branding/contexto";
 import { copyToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +44,13 @@ export function prefixoDoArquivo(nome: string): string {
  */
 export function RecoveryCodesPanel({ codes, onAcknowledge }: RecoveryCodesPanelProps) {
   const [acked, setAcked] = useState(false);
+  // A marca vem por PROP do servidor (`lib/branding/contexto.tsx`), não de
+  // `branding()`: aquela função lê fontes diferentes no servidor e no navegador,
+  // e a divergência é hydration mismatch. Aqui ela só alimenta o nome do arquivo
+  // baixado, mas ler a fonte certa não é opcional por o efeito ser pequeno — é o
+  // mesmo hook que o resto da casca usa, e uma exceção aqui seria a próxima
+  // ocorrência a reabrir o defeito.
+  const marca = useMarcaDaInstalacao();
 
   const handleCopy = async () => {
     const ok = await copyToClipboard(codes.join("\n"));
@@ -56,7 +63,7 @@ export function RecoveryCodesPanel({ codes, onAcknowledge }: RecoveryCodesPanelP
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${prefixoDoArquivo(branding().name)}-recovery-codes.txt`;
+    a.download = `${prefixoDoArquivo(marca.name)}-recovery-codes.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

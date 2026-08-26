@@ -1,6 +1,16 @@
 /**
  * A marca nas saídas SEM DOM — e-mail, autenticador, remetente, suporte.
  *
+ * ── E na fachada de acesso, que tem DOM e mesmo assim vem aqui ────────────────
+ *
+ * `app/(public)/layout.tsx` (login, cadastro, recuperação, MFA) também chama
+ * `marcaDaSaida(null)`, e isso não contradiz o nome deste módulo: o que aquela
+ * casca precisa é exatamente o que ele entrega — UM nome e UM logo, da pilha
+ * instalação → `.env`, de um resolvedor que nunca lança. Cor ela não usa: quem
+ * pinta aquelas telas é o `<style id="marca-instalacao">` do layout raiz. O que
+ * NÃO pode acontecer é a fachada montar a própria pilha e anunciar uma
+ * precedência que o resto do produto não usa.
+ *
  * ── Por que este seam existe ─────────────────────────────────────────────────
  *
  * `app/layout.tsx:51-62` monta a pilha e devolve `MarcaResolvida`, que carrega
@@ -47,6 +57,13 @@ import { camadaDaInstalacao, camadaDoAmbiente, resolverMarca } from "./resolve";
 
 export type MarcaDeSaida = {
   readonly nome: string;
+  /**
+   * `null` = não há logo configurado, e quem renderiza NÃO desenha nada no
+   * lugar. Ficou sem leitor nenhum desde que este seam nasceu — os dois
+   * consumidores entraram nesta onda: o topo do convite de time
+   * (`lib/email/templates/invite.ts`) e a casca das telas de acesso
+   * (`app/(public)/layout.tsx`).
+   */
   readonly logoUrl: string | null;
   /** `#hex` sempre — o formato que cliente de e-mail e @react-pdf entendem. */
   readonly accent: string;

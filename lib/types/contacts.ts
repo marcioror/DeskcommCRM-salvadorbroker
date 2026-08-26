@@ -29,6 +29,16 @@ export interface Contact {
   last_activity_at: string | null;
   /** true quando phone_number/email vieram nulos por proteção (ver lib/contacts/visibility.ts). */
   contact_protected: boolean;
+  /**
+   * Derivado (não é coluna): a conversa mais recente deste contato — atalho para o inbox.
+   * Ausente é normal: contato criado à mão pode nunca ter conversado.
+   */
+  conversa?: {
+    id: string;
+    preview: string | null;
+    last_message_at: string | null;
+    unread: number;
+  };
 }
 
 /**

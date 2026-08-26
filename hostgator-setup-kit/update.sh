@@ -26,6 +26,12 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# ── 0-. Esta cópia do repo é a dona dos contêineres? ─────────────────────────
+# Antes do cron e antes do git: uma segunda cópia que atualiza por cima recria o
+# parque com o .env DELA. Foi o que deixou o WhatsApp de uma VPS real três dias
+# em 401. Ver `recusar_projeto_de_outra_arvore` em _common.sh.
+recusar_projeto_de_outra_arvore || die "Atualização interrompida para não quebrar a instalação que está no ar."
+
 # ── 0. Liga o agente da tela ANTES de qualquer decisão de versão ─────────────
 # Instalar o cron aqui, e não no fim, é o que faz o bootstrap ter fim: os
 # caminhos "já está na versão mais recente" e "essa versão é anterior à sua"
@@ -127,15 +133,19 @@ fi
 # gera erros do tipo "já existe" / "multiple primary keys" — isso é ESPERADO e
 # inofensivo (são objetos que já estavam lá). Filtramos esse ruído e só
 # mostramos problemas de verdade.
+# Re-aplicar o baseline é DDL, então vai por `url_do_schema` (_common.sh) e não
+# pela string do app: numa instalação em Supabase próprio, com a role menor no
+# `.env` como recomendamos, este passo passava a falhar em silêncio a cada
+# atualização — e é o update.sh que entrega migration nova ao clone (issue #192).
 step "Atualizando o banco de dados"
 if [ -f supabase/baseline.sql ]; then
   # Extensões que o schema exige (idempotente; iguais ao install.sh).
-  docker run --rm postgres:17-alpine psql "$SUPABASE_DB_URL" -c \
+  docker run --rm postgres:17-alpine psql "$(url_do_schema)" -c \
     "create extension if not exists vector with schema public; create extension if not exists citext with schema public; create extension if not exists pg_trgm with schema public;" \
     >/dev/null 2>&1 || true
 
   raw="$(docker run --rm -i -v "$PROJECT_DIR/supabase/baseline.sql:/b.sql:ro" \
-        postgres:17-alpine psql "$SUPABASE_DB_URL" -f /b.sql 2>&1 || true)"
+        postgres:17-alpine psql "$(url_do_schema)" -f /b.sql 2>&1 || true)"
 
   # Erros benignos ao re-aplicar sobre uma base existente:
   benign='already exists|multiple primary keys|multiple default values|is already a member|already a partition'
@@ -145,6 +155,11 @@ if [ -f supabase/baseline.sql ]; then
     c_ylw "⚠ Apareceram avisos no banco que NÃO são os esperados:"
     printf '%s\n' "$unexpected" | head -20
     c_ylw "  O app pode ainda funcionar. Se algo estiver errado, restaure o backup (restore.sh)."
+    case "$unexpected" in
+      *permission\ denied*|*must\ be\ owner*|*permissão\ negada*)
+        c_ylw "  Os erros são de PERMISSÃO: a conexão do .env não é o dono do banco. Num Supabase"
+        c_ylw "  próprio, declare SUPABASE_DB_ADMIN_URL no .env — é ela que roda o schema." ;;
+    esac
   else
     c_grn "✓ banco atualizado (e conversas reorganizadas, se havia bagunça)."
   fi

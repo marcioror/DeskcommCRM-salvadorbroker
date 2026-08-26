@@ -61,6 +61,50 @@ describe("convite de time", () => {
     }
   });
 
+  it("o logo de quem convidou vai no topo, com dimensão em ATRIBUTO", () => {
+    // POR QUE: `MarcaDeSaida.logoUrl` era resolvido, entregue a este template e
+    // renderizado por ninguém — meia marca no e-mail que a pessoa abre ANTES de
+    // ter visto qualquer tela. A dimensão vai também no atributo porque Outlook
+    // desktop descarta `height` de style e desenharia a arte no tamanho original.
+    const { html } = buildInviteEmail({
+      inviterName: "Ana",
+      orgName: "Clínica Bem Viver",
+      acceptUrl: "https://crm.exemplo.com.br/team/accept-invite/tok",
+      role: "agent",
+      expiresAt: new Date("2026-08-20T12:00:00.000Z"),
+      marca: { ...MARCA, logoUrl: "https://cdn.exemplo.test/revendedor.png" },
+    });
+
+    expect(html).toContain('src="https://cdn.exemplo.test/revendedor.png"');
+    expect(html).toContain('height="40"');
+    // Legendado com a marca, não com "logo": num leitor de tela (e num cliente
+    // que bloqueia imagem) é o `alt` que diz de quem é o e-mail.
+    expect(html).toContain('alt="Vendas Turbo"');
+  });
+
+  it("sem logo configurado o corpo não tem `<img>` nenhum", () => {
+    // Guarda de vacuidade do caso acima e defeito real evitado: um `<img>` com
+    // `src` vazio faz o cliente de e-mail desenhar o ícone de imagem quebrada no
+    // topo — pior que ausência, e é o estado de fábrica de toda instalação.
+    expect(convite().html).not.toContain("<img");
+  });
+
+  it("URL de logo com aspas não escapa do atributo", () => {
+    // `platform_branding.logo_url` é `text` livre no banco e a tela de marca
+    // ainda não o edita — o valor pode ter vindo de SQL ou de um `.env` colado.
+    const { html } = buildInviteEmail({
+      inviterName: "Ana",
+      orgName: "Acme",
+      acceptUrl: "https://x/y",
+      role: "agent",
+      expiresAt: new Date("2026-08-20T12:00:00.000Z"),
+      marca: { ...MARCA, logoUrl: 'https://x/y.png" onerror="alert(1)' },
+    });
+
+    expect(html).not.toContain('onerror="alert(1)"');
+    expect(html).toContain("&quot; onerror=&quot;alert(1)");
+  });
+
   it("marca com HTML dentro é escapada no corpo", () => {
     // O nome vem de um campo que o operador digita numa tela; antes desta fase
     // o pior caso era o literal "DeskcommCRM" e a questão não existia.

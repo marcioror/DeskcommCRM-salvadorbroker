@@ -34,6 +34,11 @@ export {
   Clock,
   // marca da instalação (o revendedor troca nome e cor do produto)
   Palette,
+  // anúncios (Análise → Meta Ads). Megaphone e não outro ChartX: os dois
+  // vizinhos do grupo já são gráficos (ChartBar em Desempenho, ChartLineUp em
+  // Evolução da IA), e um terceiro gráfico deixaria as três linhas do menu
+  // indistinguíveis de relance. Mesma família Phosphor, mesmo peso.
+  Megaphone,
   // health dashboard
   WifiHigh,
   Brain,
@@ -43,6 +48,7 @@ export {
   ArrowBendUpLeft,
   List,
   Bell,
+  BellSlash,
   PaperPlaneTilt,
   Smiley,
   Check,
@@ -125,4 +131,13 @@ export {
   ClockCounterClockwise,
   // inbox no celular: voltar para a lista e abrir a ficha do contato
   IdentificationCard,
+  // agenda (o barril não tinha NENHUM ícone de calendário até aqui)
+  CalendarBlank,
+  CalendarDots,
+  CalendarPlus,
+  CalendarX,
+  CalendarCheck,
+  GoogleLogo,
+  MapPin,
+  ArrowsOutSimple,
 } from "@phosphor-icons/react/dist/ssr";

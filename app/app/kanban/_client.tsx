@@ -2,6 +2,9 @@
 import { useState } from "react";
 import Link from "next/link";
 
+import { useT } from "@/hooks/i18n/useT";
+
+import { ImportarLeads } from "./_components/ImportarLeads";
 import { EmptyPipeline } from "@/components/empty";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,20 +48,24 @@ export function vizinhoAoMover(
  * automação ativa, funil padrão). Trocá-las por "erro ao arquivar" transformaria
  * uma instrução acionável em um beco sem saída.
  */
-function textoDoErro(e: unknown): string {
-  if (e instanceof ApiError) return e.message;
+function textoDoErro(e: unknown, t: (texto: string) => string): string {
+  if (e instanceof ApiError) return t(e.message);
   if (e instanceof Error && e.message) return e.message;
-  return "Não consegui completar essa ação. Tente de novo.";
+  return t("Não consegui completar essa ação. Tente de novo.");
 }
 
 export function FunisClient({
   funis: funisDoServidor,
   podeGerenciar,
+  podeImportar,
 }: {
   funis: FunilDaLista[];
   /** Espelha o `requireRole("manager")` das rotas — ver o comentário da page. */
   podeGerenciar: boolean;
+  /** Espelha o `requireRole("agent")` de `POST /api/v1/leads/import`. */
+  podeImportar: boolean;
 }) {
+  const t = useT();
   /**
    * ⚠️ A LISTA VEM DO SERVIDOR E É ATUALIZADA PELO CORPO DA RESPOSTA.
    *
@@ -99,7 +106,7 @@ export function FunisClient({
         setFunis(r.data.pipelines);
         setNovo(null);
       },
-      onError: (e) => setErro({ id: null, texto: textoDoErro(e) }),
+      onError: (e) => setErro({ id: null, texto: textoDoErro(e, t) }),
     });
   }
 
@@ -112,7 +119,7 @@ export function FunisClient({
           setFunis(r.data.pipelines);
           setRenomeando(null);
         },
-        onError: (e) => setErro({ id, texto: textoDoErro(e) }),
+        onError: (e) => setErro({ id, texto: textoDoErro(e, t) }),
       },
     );
   }
@@ -128,7 +135,7 @@ export function FunisClient({
         },
         // A recusa fica NO PAINEL, não numa faixa longe do botão: ela é a
         // resposta à pergunta que o usuário acabou de fazer.
-        onError: (e) => setArquivando({ id, erro: textoDoErro(e) }),
+        onError: (e) => setArquivando({ id, erro: textoDoErro(e, t) }),
       },
     );
   }
@@ -143,17 +150,17 @@ export function FunisClient({
           if (e.key === "Enter") criarFunil();
           if (e.key === "Escape") setNovo(null);
         }}
-        placeholder="Nome do funil — ex.: Consultas, Obras, Matrículas"
-        aria-label="Nome do novo funil"
+        placeholder={t("Nome do funil — ex.: Consultas, Obras, Matrículas")}
+        aria-label={t("Nome do novo funil")}
         data-testid="nome-do-novo-funil"
         disabled={ocupado}
       />
       <div className="flex gap-2">
         <Button onClick={criarFunil} disabled={ocupado || !novo.trim()} data-testid="confirmar-novo-funil">
-          Criar funil
+          {t("Criar funil")}
         </Button>
         <Button variant="ghost" onClick={() => setNovo(null)} disabled={ocupado}>
-          Cancelar
+          {t("Cancelar")}
         </Button>
       </div>
     </Card>
@@ -172,7 +179,7 @@ export function FunisClient({
           <EmptyPipeline
             primary={
               podeGerenciar
-                ? { label: "Criar meu primeiro funil", onClick: () => setNovo("") }
+                ? { label: t("Criar meu primeiro funil"), onClick: () => setNovo("") }
                 : undefined
             }
           />
@@ -188,11 +195,16 @@ export function FunisClient({
 
   return (
     <div className="flex flex-col gap-4">
-      {podeGerenciar && (
-        <div className="flex sm:justify-end">
-          {novo === null ? (
+      {(podeGerenciar || podeImportar) && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          {/* A porta da importação fica AQUI, e não numa tela própria: é desta
+              lista que se escolhe o funil, e a planilha precisa de um destino.
+              Uma rota nova exigiria um item de menu para uma coisa que se faz
+              uma vez por mês — ruído permanente para um gesto ocasional. */}
+          {podeImportar ? <ImportarLeads funis={funis} /> : null}
+          {podeGerenciar && novo === null ? (
             <Button onClick={() => setNovo("")} disabled={ocupado} data-testid="novo-funil" className="w-full sm:w-auto">
-              <Plus size={16} className="mr-2" aria-hidden /> Novo funil
+              <Plus size={16} className="mr-2" aria-hidden /> {t("Novo funil")}
             </Button>
           ) : null}
         </div>
@@ -220,7 +232,7 @@ export function FunisClient({
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label={`Subir «${funil.name}» na lista`}
+                      aria-label={`${t("Subir")} «${funil.name}» ${t("na lista")}`}
                       data-testid={`subir-${funil.id}`}
                       disabled={ocupado || i === 0}
                       onClick={() => aplicar(funil.id, { depois_de: vizinhoAoMover(funis, i, "subir") })}
@@ -230,7 +242,7 @@ export function FunisClient({
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label={`Descer «${funil.name}» na lista`}
+                      aria-label={`${t("Descer")} «${funil.name}» ${t("na lista")}`}
                       data-testid={`descer-${funil.id}`}
                       disabled={ocupado || i === funis.length - 1}
                       onClick={() => aplicar(funil.id, { depois_de: vizinhoAoMover(funis, i, "descer") })}
@@ -251,7 +263,7 @@ export function FunisClient({
                           if (e.key === "Enter") aplicar(funil.id, { name: renomeandoAqui.nome });
                           if (e.key === "Escape") setRenomeando(null);
                         }}
-                        aria-label={`Novo nome de «${funil.name}»`}
+                        aria-label={`${t("Novo nome de")} «${funil.name}»`}
                         data-testid={`nome-${funil.id}`}
                         disabled={ocupado}
                       />
@@ -261,10 +273,10 @@ export function FunisClient({
                         disabled={ocupado || !renomeandoAqui.nome.trim()}
                         data-testid={`salvar-nome-${funil.id}`}
                       >
-                        Salvar
+                        {t("Salvar")}
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => setRenomeando(null)} disabled={ocupado}>
-                        Cancelar
+                        {t("Cancelar")}
                       </Button>
                     </div>
                   ) : (
@@ -277,7 +289,7 @@ export function FunisClient({
                         <span className="text-sm font-medium group-hover:underline">{funil.name}</span>
                         {funil.is_default && (
                           <Badge variant="secondary" className="text-[10px]">
-                            Padrão
+                            {t("Padrão")}
                           </Badge>
                         )}
                       </span>
@@ -299,7 +311,7 @@ export function FunisClient({
                       disabled={ocupado}
                       data-testid={`renomear-${funil.id}`}
                     >
-                      <PencilSimple size={16} className="mr-1" aria-hidden /> Renomear
+                      <PencilSimple size={16} className="mr-1" aria-hidden /> {t("Renomear")}
                     </Button>
                     {!funil.is_default && (
                       <Button
@@ -309,7 +321,7 @@ export function FunisClient({
                         disabled={ocupado}
                         data-testid={`padrao-${funil.id}`}
                       >
-                        <Check size={16} className="mr-1" aria-hidden /> Tornar padrão
+                        <Check size={16} className="mr-1" aria-hidden /> {t("Tornar padrão")}
                       </Button>
                     )}
                     <Button
@@ -322,7 +334,7 @@ export function FunisClient({
                       disabled={ocupado}
                       data-testid={`arquivar-${funil.id}`}
                     >
-                      <Archive size={16} className="mr-1" aria-hidden /> Arquivar
+                      <Archive size={16} className="mr-1" aria-hidden /> {t("Arquivar")}
                     </Button>
                   </div>
                 )}
@@ -344,8 +356,10 @@ export function FunisClient({
                     </p>
                   ) : (
                     <p className="text-sm leading-relaxed">
-                      Arquivar «{funil.name}»? Ele sai desta lista e para de receber negócio novo. O
-                      histórico continua guardado, e nada é apagado.
+                      {t("Arquivar")} «{funil.name}»?{" "}
+                      {t(
+                        "Ele sai desta lista e para de receber negócio novo. O histórico continua guardado, e nada é apagado.",
+                      )}
                     </p>
                   )}
                   <div className="flex flex-wrap gap-2">
@@ -355,7 +369,7 @@ export function FunisClient({
                       disabled={ocupado}
                       data-testid={`arquivar-confirmar-${funil.id}`}
                     >
-                      Arquivar
+                      {t("Arquivar")}
                     </Button>
                     {/* Excluir de vez só passa no funil que NUNCA recebeu negócio.
                         A tela não sabe disso antes de perguntar — e não precisa
@@ -369,10 +383,10 @@ export function FunisClient({
                       disabled={ocupado}
                       data-testid={`excluir-${funil.id}`}
                     >
-                      Excluir de vez
+                      {t("Excluir de vez")}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => setArquivando(null)} disabled={ocupado}>
-                      Cancelar
+                      {t("Cancelar")}
                     </Button>
                   </div>
                 </Card>

@@ -20,9 +20,10 @@ import { ok, fail } from "@/lib/api/wrappers";
 import { ApiError } from "@/lib/api/types";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
-import { ROLE_RANK } from "@/lib/auth/types";
+import { roleAtLeast } from "@/lib/auth/types";
 import { availabilityPatchSchema, validateRequest } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -38,14 +39,15 @@ export async function PATCH(
 
   const authz = await requireRole("agent", { requestId, resource: "attendant_availability" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { user: authUser, org: activeOrg } = authz;
 
   const isSelf = targetUserId === authUser.id;
-  const isManager = ROLE_RANK[activeOrg.role] >= ROLE_RANK.manager;
+  const isManager = roleAtLeast(activeOrg.role, "manager");
   if (!isSelf && !isManager) {
     return fail(
       "forbidden_role",
-      "Só o próprio atendente ou um manager pode alterar esta disponibilidade.",
+      t("Só o próprio atendente ou um manager pode alterar esta disponibilidade."),
       403,
       { requestId },
     );
@@ -77,7 +79,7 @@ export async function PATCH(
       .is("revoked_at", null)
       .maybeSingle();
     if (memberErr) return fail("internal_error", memberErr.message, 500, { requestId });
-    if (!member) return fail("not_found", "Atendente não encontrado na organização.", 404, { requestId });
+    if (!member) return fail("not_found", t("Atendente não encontrado na organização."), 404, { requestId });
   }
 
   const now = new Date().toISOString();

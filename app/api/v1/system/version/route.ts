@@ -11,8 +11,8 @@ import { fail, ok } from "@/lib/api/wrappers";
 import { loadAuthUser } from "@/lib/auth/server";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { extractChangelogSection } from "@/lib/system/changelog";
-import { isRunStale, type RunStatus, type RunStep } from "@/lib/system/update-run";
+import { extractChangelogRange } from "@/lib/system/changelog";
+import { isRunStale, rollbackFoiSuperado, type RunStatus, type RunStep } from "@/lib/system/update-run";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
   const { data: version, error: versionError } = await db
     .from("system_version")
     .select(
-      "current_version, latest_version, off_release, compare_failed, has_known_release, changelog_raw, agent_last_seen_at",
+      "current_version, latest_version, off_release, compare_failed, has_known_release, changelog_raw, agent_last_seen_at, updated_at",
     )
     .eq("id", 1)
     .maybeSingle();
@@ -55,7 +55,7 @@ export async function GET(_req: NextRequest): Promise<Response> {
   // rodando.
   const { data: run, error: runError } = await db
     .from("system_update_runs")
-    .select("id, status, last_step, dispatched_at, from_version, to_version, log_tail")
+    .select("id, status, last_step, dispatched_at, finished_at, from_version, to_version, log_tail")
     .order("dispatched_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -72,15 +72,43 @@ export async function GET(_req: NextRequest): Promise<Response> {
   // rollback, o host reporta a versão nova (o `git checkout` deu certo; quem
   // não subiu foi o container), então `current_version` nomearia justamente a
   // versão que quebrou. Quem sabe qual imagem voltou ao ar é o run.
+  //
+  // Mas o run só sabe disso ENQUANTO ninguém trocou o app por outro caminho — e
+  // trocar por outro caminho é o normal: `docker compose up -d`, deploy por CI,
+  // `update.sh` no terminal. Nenhum deles cria run. Sem fim de validade, um
+  // rollback de agosto seguia nomeando a versão no ar em setembro (medido em
+  // produção: o rodapé anunciava `3414a2df` oito dias e vários deploys depois).
+  //
+  // O desempate é temporal e vem do próprio banco: `system_version.updated_at`
+  // é gravado pelo agente do host a cada batida, e se ele é POSTERIOR ao fim do
+  // run, o agente viu o mundo mais recente. Sem o par de datas — run de um
+  // agente antigo, sem `finished_at` — fica valendo o run, que continua sendo a
+  // informação mais específica que a instalação tem.
+  const rollbackSuperado = rollbackFoiSuperado(
+    version?.updated_at,
+    run?.finished_at,
+    current,
+    run,
+  );
   const running =
-    run?.status === "failed_rolled_back" && run.from_version ? run.from_version : current;
+    run?.status === "failed_rolled_back" && run.from_version && !rollbackSuperado
+      ? run.from_version
+      : current;
 
   if (!user.is_platform_admin) {
     return ok({ current_version: running, is_owner: false });
   }
 
   const latest = version?.latest_version ?? "";
-  const section = latest ? extractChangelogSection(version?.changelog_raw ?? "", latest) : null;
+  // A faixa INTEIRA entre o que está no ar e o que vai entrar, não só a seção
+  // da versão-alvo. Mostrar só a alvo perdia aviso: quem pulava da 1.4.0 para a
+  // 1.6.0 nunca lia a 1.4.1 nem a 1.5.0 — e a 1.4.1 existia para corrigir uma
+  // instrução invertida que mandava apagar a conexão que estava funcionando.
+  //
+  // O limite inferior é `running`, NUNCA `current`: depois de um rollback,
+  // `current` nomeia a versão que quebrou, e a faixa sairia vazia justamente
+  // para quem mais precisa lê-la.
+  const faixa = latest ? extractChangelogRange(version?.changelog_raw ?? "", latest, running) : null;
 
   return ok({
     current_version: running,
@@ -99,7 +127,23 @@ export async function GET(_req: NextRequest): Promise<Response> {
     // não tocada por nenhum heartbeat, coluna com o default da migration).
     has_known_release: version?.has_known_release ?? true,
     agent_online: !Number.isNaN(lastSeen) && now.getTime() - lastSeen < AGENT_OFFLINE_AFTER_MS,
-    notes: section ? { body: section.body, requires_attention: section.requiresAttention } : null,
+    notes:
+      faixa && faixa.secoes.length > 0
+        ? {
+            // Consolidados no topo, cada um dizendo de que versão veio: numa
+            // faixa de várias versões, "reconecte o número" sem dizer de qual
+            // release não informa o operador — assusta.
+            requires_attention: faixa.secoes
+              .filter((s) => s.requiresAttention)
+              .map((s) => ({ version: s.version, texto: s.requiresAttention ?? "" })),
+            sections: faixa.secoes.map((s) => ({ version: s.version, body: s.body })),
+            // `false` = o texto recebido não alcança a versão que está no ar, e
+            // a última seção da lista pode estar cortada no meio da frase. A
+            // tela precisa DIZER isso — corpo truncado é indistinguível de
+            // corpo inteiro para quem lê.
+            complete: faixa.completa,
+          }
+        : null,
     run: run
       ? {
           id: run.id,

@@ -285,10 +285,8 @@ export function respondiLeadTitle(mapped: RespondiMapped): string {
  * default INTEIRO, não faz merge. `transactional`/`profiling` continuam
  * null: este webhook só capta consentimento de marketing/WhatsApp.
  *
- * Quando o respondente RECUSA, a rota simplesmente não chama esta função —
- * o INSERT omite a coluna e o DEFAULT (tudo null) vale, que já é "não
- * concedido". A recusa fica registrada em `custom_fields.consent_marketing_status`
- * (no lead) e numa atividade na timeline, não numa concessão fake.
+ * Para a RECUSA existe `buildContactConsentDenial`, e a diferença entre as
+ * duas não é estética — ver o cabeçalho dela.
  */
 export function buildContactConsentGrant(formId: string | null): {
   marketing: { granted_at: string; source: string; version: string | null };
@@ -297,6 +295,50 @@ export function buildContactConsentGrant(formId: string | null): {
 } {
   return {
     marketing: { granted_at: new Date().toISOString(), source: "webhook:respondi", version: formId },
+    transactional: { granted_at: null, source: null, version: null },
+    profiling: { granted_at: null, source: null, version: null },
+  };
+}
+
+/**
+ * A RECUSA, gravada como fato positivo — e este é o ponto inteiro.
+ *
+ * ─── Por que não bastava "não gravar nada" ──────────────────────────────────
+ *
+ * Bastava, enquanto ninguém precisasse LER a recusa. Não é mais o caso: as
+ * ações de automação passaram a consultar o consentimento antes de mandar
+ * mensagem (`lib/automation/guarda-do-contato.ts`), e aí o silêncio vira
+ * ambiguidade — porque o DEFAULT da coluna `contacts.consent` **já é**
+ * `{marketing: {granted_at: null, source: null, version: null}, …}`.
+ *
+ * Ou seja: TODO contato do produto nasce com exatamente a mesma forma que uma
+ * recusa deixaria. "Nunca perguntamos" e "perguntamos e a pessoa disse não"
+ * são indistinguíveis no banco de hoje — medido no `supabase/baseline.sql`, na
+ * definição da coluna. Uma guarda que bloqueie por `granted_at` ausente
+ * bloqueia os DOIS, e o segundo é a instalação inteira: fora deste formulário,
+ * nada no produto concede consentimento (não há tela para isso).
+ *
+ * `declined_at` desfaz o empate. É a única chave que só existe quando alguém
+ * respondeu NÃO, e é sobre ela que a guarda decide. Nenhuma migration: a
+ * coluna é `jsonb`, a chave nova convive com o default e com qualquer linha
+ * antiga — que continua significando "nunca perguntamos", que é a verdade.
+ *
+ * `granted_at` continua `null` de propósito, e junto: quem lê só o campo
+ * antigo (o `deriveLgpdFromContact` do agent-engine, o relatório de
+ * conformidade) continua lendo "não concedido", que também é verdade.
+ */
+export function buildContactConsentDenial(formId: string | null): {
+  marketing: { granted_at: null; declined_at: string; source: string; version: string | null };
+  transactional: { granted_at: null; source: null; version: null };
+  profiling: { granted_at: null; source: null; version: null };
+} {
+  return {
+    marketing: {
+      granted_at: null,
+      declined_at: new Date().toISOString(),
+      source: "webhook:respondi",
+      version: formId,
+    },
     transactional: { granted_at: null, source: null, version: null },
     profiling: { granted_at: null, source: null, version: null },
   };

@@ -9,6 +9,7 @@ import type { AgentVersionRow } from "@/hooks/ai/useAgentVersions";
 import type { CredentialRow } from "@/hooks/ai/useCredentials";
 
 import { AgentEditorClient } from "./_client";
+import type { MaterialDoAcervo } from "./_components/BasesDoAgente";
 import { AgentTabs } from "./_components/AgentTabs";
 import type { FunilDaResposta } from "@/hooks/pipelines/usePipelines";
 import { coberturaDoFunil, type EtapaDoMapa } from "@/lib/leads/agent-mapping";
@@ -22,7 +23,7 @@ const AGENT_COLUMNS =
   "id, organization_id, name, description, model, system_prompt, is_active, is_default, kind, priority, published_version_id, archived_at, config, guardrails, active_kb_version_id, created_at, updated_at";
 
 const VERSION_COLUMNS =
-  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids";
+  "id, organization_id, agent_id, version_number, system_prompt, provider, model, credential_id, tool_ids, trigger_config, channel_session_id, max_steps, token_budget, cost_budget_cents, history_message_window, history_token_window, handoff_keywords, handoff_tool_enabled, cases_enabled, split_messages, split_max_chars, followup, operator_enabled, operator_model, operator_tool_ids, status, published_at, superseded_at, created_at, created_by,pipeline_ids,knowledge_source_ids";
 
 const CREDENTIAL_COLUMNS =
   "id, organization_id, provider, label, api_key_last4, validated_at, validation_error, models_available, is_active, created_by, created_at, updated_at";
@@ -69,8 +70,16 @@ export default async function AgentEditorPage({
   const agent = agentRow as unknown as AgentRow;
   const readOnly = ROLE_RANK[activeOrg.role] < ROLE_RANK.admin;
 
-  // Caminho legado: rag_bot continua usando o editor pré-EPIC-13.
-  if ((agent.kind ?? "rag_bot") !== "mcp_agent") {
+  // Caminho legado: rag_bot SEM versão publicada continua no editor pré-EPIC-13.
+  //
+  // A segunda condição é o conserto da #456. A régua do runtime já está escrita
+  // em `lib/ai/agents/no-ar.ts`: `published_version_id != null` significa "no ar
+  // pela versão", e `kind` só decide quando NÃO há versão. Esta tela era o
+  // último lugar que perguntava `kind` primeiro — e por isso entregava ao dono
+  // um campo de prompt que grava em `ai_agents`, a coluna que o motor não lê
+  // quando existe versão publicada. Ele digitava, via sucesso, e o agente
+  // continuava respondendo com o texto anterior.
+  if ((agent.kind ?? "rag_bot") !== "mcp_agent" && agent.published_version_id == null) {
     return (
       <div className="flex h-full flex-col gap-6 p-6">
         <AgentEditorClient agentId={agent.id} initialData={agent} readOnly={readOnly} />
@@ -79,7 +88,8 @@ export default async function AgentEditorPage({
   }
 
   // mcp_agent: busca versions + lookups.
-  const [versionsRes, credentialsRes, channelSessions, routerMemberRes, funisRes] = await Promise.all([
+  const [versionsRes, credentialsRes, channelSessions, routerMemberRes, funisRes, acervoRes] =
+    await Promise.all([
     supabase
       .from("ai_agent_versions")
       .select(VERSION_COLUMNS)
@@ -107,10 +117,20 @@ export default async function AgentEditorPage({
       .eq("organization_id", activeOrg.orgId)
       .eq("is_archived", false)
       .order("position"),
+    // O acervo vem com a página pelo mesmo motivo dos funis: a seção usa
+    // "nenhum material" para dizer algo importante, e uma lista que chega vazia
+    // no primeiro render diria isso por engano.
+    supabase
+      .from("ai_knowledge_sources")
+      .select("id, name, source_type, chunks_count, last_index_status")
+      .eq("organization_id", activeOrg.orgId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true }),
   ]);
 
   const versions = (versionsRes.data ?? []) as unknown as AgentVersionRow[];
   const funis = (funisRes.data ?? []) as unknown as FunilDaResposta[];
+  const materiais = (acervoRes.data ?? []) as unknown as MaterialDoAcervo[];
 
   // Quanto de cada funil o assistente sabe percorrer (spec 17 passo 4). Vem
   // junto com a página porque a lacuna precisa aparecer no MESMO lugar em que o
@@ -157,6 +177,7 @@ export default async function AgentEditorPage({
         channelSessions={channelSessions}
         funis={funis}
         cobertura={cobertura}
+        materiais={materiais}
         routerMembership={routerMembership}
         readOnly={readOnly}
       />

@@ -19,7 +19,7 @@ quebra no clone fresco é um bug de produto, não um detalhe de ambiente.
 
 ## Stack (CONFIRMADO em `package.json`)
 
-Next.js 16 (App Router) · React 19 · TypeScript 6 estrito · Tailwind 3 ·
+Next.js 16 (App Router) · React 19 · TypeScript 6 estrito · Tailwind 4 ·
 shadcn/ui · Supabase (Postgres + Auth + Realtime + Storage) · Upstash Redis ·
 Vercel AI Gateway (`@ai-sdk/anthropic|openai|google`) · WAHA Plus (engine NOWEB) ·
 Zod 4 · Vitest 4 · Playwright 1 · Sentry 10.
@@ -31,7 +31,19 @@ que a major já não cobrisse — issue #235. Para a versão exata, `package.jso
 
 Runtime: **Node ≥22** (`.nvmrc` = 22; os quatro workflows fixam `node-version: 22` —
 `ci` ×2, `perf`, `e2e`). Gerenciador: **pnpm 9.15.9** (`packageManager`).
-Versão do produto: **1.0.0** (`CHANGELOG.md`, SemVer — mudança que afeta quem roda VPS entra lá).
+Versão do produto: **não está escrita aqui, de propósito.** Esta linha afirmava `1.0.0` até a
+v1.6.0 — seis minors de atraso, e nenhum teste a vigiava. Afirmação de versão envelhece a cada
+release; comando não. A que está publicada agora:
+
+```bash
+git ls-remote --tags --refs origin 'refs/tags/v*' \
+  | sed 's#.*refs/tags/v##' | awk '!/-/' | sort -V | tail -1   # awk, nao grep -v -- '-':
+                                                                # em maquina com ugrep aquele nao roda
+```
+
+O `package.json` **não** é a fonte da versão do produto (segue em `0.1.0`, e é assim de
+propósito). A fonte é a tag `v*` mais a seção do `CHANGELOG.md` — que é tela de produto, lida
+pelo dono da VPS. Como o número é decidido: [`docs/doctrine/versionamento.md`](docs/doctrine/versionamento.md).
 
 ## Estrutura que importa
 
@@ -69,12 +81,20 @@ mudança toca schema, RLS ou UI, `gov:verify` verde **não** é prova — rode `
 
 **O que o CI cobre.** `.github/workflows/ci.yml`: `verify` = typecheck + lint + test:unit;
 `invariants` = `pnpm test:db` (isolamento RLS + invariantes de governança contra Postgres
-efêmero pg17). `.github/workflows/perf.yml`: `build-and-size` = `pnpm build`.
-`.github/workflows/e2e.yml` roda **45 das 46 specs** Playwright contra um Supabase local de
-verdade com o `baseline.sql` aplicado — o mesmo banco que o self-hoster tem. **É check
-obrigatório desde 2026-08-08.** A **única** de fora é `vps-fresh-onboarding` (WAHA + Redis +
-Resend + Nuvemshop; é a P0 da doutrina de QA) — ou seja, `e2e` verde não prova a jornada de
-instalação fresca. `followup-journey`, `webhooks` e `capacidades-do-agente` estiveram fora e
+efêmero pg15). `.github/workflows/perf.yml`: `build-and-size` = `pnpm build`.
+`.github/workflows/e2e.yml` roda as specs Playwright contra um Supabase local de verdade com
+o `baseline.sql` aplicado — o mesmo banco que o self-hoster tem. **É check obrigatório desde
+2026-08-08.** **Não há número aqui de propósito**: esta linha já afirmou uma contagem exata
+de specs e "a única de fora", e as duas envelheceram — a suíte cresce toda semana e a lista de
+exceções muda com ela. Quem fica de fora é o que a própria variável declara; leia, não confie:
+
+```bash
+git show origin/main:.github/workflows/e2e.yml | grep -A4 'FORA_DO_CI:'
+```
+
+O que continua verdade e é o que importa: `vps-fresh-onboarding` está entre elas (WAHA + Redis
++ Resend + Nuvemshop) e é a **P0** da doutrina de QA — ou seja, `e2e` verde não prova a jornada
+de instalação fresca. `followup-journey`, `webhooks` e `capacidades-do-agente` estiveram fora e
 **voltaram**: rodam hoje (`e2e.yml`, listas `SPECS_PARTE_1`/`SPECS_PARTE_2`).
 
 `.github/workflows/publish-image.yml`: `imagens-ok` = as três imagens Docker constroem. **Obrigatório
@@ -160,9 +180,11 @@ Medido em 2026-08-14 @ `741c4ec8`, com o comando ao lado de cada número:
 - Arquivos de invariante de banco em `tests/invariants/` — RLS/isolamento cross-tenant, RBAC,
   governança (G1–G6). Excluídos do `test:unit` de propósito; rodam via `pnpm test:db` **e no job
   `invariants` do CI**. Quantos: `git ls-files 'tests/invariants/*.test.ts' | wc -l`.
-- Specs Playwright em `tests/e2e/`, **todas no CI menos uma** (via `e2e.yml`, **obrigatório**). A
-  única de fora é `vps-fresh-onboarding`, por dependência de serviço externo
-  (WAHA/Redis/Resend/Nuvemshop). Ver issue #63. Quantas: `ls tests/e2e/*.spec.ts | wc -l`.
+- Specs Playwright em `tests/e2e/`, quase todas no CI (via `e2e.yml`, **obrigatório**). As que
+  ficam de fora estão declaradas em `FORA_DO_CI`, **com o motivo escrito ao lado**. Esta linha
+  já afirmou "menos uma" depois de deixarem de ser uma — por isso não conta mais. Ver issue #63.
+  Quantas existem: `ls tests/e2e/*.spec.ts | wc -l`. Quantas ficam fora:
+  `git show origin/main:.github/workflows/e2e.yml | grep -A4 'FORA_DO_CI:'`.
 
 > **Os dois números saíram daqui, e é decisão, não descuido.** Estavam em 102 e 46/45 quando o
 > medido era 114 e 51/50 — envelheceram porque toda entrega que acrescenta um teste os falsifica,

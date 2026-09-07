@@ -20,7 +20,7 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 
 ## Stack canônica
 
-- **Frontend:** Next.js 16 App Router (Turbopack) + React 19 + TypeScript 6 estrito + Tailwind + shadcn/ui (style: `new-york`, neutral)
+- **Frontend:** Next.js 16 App Router (Turbopack) + React 19 + TypeScript 6 estrito + Tailwind 4 (config em CSS — ver abaixo) + shadcn/ui (style: `new-york`, neutral)
 - **Backend:** Next.js Route Handlers (mesmo repo); workers via `event_log` table + cron
 - **DB:** Supabase (Postgres). RLS em toda tabela tenant-aware. Extensions: `uuid-ossp`, `pgcrypto`, `vector`
 - **Auth:** Supabase Auth via `@supabase/ssr`. Cookie SameSite=Strict, HttpOnly, Secure
@@ -111,10 +111,12 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
   com OBJETO DE COMUNICAÇÃO ("parar de me mandar", "sair da lista"). Enquanto eram duas
   regras, a ingestão bloqueava paciente que perguntou "tem como parar a dor?" — medido em
   clínica, 12 falsos positivos num corpus de 32 frases de nicho.
-  Para ver o vocabulário em vigor sem confiar nesta linha:
+  Cobre português e espanhol, nos dois níveis (inequívoco e ambíguo) — foi preciso um PR
+  além do #275 (que só tinha coberto o vocabulário inequívoco) para o espanhol ganhar a
+  camada ambígua e as construções com pronome preso ("escribirme"). Para ver o vocabulário
+  em vigor sem confiar nesta linha:
   `grep -n 'PALAVRAS_DE_OPT_OUT' -A20 lib/opt-out/deteccao.ts`, e as frases de controle em
-  `tests/unit/opt-out-deteccao.test.ts`. **Espanhol ainda NÃO é coberto** (`baja`, `salir`,
-  `no quiero recibir`) — ver PR #275.
+  `tests/unit/opt-out-deteccao.test.ts`.
 - Mídia: subir pro Supabase Storage primeiro, passar URL ao WAHA (não inline base64)
 - Multi-device: assinar `message.any` (não só `message`); tratar `fromMe=true` sem duplicar
 - Grupos: SKIP CRM binding se `chatId.endsWith('@g.us')`. Sender é `p.author`, não `p.from`
@@ -181,6 +183,7 @@ DeskcommCRM é um sistema operacional de vendas open source com agentes de IA na
 | `docs/business-rules/` | Regras de negócio fora do código |
 | `docs/research/reference-synthesis.md` | Arquitetura herdada do curso WAHA |
 | `tasks/todo.md` | Workflow de construção atual |
+| `app/globals.css` | **Tailwind 4 é CSS-first: não existe `tailwind.config.ts`.** Tokens em `:root` / `[data-theme]`, ponte token → utilitário no `@theme inline`, alcance do scanner nos `@source`. Vigiado por `tests/unit/tailwind-tokens.test.ts` |
 | `lib/api/wrappers.ts` | `ok()`, `fail()`, tipos `ApiSuccess<T>` / `ApiError` |
 | `lib/api/errors.ts` | Códigos de erro canônicos |
 | `lib/env.ts` | Validação Zod das env vars (lança no startup se faltar crítica) |
@@ -252,7 +255,6 @@ O não-negociável, em quatro linhas:
 Bump de versão **não pode** exigir que o operador da VPS edite `.env`, compose
 ou qualquer arquivo à mão. Se exigir, não entra: vira issue com plano de
 migração e vai para uma major.
-
 ---
 
 ## Como rodar local
@@ -279,14 +281,73 @@ pnpm test:db     # Postgres efêmero + baseline install/update + 364 invariantes
 pnpm test:e2e    # Playwright (requer dev server)
 ```
 
+**⚠️ `test:unit` NÃO é `tests/unit/`.** O script é `vitest run` **sem caminho**, e ele alcança
+o repositório inteiro — os testes co-localizados em `lib/`, `app/`, `components/` e `hooks/`
+inclusive. Medido em 2026-08-28: `vitest run` alcança **566 arquivos**; `tests/unit/` tem **388**.
+Os 178 de fora são 133 em `lib/`, 37 em `app/`, 3 em `components/`, 1 em `hooks/` e 4 em `tests/`.
+
+Quem lê o nome do script e roda `vitest run tests/unit` obtém um **verde menor e mais fácil** sem
+perceber que obteve — e foi o que aconteceu num PR: a suíte foi reportada como verde, e o que
+estava verde era o recorte. O comando que vale é `pnpm test:unit`, sem caminho.
+
+Duas armadilhas irmãs, as duas pagas no mesmo dia:
+
+- **Gate escolhido não é suíte.** `typecheck`, `lint`, `lint:channels` e os arquivos de cerca
+  podem estar todos verdes enquanto a suíte tem 17 falhas — nenhum deles toca o arquivo que
+  quebrou. Antes de abrir PR, rode a suíte, não os gates que você lembra.
+- **Não corte a saída.** `| tail -8` guarda o rodapé e joga fora os NOMES dos arquivos que
+  falharam, que é o único dado que permite reconciliar depois. Redirecione e filtre:
+
+  ```bash
+  pnpm test:unit > /tmp/vt.log 2>&1; echo "exit=$?"
+  grep -aE "Test Files|Tests " /tmp/vt.log | tail -2                   # ← a AUTORIDADE
+  grep -aE "^ *FAIL " /tmp/vt.log | sed 's/ > .*//' | sort | uniq -c   # arquivos + contagem
+  ```
+
+  **O rodapé é a autoridade; o `grep FAIL` é conveniência — e ele pode devolver
+  vazio COM falhas.** Medido: em execução sem TTY o reporter padrão às vezes
+  imprime só o resumo, e os nomes dos arquivos vermelhos nunca chegam a ser
+  escritos. Uma rodada com `3 failed` produziu um log de 629 bytes onde `FAIL`
+  não aparece em posição nenhuma — e o vazio dessa sonda lê exatamente como
+  "nenhuma falha".
+
+  Por isso **compare as duas saídas antes de concluir** — e compare a linha
+  certa: `Test Files N failed` conta ARQUIVOS, `Tests N failed` conta CASOS, e o
+  `uniq -c` do `grep` soma CASOS. O controle é contra a segunda linha:
+
+  ```bash
+  r=$(grep -aE "^ *Tests " /tmp/vt.log | tail -1 | grep -oE "[0-9]+ failed" | head -1)
+  g=$(grep -acE "^ *FAIL " /tmp/vt.log)
+  echo "rodapé: ${r:-0 failed} | grep contou: $g"   # têm de bater
+  ```
+
+  Se não baterem, a sonda está cega — troque por `--reporter=verbose` e rode de
+  novo, em vez de acreditar no silêncio. (Comparar contra `Test Files` dá
+  divergência falsa: `2 failed` de arquivos contra `7` de casos parece defeito
+  da sonda e é só régua trocada.)
+
+**Vermelho local que NÃO é seu:** `lib/ai/dispatcher/rate-limit.test.ts` falha em 5 casos, com
+15s de timeout cada, quando o `.env.local` tem `UPSTASH_REDIS_REST_URL`/`TOKEN` e o Redis para o
+qual eles apontam **não está de pé** (neste repo é o `serverless-redis-http` local, não a nuvem).
+O `tests/setup/vitest.setup.ts` carrega o `.env.local` para dentro do `process.env`, e o módulo
+só usa o contador em memória quando essas variáveis estão **ausentes**. Provado nos dois sentidos.
+No CI não há `UPSTASH` nenhum, então lá o caminho é o contador em memória e o arquivo passa.
+
 **Os invariantes não estão no `test:unit`.** `vitest.config.ts` exclui `tests/invariants/**` de propósito: essa suíte precisa de um Postgres real e roda via `vitest.db.config.ts`, orquestrada por `scripts/test-db.sh`. Rodar só `pnpm test:unit` e concluir "está tudo verde" é um falso verde — o isolamento RLS não foi exercitado.
 
 Checks **obrigatórios** na branch protection da `main` (verificado na configuração, não só no papel):
 
 - **`verify`** (`ci.yml`) — typecheck + lint + test:unit.
-- **`invariants`** (`ci.yml`) — `pnpm test:db`: sobe `pgvector/pgvector:pg17`, aplica `supabase/baseline.sql` em modo install (`ON_ERROR_STOP=1`) e update (idempotência), e roda os testes de invariante, incluindo o de isolamento RLS entre 2 organizações.
+- **`invariants`** (`ci.yml`) — `pnpm test:db`: sobe `pgvector/pgvector:pg15` — o PISO que dizemos suportar, não a versão mais rica que temos à mão —, aplica `supabase/baseline.sql` em modo install (`ON_ERROR_STOP=1`) e update (idempotência), e roda os testes de invariante, incluindo o de isolamento RLS entre 2 organizações.
 - **`build-and-size`** (`perf.yml`) — `pnpm build` em Node 22.
-- **`e2e`** (`e2e.yml`) — sobe Supabase local, aplica o `baseline.sql` e roda **todas as specs Playwright menos uma**. O número saiu daqui de propósito: ele apodreceu **cinco** vezes (a quinta em 2026-08-24, quando `inbox-quem-manda.spec.ts` entrou), e a condição que o PR #242 pôs para parar de recontar já tinha vencido na quarta. Quem precisa do número roda o comando abaixo — comando não envelhece. A **única** de fora é `vps-fresh-onboarding` (precisa de WAHA + Redis + Resend + Nuvemshop) — e ela é a **P0** da doutrina de QA Visual, ou seja, `e2e` verde **não** prova a jornada de instalação fresca, que é o produto que se vende.
+- **`e2e`** (`e2e.yml`) — sobe Supabase local, aplica o `baseline.sql` e roda **todas as specs Playwright menos as que `FORA_DO_CI` declara**. O número saiu daqui de propósito: ele apodreceu **cinco** vezes (a quinta em 2026-08-24, quando `inbox-quem-manda.spec.ts` entrou), e a condição que o PR #242 pôs para parar de recontar já tinha vencido na quarta. Quem precisa do número roda o comando abaixo — comando não envelhece. Quais ficam de fora, e por quê, é o que a própria variável diz — **não confie nesta linha, leia-a**:
+
+  ```bash
+  git show origin/main:.github/workflows/e2e.yml | \
+    python3 -c "import sys,re; y=sys.stdin.read(); print(sorted({s for _,c in re.findall(r'(FORA_DO_CI):\s*>-\n((?:[ ]{8,}.*\n)+)',y) for s in re.findall(r'[a-z0-9-]+\.spec\.ts',c)}))"
+  ```
+
+  Esta frase já dizia "a **única** de fora é `vps-fresh-onboarding`" e estava errada: em 2026-09-04 a variável listava **duas** (`inbox-tempo-real` entrou depois). É o mesmo defeito que o parágrafo acima descreve — afirmação de estado que envelhece —, cometido na frase seguinte à que o denuncia. O que continua verdade e é o que importa: `vps-fresh-onboarding` é a **P0** da doutrina de QA Visual, então `e2e` verde **não** prova a jornada de instalação fresca, que é o produto que se vende.
 
   **Não confie em `grep` no arquivo inteiro.** `grep -oE '[a-z0-9-]+\.spec\.ts' .github/workflows/e2e.yml | sort -u | wc -l` conta quem é CITADO, não quem é INVOCADO: a `FORA_DO_CI` é uma variável YAML como as outras e entra na conta. (Até 2026-08-14 este parágrafo culpava "menções em comentários", e isso é falso — medido, o conjunto de specs citadas fora de variável é **vazio**.) O que roda são as `SPECS_PARTE_*`:
 
@@ -339,7 +400,7 @@ Ao mexer em schema, RLS, RBAC, atribuição, escopo, roteamento, follow-up, webh
 
 **Medidas de front-end por ferramenta, nunca a olho** (`getBoundingClientRect`/`getComputedStyle` no Playwright). Ver `feedback_protocolo_execucao_visivel` na memória.
 
-**Receita de ambiente fresco (não-óbvia):** banco = `baseline.sql` num Supabase local **pg17** (`config.toml major_version = 17`; o baseline usa `GRANT MAINTAIN`, privilégio pg17+); `next build` + `next start` (produção — `next dev` compila lento demais e o Turbopack quebra `cookies()`); **worktree com `node_modules` real, nunca symlink** (Turbopack rejeita symlink "out of filesystem root") e **fora de `/tmp`** (é limpo no meio da sessão — commite cada marco). Detalhes em [[project_invite_e2e_and_bugs]].
+**Receita de ambiente fresco (não-óbvia):** banco = `baseline.sql` num Supabase local **pg15** (`config.toml major_version = 15`). Já foi pg17, por causa de 9 `GRANT MAINTAIN` que o `pg_dump` emitiu sozinho; hoje quem guarda o piso é `tests/unit/baseline-no-piso-do-postgres.test.ts`; `next build` + `next start` (produção — `next dev` compila lento demais e o Turbopack quebra `cookies()`); **worktree com `node_modules` real, nunca symlink** (Turbopack rejeita symlink "out of filesystem root") e **fora de `/tmp`** (é limpo no meio da sessão — commite cada marco). Detalhes em [[project_invite_e2e_and_bugs]].
 
 ---
 
@@ -367,7 +428,7 @@ Processo padrão (siga sempre):
 4. **Data migrations genéricas**: se a migration corrige/deduplica dados, escreva pensando em QUALQUER banco de clone (não hardcode IDs do seu tenant). Repointe FKs conferindo o catálogo (`information_schema` FK map) para não perder histórico.
 5. **Registre no MANIFEST**: adicione uma linha em `supabase/migrations/MANIFEST.md` (tabela "Applied") descrevendo versão, nome e o QUÊ/PORQUÊ.
 6. **Reflita no `supabase/baseline.sql` (OBRIGATÓRIO — é o que o kit self-host aplica).** O baseline é um dump `--schema-only` + um **apêndice idempotente** no fim do arquivo (blocos rotulados `-- ---- <coisa> (migration NNNN) ----`). O kit HostGator aplica **só o baseline.sql**, tanto no `install.sh` (banco novo, `ON_ERROR_STOP=1`) quanto no `update.sh` (re-aplica em banco existente, **sem** `ON_ERROR_STOP`). Então toda mudança de schema pós-snapshot DEVE ser acrescentada ao apêndice, **idempotente e auto-curativa**: `add column if not exists`, `create ... if not exists`, `create or replace function`, e — se a mudança adiciona constraint — **deduplicar/corrigir os dados ANTES** de criar a constraint (senão o `update.sh` de um clone bugado quebra). Sem isto, clones não recebem a mudança (ou quebram ao atualizar). Migração adicionada só em `migrations/` mas não no baseline **não chega aos self-hosters**.
-7. **Aplique e prove**: aplique via `mcp__plugin_supabase_supabase__apply_migration` (ou `supabase db push`), capture o estado ANTES/DEPOIS e prove invariantes (ex.: contagem de linhas que não pode mudar). Se mexeu em contrato, regenere `lib/database.types.ts`. Para mudanças de schema no kit, valide o baseline num Postgres descartável (`pgvector/pgvector:pg17` + extensões) aplicando `install` (fresh, `ON_ERROR_STOP=1`) e `update` (re-aplicar, sem a flag) — ambos têm que passar.
+7. **Aplique e prove**: aplique via `mcp__plugin_supabase_supabase__apply_migration` (ou `supabase db push`), capture o estado ANTES/DEPOIS e prove invariantes (ex.: contagem de linhas que não pode mudar). Se mexeu em contrato, regenere `lib/database.types.ts`. Para mudanças de schema no kit, valide o baseline num Postgres descartável (`pgvector/pgvector:pg15` + extensões) aplicando `install` (fresh, `ON_ERROR_STOP=1`) e `update` (re-aplicar, sem a flag) — ambos têm que passar.
 8. **Backfill de dados quebrados existentes**: constraint nova falha se os dados atuais a violam — a migration (e o apêndice do baseline) deve deduplicar/corrigir ANTES de criar a constraint.
 9. **Função nova em `public` nasce EXPOSTA — revogue as DUAS origens.** Toda `create function` no schema `public` termina com:
 
@@ -423,5 +484,15 @@ Antes de declarar uma task pronta:
     ([`docs/audits/2026-08-14-afirmacoes-de-estado.md`](docs/audits/2026-08-14-afirmacoes-de-estado.md)).
     Onde a afirmação puder virar **comando**, troque em vez de corrigir: um número corrigido
     envelhece de novo; um `rode isto para saber` não envelhece nunca
+
+17. **Se o PR muda comportamento visível a quem opera uma VPS, ele traz o seu fragmento em
+    `.changes/`** (lei em [`docs/doctrine/versionamento.md`](docs/doctrine/versionamento.md)).
+    O fragmento declara **o efeito no operador** — `nada_mudou` / `capacidade_nova` /
+    `exige_acao` —, nunca o número: o número é calculado a partir do conjunto, e é por isso
+    que duas sessões paralelas não colidem mais. Confira com `pnpm release:conferir`.
+    O CI valida a FORMA de todo fragmento, mas **não** cobra a presença de um — cobrar
+    presença num check obrigatório reprovaria PR de Dependabot, PR de fork, e o próprio PR
+    de release, que consome os fragmentos e deixa o diretório vazio. A presença é cobrada
+    aqui, e por quem revisa.
 
 Um staff engineer aprovaria? Se não, itera.

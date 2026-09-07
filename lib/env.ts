@@ -203,12 +203,17 @@ const schema = z.object({
    */
   AI_BUDGET_ENFORCEMENT: z.string().optional().default("on"),
 
-  // Workers — opt-in via env so dev doesn't run loops. Production cron sets it.
-  EVENT_LOG_WORKER_ENABLED: z
-    .enum(["true", "false"])
-    .optional()
-    .default("false")
-    .transform((v) => v === "true"),
+  // `EVENT_LOG_WORKER_ENABLED` viveu aqui até 2026-08-25 e NUNCA teve leitor: o
+  // campo era declarado, documentado no `.env.example` com `false` e lido por
+  // ninguém (medido: zero ocorrências fora da própria declaração). Saiu junto
+  // com a chegada do laço de verdade (`lib/event-log/drain-loop.ts`), e o ritmo
+  // dele agora mora nos `EVENT_LOG_DRAIN_*` de `lib/agent-engine/env.ts` — o
+  // schema do processo que roda o laço, e não o do app.
+  //
+  // Não virou o liga/desliga do laço novo de propósito: o default publicado era
+  // `false`, então respeitá-lo faria o conserto não chegar a NENHUMA instalação
+  // já existente — que é o item 15 do Definition of Done ("a mudança chega a
+  // quem já instalou"). O worker existe para rodar laços; este liga sempre.
 
   // O endpoint :test devolve um trace fake quando esta flag = 'true'.
   // Default 'false' desde que a S-13.08 landou: `callInternalRuntime` executa
@@ -276,6 +281,18 @@ const schema = z.object({
   LGPD_EXPORT_EXPIRES_HOURS: z.string().optional().default("72"),
   LGPD_DPO_EMAIL: z.string().optional().default(""),
 
+  // Google Agenda — opcional, e é a DECISÃO 3.1 em forma de schema. Sem as
+  // duas, o módulo de agenda funciona INTEIRO: some o botão "Conectar Google" e
+  // a tela explica em uma linha o que falta e onde obter. É o estado real de um
+  // primeiro deploy, e é onde moram os piores bugs de primeira impressão.
+  //
+  // NÃO há flag de "enabled" de propósito. Estar configurado É ter as duas
+  // chaves; uma flag seria um terceiro estado para o operador errar — e
+  // `z.enum` sobre valor que ele digita transforma a alavanca em derrubador do
+  // app inteiro no dia em que alguém escrever `TRUE`.
+  GOOGLE_CALENDAR_CLIENT_ID: z.string().optional().default(""),
+  GOOGLE_CALENDAR_CLIENT_SECRET: z.string().optional().default(""),
+
   // Nuvemshop — opcional (template genérico open-source). Só exigidas quando
   // NUVEMSHOP_ENABLED=true; o runtime já degrada via getConfig()==null.
   NUVEMSHOP_APP_ID: z.string().optional().default(""),
@@ -316,6 +333,13 @@ const schema = z.object({
    * poder; a validação do valor é do resolvedor, que degrada e diz o motivo.
    */
   APP_ACCENT_HEX: z.string().optional().default(""),
+
+  /**
+   * Par VAPID do Web Push. Opcionais: sem elas a bandeja só funciona com a aba
+   * viva (Notification API + SW local). Gerar: `npx web-push generate-vapid-keys`.
+   */
+  VAPID_PUBLIC_KEY: z.string().optional().default(""),
+  VAPID_PRIVATE_KEY: z.string().optional().default(""),
 });
 
 let parsed = schema.safeParse(process.env);
@@ -359,10 +383,26 @@ if (!env.AI_GATEWAY_API_KEY && !env.ANTHROPIC_API_KEY && !env.OPENROUTER_API_KEY
       "o agente vai pular toda resposta com reason='ai_gateway_key_missing'.",
   );
 }
+// Este aviso ANUNCIAVA UM DESFECHO que o boot não tem como saber, e a correção
+// aqui é a mesma que o bloco de cima já pagou uma vez. Ele dizia "RAG embedding
+// unavailable" e "voice-note transcription is off" — as duas afirmações são
+// falsas numa instalação onde a organização cadastrou a chave PELA TELA:
+// o preparo de material resolve a chave por uma escada (ponto de IA →
+// credencial da organização → gateway → este env — `lib/ai/embeddings/chave.ts`),
+// e a transcrição já caía na credencial da org antes disso
+// (`workers/media-derive-worker.ts`).
+//
+// Quem lê um aviso de boot não consegue conferir o desfecho; ele acredita. E
+// acreditar em "está desligado" quando está ligado faz a pessoa ir cadastrar
+// uma chave que ela já tem — ou, pior, desistir do recurso. Então o aviso passou
+// a dizer só o que ESTE processo sabe: o que a variável é, e o que fazer se não
+// houver chave em lugar nenhum.
 if (!env.OPENAI_API_KEY) {
   console.warn(
-    "[env] No OPENAI_API_KEY set — RAG embedding unavailable (bot answers without retrieved context) " +
-      "AND voice-note transcription is off (the agent will ask leads to resend audio as text).",
+    "[env] OPENAI_API_KEY ausente — ela é o ÚLTIMO degrau da escada de chave da OpenAI " +
+      "(preparo de material do acervo e transcrição de áudio). Se alguma organização já " +
+      "cadastrou a chave em IA › Credenciais, os dois seguem funcionando por ela; se não " +
+      "cadastrou nenhuma, ambos ficam parados até que alguém cadastre — pela tela ou aqui.",
   );
 }
 if (!env.IMPERSONATE_COOKIE_SECRET || env.IMPERSONATE_COOKIE_SECRET.length < 32) {

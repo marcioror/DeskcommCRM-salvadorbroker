@@ -7,6 +7,7 @@ import { type NextRequest } from "next/server";
 import { ApiError } from "@/lib/api/types";
 import { fail, ok } from "@/lib/api/wrappers";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { listConversationsQuerySchema } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
 import { comNomeDoAtendente } from "@/lib/users/com-nome-do-atendente";
@@ -28,9 +29,10 @@ export async function GET(req: NextRequest): Promise<Response> {
   }
 
   const authUser = await loadAuthUser();
+  const t = (texto: string) => traduzir(texto, authUser?.idioma ?? "pt-BR");
   const activeOrg = authUser ? await resolveActiveOrg(authUser) : null;
   if (!activeOrg) {
-    return fail("no_active_org", "No active organization.", 403, { requestId });
+    return fail("no_active_org", t("No active organization."), 403, { requestId });
   }
 
   const url = new URL(req.url);
@@ -38,6 +40,15 @@ export async function GET(req: NextRequest): Promise<Response> {
     status: url.searchParams.get("status") ?? undefined,
     exclude_finished: url.searchParams.get("exclude_finished") === "true" ? true : undefined,
     assigned_to: url.searchParams.get("assigned_to") ?? undefined,
+    // QUEM MANDA na conversa (migration 0203) — o filtro das abas Fila e
+    // Automático. Faltar aqui é a MESMA rotura que o `tag` teve logo abaixo: o
+    // schema aceita, o hook serializa, o handler implementa, e esta linha não lê
+    // — a lista volta INTEIRA, sem erro nenhum. Como o badge vem de OUTRA rota
+    // (que leu o filtro certo), a tela chega a se contradizer sozinha: medido no
+    // CI em 2026-08-31, a aba dizia "Fila 1" e listava 5 conversas embaixo.
+    // Agora `tests/unit/rota-le-todo-filtro-do-schema.test.ts` reprova o próximo
+    // esquecimento, em vez de este comentário pedir atenção.
+    comando: url.searchParams.get("comando") ?? undefined,
     // O `tag` era o único param que o schema aceitava, o hook serializava e o
     // handler implementava — e que esta linha não lia. A cadeia rompia AQUI, no
     // meio: `InboxFilters` mostra o select "Filtrar por tag" sempre que a org tem
@@ -50,7 +61,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     limit: url.searchParams.get("limit") ?? undefined,
   });
   if (!qsParsed.success) {
-    return fail("validation_failed", "Query inválida.", 422, {
+    return fail("validation_failed", t("Query inválida."), 422, {
       details: qsParsed.error.flatten().fieldErrors as Record<string, unknown>,
       requestId,
     });
@@ -63,6 +74,7 @@ export async function GET(req: NextRequest): Promise<Response> {
         organization_id: activeOrg.orgId,
         actor: { type: "user", id: user.id, role: activeOrg?.role },
         requestId,
+        idioma: authUser?.idioma,
       },
       qsParsed.data,
     );

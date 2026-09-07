@@ -19,12 +19,15 @@ import { adiarAteAJanelaAbrir } from "@/lib/automation/janela-do-canal";
 import { checkDailyLimit, espacarEnvio } from "@/lib/automation/throttle";
 import { reportarEnvio, type MensagemEnviada } from "@/lib/automation/desfecho-do-envio";
 import { dadosDoFormularioDoContexto } from "@/lib/automation/dados-do-formulario";
+import { checarGuardasDeContato } from "@/lib/automation/guarda-do-contato";
 import { sendMessageHandler } from "@/app/api/v1/messages/_handler";
 import { gerarAbordagemDeFormulario } from "@/lib/agent-engine/agent/abordagem-de-formulario";
 import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
 import { llmEdgeConfigFromEnv } from "@/lib/agent-engine/edge/llm/credentials";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { autorizarContatoParaIA } from "@/lib/ai/elegibilidade/autorizacao";
+import { decidirPreGoLiveDoCanalViaSupabase } from "@/lib/ai/elegibilidade/consulta-pre-go-live";
 
 const TIPO = "send_ai_message";
 
@@ -45,12 +48,36 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
     return { type: TIPO, status: "failed", error: "missing_config" };
   }
 
-  const contact = ctx.context.contact as
-    | { id: string; is_blocked?: boolean; phone_number?: string | null }
-    | undefined;
-  if (!contact) return { type: TIPO, status: "skipped", detail: { reason: "no_contact" } };
-  if (contact.is_blocked) return { type: TIPO, status: "skipped", detail: { reason: "contact_blocked" } };
-  if (!contact.phone_number) return { type: TIPO, status: "skipped", detail: { reason: "no_phone" } };
+  // Guardas compartilhadas com send_whatsapp_message — ver guarda-do-contato.ts
+  // (esta ação nasceu sem o gate de consentimento que a irmã recebeu em
+  // 2026-08-25; a promessa do cabeçalho deste arquivo já dizia "mesmas
+  // guardas... importadas da irmã", e agora é verdade).
+  const guarda = checarGuardasDeContato(ctx);
+  if (!guarda.ok) return { type: TIPO, status: "skipped", detail: { reason: guarda.reason } };
+  const contact = guarda.contact;
+
+  // Esta ação abre um primeiro contato e por isso ainda não tem conversa para
+  // passar pelo gate comum. No pré-go-live ela precisa parar AQUI, antes da
+  // chamada paga ao modelo e antes de criar qualquer mensagem.
+  try {
+    const acesso = await decidirPreGoLiveDoCanalViaSupabase(ctx.admin, {
+      organizationId: ctx.organizationId,
+      channelSessionId: sessionId,
+      contactPhoneNumber: contact.phone_number,
+    });
+    if (!acesso.permite) {
+      return { type: TIPO, status: "skipped", detail: { reason: acesso.motivo } };
+    }
+  } catch (err) {
+    return {
+      type: TIPO,
+      status: "skipped",
+      detail: {
+        reason: "elegibilidade_indeterminada",
+        error: err instanceof Error ? err.message.slice(0, 160) : "erro",
+      },
+    };
+  }
 
   // ─── O texto ───────────────────────────────────────────────────────────────
   //
@@ -100,6 +127,15 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
   // ─── O envio ───────────────────────────────────────────────────────────────
   try {
     const conversationId = await ensureConversation(ctx.admin, ctx.organizationId, contact.id, sessionId);
+    // ELEGIBILIDADE: a IA vai FALAR com este contato agora, por decisão de uma
+    // regra de automação (tipicamente o `lead.created` de um formulário). Isso o
+    // torna elegível para a resposta dele ser atendida — sem isto, no gate
+    // `allowlist` a IA abriria a conversa e ignoraria o retorno do lead.
+    await autorizarContatoParaIA(ctx.admin, {
+      organizationId: ctx.organizationId,
+      contactId: contact.id,
+      reason: `automacao:${ctx.ruleId}`,
+    });
     await espacarEnvio(sessionId);
     const message = await sendMessageHandler(
       ctx.admin,

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useMemo, useState } from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
+import { useT } from "@/hooks/i18n/useT";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBoard } from "@/hooks/kanban/useBoard";
@@ -13,6 +14,7 @@ import type { Lead } from "@/lib/types/leads";
 import type { Pipeline, Stage } from "@/lib/kanban/types";
 import { StageColumn } from "./StageColumn";
 import { LeadDossier } from "./LeadDossier";
+import { camposDoFunil } from "@/lib/leads/campos-do-funil";
 
 interface KanbanBoardProps {
   pipelineId: string;
@@ -77,6 +79,7 @@ export function KanbanBoard({
   onSelectionChange,
   leadInicial,
 }: KanbanBoardProps) {
+  const t = useT();
   const useExternal = stagesProp !== undefined && leadsProp !== undefined;
   const queryResult = useBoard(useExternal ? null : pipelineId);
   const moveCard = useMoveCard(pipelineId);
@@ -148,20 +151,22 @@ export function KanbanBoard({
     return groupLeadsByStage(data.stages, data.leads);
   }, [data]);
 
-  const handleSelect = useCallback(
-    (leadId: string, additive: boolean) => {
+  // Um conjunto por vez, e não um card por vez: o board recebe o resultado do
+  // gesto já resolvido pela coluna (um card, um intervalo, a etapa inteira). A
+  // versão anterior só sabia alternar UM id, e é por isso que "selecionar tudo"
+  // não existia — cada card exigia uma volta pelo estado.
+  const handleSelectMany = useCallback(
+    (leadIds: string[], marcar: boolean) => {
       const apply = (prev: Set<string>): Set<string> => {
-        const next = new Set(additive ? prev : []);
-        if (additive && prev.has(leadId)) {
-          next.delete(leadId);
-        } else {
-          next.add(leadId);
+        const next = new Set(prev);
+        for (const id of leadIds) {
+          if (marcar) next.add(id);
+          else next.delete(id);
         }
         return next;
       };
       if (onSelectionChange) {
-        const nextSet = apply(selectedLeadIds);
-        onSelectionChange(Array.from(nextSet));
+        onSelectionChange(Array.from(apply(selectedLeadIds)));
       } else {
         setInternalSelected((prev) => apply(prev));
       }
@@ -220,7 +225,7 @@ export function KanbanBoard({
   if (isError) {
     return (
       <Card className="m-4 p-6 text-sm text-text-muted">
-        Falha ao carregar o board.
+        {t("Falha ao carregar o board.")}
         {error instanceof Error ? ` ${error.message}` : null}
       </Card>
     );
@@ -233,7 +238,7 @@ export function KanbanBoard({
   if (data.stages.length === 0) {
     return (
       <Card className="m-4 p-6 text-sm text-text-muted">
-        Nenhum lead nesta pipeline ainda.
+        {t("Nenhum lead nesta pipeline ainda.")}
       </Card>
     );
   }
@@ -253,7 +258,7 @@ export function KanbanBoard({
             pulses={pulsesProp ?? queryResult.pulses}
             canonicalTags={canonicalTags}
             selectedLeadIds={selectedLeadIds}
-            onSelect={handleSelect}
+            onSelectMany={handleSelectMany}
             onOpen={setDossieId}
           />
         ))}
@@ -261,9 +266,10 @@ export function KanbanBoard({
       {leadDoDossie && (
         <LeadDossier
           open
-          onOpenChange={(v) => !v && setDossieId(null)}
+          onOpenChange={(v: boolean) => !v && setDossieId(null)}
           lead={leadDoDossie}
           pipelineId={pipelineId}
+          fieldDefs={camposDoFunil(data.pipeline.settings ?? null)}
           stageName={
             data.stages.find((s) => s.id === leadDoDossie.stage_id)?.name ?? "—"
           }

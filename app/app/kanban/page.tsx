@@ -4,6 +4,7 @@ import { Kanban } from "@/lib/ui/icons";
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { createClient } from "@/lib/supabase/server";
+import { traduzir } from "@/lib/i18n/dicionario";
 import { FunisClient, type FunilDaLista } from "./_client";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,11 @@ export default async function KanbanPickerPage() {
 
   const funis = (data ?? []) as FunilDaLista[];
   const podeGerenciar = ROLE_RANK[activeOrg.role] >= ROLE_RANK.manager;
+  // Importar planilha é ESCRITA DE OPERAÇÃO, não configuração: quem atende
+  // sobe a lista que recebeu. Espelha o `requireRole("agent")` da rota.
+  const podeImportar = ROLE_RANK[activeOrg.role] >= ROLE_RANK.agent;
+  const idioma = user.idioma;
+  const t = (texto: string) => traduzir(texto, idioma);
 
   return (
     <div className="flex h-full flex-col gap-4 p-6">
@@ -54,10 +60,10 @@ export default async function KanbanPickerPage() {
             era maior do que o comentário contava: são QUATRO assertions em TRÊS
             specs, e `pipelines-gestao.spec.ts` — a spec da própria feature que
             gerou o comentário — é uma delas. Todas atualizadas junto. */}
-        <h1 className="text-2xl font-semibold tracking-tight">Funis</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("Funis")}</h1>
       </header>
 
-      <FunisClient funis={funis} podeGerenciar={podeGerenciar} />
+      <FunisClient funis={funis} podeGerenciar={podeGerenciar} podeImportar={podeImportar} />
     </div>
   );
 }

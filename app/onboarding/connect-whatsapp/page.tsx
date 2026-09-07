@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { metaPodeReceber } from "@/lib/channels/meta/webhook";
 import { getWahaClient } from "@/lib/waha/client";
 import { ConnectWhatsappClient } from "./_client";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ export default async function ConnectWhatsappPage() {
   const user = await requireAuth();
   const activeOrg = await resolveActiveOrg(user);
   if (!activeOrg) redirect("/login");
+  const idioma = user.idioma;
 
   const wahaConfigured = getWahaClient() !== null;
 
@@ -22,12 +24,17 @@ export default async function ConnectWhatsappPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h2 className="text-2xl font-semibold tracking-tight">Dê um telefone a ele</h2>
+        <h2 className="text-2xl font-semibold tracking-tight">{traduzir("Dê um telefone a ele", idioma)}</h2>
         <p className="text-sm text-muted-foreground">
-          É por este número que ele vai atender seus clientes. Se você conecta pelo
-          celular, tenha ele por perto.
+          {traduzir(
+            "É por este número que ele vai atender seus clientes. Se você conecta pelo celular, tenha ele por perto.",
+            idioma,
+          )}
         </p>
       </header>
+      <p className="text-sm text-muted-foreground">
+        {traduzir("Novos canais começam em modo de teste. Após concluir a configuração, abra Conexões para autorizar seus números de teste ou liberar o público.", idioma)}
+      </p>
       <ConnectWhatsappClient
         wahaConfigured={wahaConfigured}
         sessionName={`org_${activeOrg.orgId.slice(0, 8)}`}

@@ -50,6 +50,10 @@ export const AUDIT_ACTIONS = [
   "lead.won",
   "lead.lost",
   "lead.bulk_action",
+  // A importação de planilha (extração do PR #418). O GESTO é auditado além dos
+  // N `lead.created`: "quem despejou 300 negócios neste funil, e quando" é a
+  // pergunta que se faz depois, e ela não se responde contando linhas soltas.
+  "lead.imported",
   "contact.created",
   "contact.updated",
   "contacts.imported",
@@ -57,6 +61,8 @@ export const AUDIT_ACTIONS = [
   "contact.merge_pending",
   "contact.merged",
   "lgpd.anonymize_executed",
+  // A cascata retomando o que uma execução interrompida não terminou (#310).
+  "lgpd.anonymize_catchup",
   "member.invited",
   "member.accepted",
   "member.role_changed",
@@ -174,6 +180,7 @@ export const AUDIT_ACTIONS = [
   "ai_agent.run_completed",
   "ai_agent.run_failed",
   "channel.connected",
+  "channel.ai_access_updated",
   "channel.reconnected",
   // Duas ações distintas de propósito: `deleted` apagou a linha (canal virgem),
   // `archived` só a escondeu porque conversas/mensagens ainda a referenciam.
@@ -221,6 +228,7 @@ export const AUDIT_ACTIONS = [
   "followup_flow.updated",
   "followup_flow.published",
   "followup_flow.disabled",
+  "followup_flow.deleted",
   "followup_flow.rolled_back",
   "followup.worker_run",
   "followup.silence_sweep_run",
@@ -241,12 +249,14 @@ export const AUDIT_ACTIONS = [
   "auth.signup_failed",
   "auth.signup_confirmed",
   "auth.signup_provision_failed",
+  "auth.signup_provision_recovery_failed",
   "auth.email_link_rejected",
   "auth.password_reset_requested",
   "auth.password_reset_request_failed",
   "auth.password_reset_completed",
   "auth.password_reset_failed",
   "tenant.created_by_signup",
+  "tenant.created_by_recovery",
   "conversation.snoozed",
   "conversation.snooze_cancelled",
   "conversation.snooze_watcher_run",
@@ -290,6 +300,32 @@ export const AUDIT_ACTIONS = [
   // veem, e a pergunta "quem repintou isto?" só tem resposta aqui: não há
   // event_log (nenhum handler consumiria o tipo — ver register-handlers.ts).
   "platform_branding.updated",
+  "platform_google_oauth.updated",
+  // A conexão da ORGANIZAÇÃO com a conta de anúncios (migration 0213).
+  // Auditável porque o token gravado aqui escreve conversões na conta de
+  // mídia do cliente: "quem apontou minhas vendas para este destino?" só tem
+  // resposta nesta trilha. COM `organization_id`, diferente das duas linhas
+  // acima — é mutação de tenant, e cada organização tem a sua conta.
+  //
+  // O `metadata` carrega o dataset (identificador, não segredo) e um booleano
+  // dizendo se o token foi trocado. O token, nem em metadata.
+  "ad_platform_connection.updated",
+  // A conexão de LEITURA da organização com a conta de anúncios (0214).
+  // Ação SEPARADA da de cima, e não um `metadata.purpose` na mesma: a pergunta
+  // que cada trilha responde é diferente. "Quem apontou minhas vendas para este
+  // destino?" é sobre dinheiro saindo; "quem deu a alguém acesso de leitura ao
+  // meu orçamento de mídia?" é sobre dado comercial vazando. Fundi-las
+  // obrigaria a ler o metadata para saber qual das duas aconteceu — o mesmo
+  // motivo pelo qual `branding.updated` não virou `org.updated`.
+  //
+  // O `metadata` carrega o id da conta padrão (identificador, não segredo) e um
+  // booleano dizendo se o token foi trocado. O token, nem em metadata.
+  "ad_insights_connection.updated",
+  // Desconectar APAGA o token (a 0205 não tem `enabled`, e o porquê está no
+  // cabeçalho dela). Auditada à parte de `.updated` porque some uma credencial:
+  // a tela de Meta Ads para de funcionar para todo mundo da organização, e a
+  // trilha precisa dizer quem fez isso e quando.
+  "ad_insights_connection.deleted",
   // A marca da ORGANIZAÇÃO (nome + cor) trocada em `organizations.settings.branding`
   // — mutação de TENANT, e por isso COM `organization_id` e com `resource_id` =
   // o uuid da org. É outra ação, e não `org.updated`, porque a pergunta que a
@@ -334,6 +370,7 @@ export const AUDIT_ACTIONS = [
   "ai.budget_limit_changed",
   "ai.budget_enforcement_armed",
   "ai.budget_enforcement_disarmed",
+  "contact.deleted",
 
   // A poda do histórico (issue #261). UMA linha por rodada que de fato
   // apagou algo — rodada que não apagou nada não é mutação e não ocupa
@@ -344,6 +381,79 @@ export const AUDIT_ACTIONS = [
   // demais para a chamada seguinte do expurgo alcançar — a trilha registra
   // a própria erosão em vez de encolher sem deixar marca.
   "retention.sweep_run",
+
+  // ── A agenda conectada do Google (frente 3 do Calendário Vivo) ───────────
+  // TRÊS e não uma, e a razão é a mesma das três do teto de gasto: cada uma
+  // responde a uma pergunta diferente que alguém vai fazer ao painel meses
+  // depois.
+  //
+  // `conexao_iniciada` é o único registro de que a pessoa CHEGOU a ir ao
+  // Google — sem ela, uma conexão que morre no meio do caminho não deixa
+  // rastro nenhum e o relato que chega é "cliquei e não aconteceu nada".
+  //
+  // `conexao_falhou` carrega o motivo em `metadata.reason`, e ele é o que
+  // separa causas com desfechos opostos: `state_invalido` é retorno que não
+  // dá para verificar, `scope_missing` é a pessoa tendo desmarcado permissão
+  // na tela do Google, `cifra_indisponivel` é a instalação sem chave. As três
+  // aparecem iguais para quem clicou; só a trilha distingue.
+  //
+  // ⚠️ Desistir NÃO é falha e não entra aqui: quem clica "Cancelar" na tela do
+  // Google volta pelo callback, e auditar isso encheria a trilha de gente que
+  // apenas mudou de ideia — o mesmo critério do cron que não fez nada.
+  "agenda.google.conexao_iniciada",
+  "agenda.google.conexao_falhou",
+  "agenda.google.conexao_concluida",
+  "agenda.google.conexao_desconectada",
+  // Tipos de agendamento: mudar duração, categoria ou responsável muda o que a
+  // IA oferece ao cliente, então é mutação de configuração e audita.
+  "agenda.tipo_criado",
+  "agenda.tipo_alterado",
+  "agenda.tipo_desativado",
+  // A rodada de renovação — e ela só audita quando FEZ algo, como manda a regra
+  // do cron desta base. Uma linha por rodada com efeito, carregando a contagem:
+  // é o que permite responder "quantas agendas precisaram reconectar esta
+  // semana" sem varrer log de worker.
+  "agenda.google.renovacao_executada",
+  // A rodada da VOLTA. Também só audita quando fez algo, e a contagem carrega
+  // `nossos_ignorados` de propósito: é o número que prova o anti-eco
+  // funcionando — sem ele, esses eventos teriam virado compromisso fantasma.
+  "agenda.google.sync_executado",
+
+  // ── O compromisso em si (frentes 1 e 5 do Calendário Vivo) ──────────────
+  // Marcar, remarcar e cancelar são mutações de um compromisso com hora e
+  // pessoa. Cancelar em especial: é a única das três que alguém pode querer
+  // negar ter feito.
+  //
+  // Não há `agenda.appointment_completed` nem `_no_show` aqui de propósito.
+  // Esses dois não são mutação de intenção — são o registro de um fato que já
+  // aconteceu no mundo, e vivem na timeline do lead (`ATIVIDADES_DA_AGENDA`,
+  // em `lib/agenda/tipos.ts`), não na trilha de quem-fez-o-quê.
+  "agenda.appointment_created",
+  "agenda.appointment_rescheduled",
+  "agenda.appointment_cancelled",
+  // Relógio HTTP (Hobby / sem contêiner scheduler): uma batida que alguém
+  // de fora chama. Só audita quando alguma tarefa mexeu em dado.
+  "relogio.tick_run",
+
+  // Zona de perigo de Configurações › Organização: o admin zera os dados de
+  // atendimento da própria organização para recomeçar os testes. Um DELETE não
+  // deixa rastro sozinho — esta linha é o único registro de que a organização
+  // foi esvaziada, por quem, e de quanto (as contagens vão no metadata).
+  "org.dados_operacionais_apagados",
+
+  // O catálogo da loja (migration 0204). Preço de venda é dado que a equipe
+  // disputa — quem mudou e quando precisa ficar registrado.
+  "catalog_product.created",
+  "catalog_product.updated",
+  "catalog_product.deleted",
+  "catalog_product.imported",
+
+  // As tarefas do CRM (migration 0210). Tarefa é combinado de trabalho entre
+  // pessoas do time — quem a criou, quem mudou o prazo e quem a apagou é
+  // exatamente o que se disputa depois de um cliente ficar sem retorno.
+  "crm_task.created",
+  "crm_task.updated",
+  "crm_task.deleted",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */

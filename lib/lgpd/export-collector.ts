@@ -89,6 +89,80 @@ export interface ActivityRow {
   performed_at: string;
 }
 
+/**
+ * Compromisso da agenda do titular.
+ *
+ * As colunas são as MESMAS que a migration 0184 redige ao anonimizar — e não é
+ * coincidência: o que se apaga a pedido do titular é exatamente o que se
+ * entrega a pedido dele. `starts_at`/`ends_at`/`status` a 0184 PRESERVA (é
+ * registro de operação da clínica), e ainda assim entram aqui: o Art. 18 II é
+ * sobre o que a organização sabe A RESPEITO DELE, e "houve consulta em tal dia"
+ * é a informação mais legível que este export carrega.
+ */
+export interface AppointmentRow {
+  id: string;
+  title: string | null;
+  description: string | null;
+  notes: string | null;
+  location_details: string | null;
+  cancellation_reason: string | null;
+  starts_at: string;
+  ends_at: string;
+  time_zone: string;
+  status: string;
+}
+
+/**
+ * Tarefa combinada SOBRE a pessoa (migration 0210).
+ *
+ * ⚠️ ESTE BLOCO NASCEU COM A OUTRA METADE, e não depois dela. A migration liga o
+ * trigger `trg_redigir_tarefas_ao_anonimizar`, que troca `title` e apaga
+ * `description` quando o titular pede apagamento — e neste repo redigir e
+ * exportar sempre andam juntos: o que se apaga a pedido do titular é o que se
+ * entrega a pedido dele. Foi assim que `calendar_appointments` e
+ * `webhook_lead_captures` chegaram aqui, as duas depois do fato, achadas por
+ * `tests/unit/lgpd-exporta-o-que-redige.test.ts`.
+ *
+ * `due_date`, `status` e `priority` vão junto porque o titular tem direito a
+ * saber não só que a empresa escreveu algo sobre ele, mas quando ela combinou
+ * agir — que é a informação que dá sentido ao texto.
+ */
+export interface TaskRow {
+  id: string;
+  title: string;
+  description: string | null;
+  due_date: string | null;
+  status: string;
+  priority: string;
+}
+
+/**
+ * Captação por webhook — de onde a pessoa veio.
+ *
+ * ⚠️ ESTA NÃO É DA ENTREGA DO CALENDÁRIO. Ela apareceu porque o gate novo
+ * (`tests/unit/lgpd-exporta-o-que-redige.test.ts`) DERIVA a lista das duas
+ * pontas em vez de escrevê-la: a mesma classe de defeito tinha duas instâncias,
+ * e a segunda ninguém sabia que existia. Uma allowlist fixa teria fechado só a
+ * que eu já conhecia.
+ *
+ * As colunas são exatamente as que `fn_redigir_captacoes_do_contato_anonimizado`
+ * zera — inclusive `remote_ip` e `user_agent`, que a LGPD trata como dado
+ * pessoal e que a organização guarda a respeito do titular.
+ */
+export interface CaptureRow {
+  id: string;
+  source_name: string | null;
+  outcome: string;
+  captured_name: string | null;
+  captured_phone: string | null;
+  captured_email: string | null;
+  fields: unknown;
+  utm: unknown;
+  remote_ip: string | null;
+  user_agent: string | null;
+  received_at: string;
+}
+
 export interface AuditRow {
   id: string;
   action: string;
@@ -120,6 +194,9 @@ export interface ExportPayload {
   leads: LeadRow[];
   orders: OrderRow[];
   activities: ActivityRow[];
+  appointments: AppointmentRow[];
+  tasks: TaskRow[];
+  webhook_captures: CaptureRow[];
   audit_log_extract: AuditRow[];
 }
 
@@ -213,7 +290,7 @@ export async function collectExportData(args: CollectArgs): Promise<ExportPayloa
     const { data, error } = await admin
       .from("contacts")
       .select(
-        "id, name, display_name, email, phone_number, cpf_encrypted, birthdate, is_blocked, is_anonymized, consent, tags, source, source_metadata, created_at, last_activity_at",
+        "id, name, display_name, email, phone_number, cpf_encrypted, birthdate, is_blocked, is_anonymized, consent, tags, source, source_metadata, custom_fields, created_at, last_activity_at",
       )
       .eq("organization_id", organizationId)
       .eq("id", contactId)
@@ -419,6 +496,81 @@ export async function collectExportData(args: CollectArgs): Promise<ExportPayloa
     }
   }
 
+  // Agenda — contact_id direto em calendar_appointments.
+  //
+  // ⚠️ ESTA METADE FALTAVA, e a outra tinha gate. A migration 0184 declarou esta
+  // tabela dado pessoal e ligou o trigger de REDAÇÃO; esta branch escreveu
+  // `tests/invariants/agenda-lgpd-alcanca.test.ts` com quatro casos para provar
+  // a redação — e ninguém acrescentou a agenda ao EXPORT. O titular exercia o
+  // Art. 18 II e recebia um relatório que não mencionava nenhuma consulta que
+  // ele marcou. Neste repo, redigir e exportar sempre andaram juntos.
+  let appointments: AppointmentRow[] = [];
+  if (contactId) {
+    const { data, error } = await admin
+      .from("calendar_appointments")
+      .select(
+        "id, title, description, notes, location_details, cancellation_reason, starts_at, ends_at, time_zone, status",
+      )
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .order("starts_at", { ascending: false })
+      .limit(500);
+    if (error) {
+      logger.warn("[lgpd-export-worker] appointments load failed", {
+        request_id: requestId,
+        error: error.message,
+      });
+    } else if (data) {
+      appointments = data;
+    }
+  }
+
+  // Tarefas — contact_id direto em crm_tasks (migration 0210).
+  //
+  // O texto que a equipe escreveu sobre o titular ("ligar para Fulano confirmar
+  // o orçamento") é dado dele. Se a anonimização o apaga — e ela apaga —, o
+  // pedido de acesso tem de entregá-lo.
+  let tasks: TaskRow[] = [];
+  if (contactId) {
+    const { data, error } = await admin
+      .from("crm_tasks")
+      .select("id, title, description, due_date, status, priority")
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .order("due_date", { ascending: false })
+      .limit(500);
+    if (error) {
+      logger.warn("[lgpd-export-worker] tasks load failed", {
+        request_id: requestId,
+        error: error.message,
+      });
+    } else if (data) {
+      tasks = data;
+    }
+  }
+
+  // Captação por webhook — a MESMA classe do bloco acima, achada pelo gate.
+  let webhook_captures: CaptureRow[] = [];
+  if (contactId) {
+    const { data, error } = await admin
+      .from("webhook_lead_captures")
+      .select(
+        "id, source_name, outcome, captured_name, captured_phone, captured_email, fields, utm, remote_ip, user_agent, received_at",
+      )
+      .eq("organization_id", organizationId)
+      .eq("contact_id", contactId)
+      .order("received_at", { ascending: false })
+      .limit(500);
+    if (error) {
+      logger.warn("[lgpd-export-worker] webhook captures load failed", {
+        request_id: requestId,
+        error: error.message,
+      });
+    } else if (data) {
+      webhook_captures = data;
+    }
+  }
+
   // Audit log extract (best-effort: rows where metadata.contact_id matches).
   let audit_log_extract: AuditRow[] = [];
   if (contactId) {
@@ -461,6 +613,9 @@ export async function collectExportData(args: CollectArgs): Promise<ExportPayloa
     leads,
     orders,
     activities,
+    appointments,
+    tasks,
+    webhook_captures,
     audit_log_extract,
   };
 }
@@ -486,6 +641,9 @@ function emptyPayload(
     leads: [],
     orders: [],
     activities: [],
+    appointments: [],
+    tasks: [],
+    webhook_captures: [],
     audit_log_extract: [],
   };
 }

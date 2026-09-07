@@ -426,6 +426,13 @@ psql_run() { docker run --rm -i postgres:17-alpine psql "$(url_do_schema)" -v ON
 # O namespace é constante e literal de propósito: ele está gravado no .env de
 # toda instalação viva, e derivá-lo de variável faria o kit antigo (que já está
 # no disco do cliente) e o novo montarem strings diferentes.
+#
+# Esta linha é a ÚNICA fonte do namespace para tudo que executa — os testes do
+# kit a leem em vez de repetir a string. Quem a confere é
+# `tests/unit/namespace-das-imagens.test.ts`, que assere este valor e cobra que
+# `docker-compose.prod.yml`, `.env.hostgator.example` e a matriz de
+# `publish-image.yml` digam o mesmo. Se você é um fork, é lá que está a lista do
+# que trocar junto.
 IMG_NS="ghcr.io/melgarafael"
 IMG_APP="${IMG_NS}/deskcommcrm"
 IMG_WORKER="${IMG_NS}/deskcomm-worker"
@@ -462,16 +469,29 @@ ultima_versao_publicada() {
 # repositório público não muda isso. Enquanto ninguém trocar a visibilidade na
 # mão, o `docker compose pull` de toda VPS é negado — e como `pull` de serviço
 # com `image:` falha a operação inteira, a instalação morre no passo de subir.
+#
+# ⚠️ O DONO E O REGISTRO SAEM DO `IMG_NS`, NUNCA DE UM LITERAL. Achado por
+# @galeonel no PR #605: as duas URLs abaixo tinham `melgarafael` cravado. Num
+# fork que troca o `IMG_NS`, isso faz o pré-voo conferir os pacotes do UPSTREAM
+# enquanto `gravar_imagens` escreve no `.env` do cliente as referências do FORK
+# — a sonda mede um caminho e o usuário usa outro, que é a falha-em-verde do
+# passe 5 da triagem.
+#
+# E o literal escapava da catraca por acidente: `namespace-das-imagens.test.ts`
+# procura a string contígua `ghcr.io/melgarafael`, e a URL do token a parte em
+# `ghcr.io/token?scope=repository:melgarafael/`.
 ghcr_status() {
-  local img="$1" tag="$2" tok
+  local img="$1" tag="$2" tok registry owner
+  registry="${IMG_NS%%/*}"
+  owner="${IMG_NS#*/}"
   tok="$(curl -fsS --max-time 6 \
-          "https://ghcr.io/token?scope=repository:melgarafael/${img}:pull&service=ghcr.io" 2>/dev/null \
+          "https://${registry}/token?scope=repository:${owner}/${img}:pull&service=${registry}" 2>/dev/null \
         | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')" || true
   if [ -z "$tok" ]; then printf '000'; return 0; fi
   curl -s -o /dev/null --max-time 6 -w '%{http_code}' \
     -H "Authorization: Bearer $tok" \
     -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json' \
-    "https://ghcr.io/v2/melgarafael/${img}/manifests/${tag}" 2>/dev/null || printf '000'
+    "https://${registry}/v2/${owner}/${img}/manifests/${tag}" 2>/dev/null || printf '000'
 }
 
 # As TRÊS imagens existem e são públicas nesta referência?
@@ -634,12 +654,56 @@ set_env_var() {
 }
 
 # Resolve o UUID de um usuário pelo e-mail (admin API do Supabase).
+#
+# ── O `filter` do GoTrue é BUSCA POR SUBSTRING, não expressão ────────────────
+# Esta função pedia `?filter=email.eq.<email>` — sintaxe do PostgREST, que o
+# GoTrue não fala. Ele trata a string inteira como termo de busca, nenhum e-mail
+# contém "email.eq.", e a resposta é SEMPRE vazia. Medido em 2026-08-31 contra o
+# projeto de produção, com um e-mail que existe:
+#
+#   GET /auth/v1/admin/users?filter=email.eq.<existente>  → 200 {"users":[]}
+#   GET /auth/v1/admin/users?filter=<existente>           → 200 {"users":[<ele>]}
+#
+# Consequência: `reset-password.sh` morria com "Usuário '<email>' não
+# encontrado" para TODO e-mail — o único caminho de recuperação de senha de uma
+# instalação sem SMTP, que é o estado normal de um self-host, e o mesmo comando
+# que o CLAUDE.md do kit manda usar quando a pessoa se tranca fora.
+#
+# ── Por que o casamento tem de ser EXATO aqui ───────────────────────────────
+# Justamente por ser substring, `ana@empresa.com` casa também
+# `mariana@empresa.com`. Um `head -1` cego devolveria o UUID da outra pessoa
+# numa função cujo único consumidor TROCA SENHA. O padrão abaixo ancora no
+# prefixo do objeto de usuário (id→aud→role→email, nessa ordem), que nenhum
+# objeto aninhado de `identities` tem — e exige o e-mail inteiro, com os pontos
+# escapados (em BRE `.` casa qualquer caractere, e sem escapar
+# `elias.gervanno@x` casaria `eliasXgervanno@x`).
+#
+# Falha FECHADA: se o GoTrue mudar a ordem dos campos, o padrão não casa e a
+# função devolve vazio — quem chama morre com "não encontrado", que é ruim mas
+# recuperável. Devolver o UUID errado, não.
+#
+# ── Por que o `|| return 0` do fim não é enfeite ────────────────────────────
+# `_common.sh` roda sob `set -euo pipefail`, e o consumidor resolve o UUID numa
+# ATRIBUIÇÃO: `uid="$(owner_id_by_email "$EMAIL")"`. O status da atribuição é o
+# da substituição, então uma função que devolve não-zero mata o script ALI — na
+# linha de cima do `[ -n "$uid" ] || die "Usuário não encontrado."`, que nunca
+# chega a rodar. E o `grep` devolve 1 justamente quando não casa ninguém, que é
+# o caso em que a mensagem existe para falar.
+#
+# Medido em 2026-09-03 contra o GoTrue local v2.188.1, e-mail inexistente, as
+# duas linhas reais do reset-password.sh: rc=1 e NENHUMA saída — o operador que
+# erra uma letra no endereço não vê aviso nenhum, só o prompt de volta. "Não
+# encontrado" era uma mensagem inalcançável. O `|| return 0` põe a decisão onde
+# ela pertence: a função devolve VAZIO, e quem chama decide o que dizer.
 owner_id_by_email() {
-  local email="$1"
-  curl -fsS "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users?filter=email.eq.${email}" \
+  local email="$1" resp esc
+  resp="$(curl -fsS "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users?filter=${email}" \
     -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-    -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" 2>/dev/null \
-    | grep -o '"id":"[0-9a-f-]\{36\}"' | head -1 | sed 's/.*:"//;s/"//'
+    -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" 2>/dev/null)" || return 0
+  esc="$(printf '%s' "$email" | sed 's/[.[\*^$]/\\&/g')"
+  printf '%s' "$resp" \
+    | grep -o "\"id\":\"[0-9a-f-]\{36\}\",\"aud\":\"[^\"]*\",\"role\":\"[^\"]*\",\"email\":\"${esc}\"" \
+    | head -1 | sed 's/^"id":"//;s/".*//' || return 0
 }
 
 # Ativa (idempotente) o cron que dispara o drain de eventos a cada minuto. SEM

@@ -32,12 +32,15 @@ import {
   buildCaseSummary,
 } from "@/lib/agent-engine/agent/human-cases";
 import { performHumanHandoff } from "@/lib/agent-engine/agent/human-handoff";
+import { avisarLeadDoCrm } from "@/lib/ai/handoff/aviso-ao-lead";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
 import { createLogger } from "@/lib/agent-engine/obs/logger";
 import { enqueueJob } from "@/lib/agent-engine/queue/queue";
 import { audit } from "@/lib/audit";
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
+import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +74,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "agent_cases" });
   if (!authz.ok) return authz.response;
+  const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org, user } = authz;
   const { id: caseId } = await params;
 
@@ -78,11 +82,11 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
   try {
     payload = await req.json();
   } catch {
-    return fail("invalid_request", "Body inválido.", 400, { requestId });
+    return fail("invalid_request", t("Body inválido."), 400, { requestId });
   }
   const parsed = bodySchema.safeParse(payload);
   if (!parsed.success) {
-    return fail("validation_failed", "Body inválido.", 422, {
+    return fail("validation_failed", t("Body inválido."), 422, {
       requestId,
       details: parsed.error.flatten(),
     });
@@ -93,7 +97,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
   try {
     pool = getRequestPool();
   } catch {
-    return fail("unavailable", "Resposta ao caso indisponível (config).", 503, { requestId });
+    return fail("unavailable", t("Resposta ao caso indisponível (config)."), 503, { requestId });
   }
 
   const { rows } = await pool.query<CaseRow>(
@@ -106,24 +110,43 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
   );
   const caseRow = rows[0];
   if (caseRow === undefined) {
-    return fail("not_found", "Caso não encontrado.", 404, { requestId });
+    return fail("not_found", t("Caso não encontrado."), 404, { requestId });
   }
   if (caseRow.status !== "awaiting_human") {
     return fail(
       "invalid_state",
-      "O caso não está aguardando resposta do atendente (awaiting_human).",
+      t("O caso não está aguardando resposta do atendente (awaiting_human)."),
       409,
       { requestId },
     );
   }
   if (caseRow.contact_id === null) {
-    return fail("unprocessable_entity", "Conversa do caso sem contato associado.", 422, {
+    return fail("unprocessable_entity", t("Conversa do caso sem contato associado."), 422, {
       requestId,
     });
   }
   const { conversation_id: conversationId, contact_id: contactId } = caseRow;
 
   if (action === "escalate") {
+    // AVISA O LEAD ANTES DE SILENCIAR.
+    //
+    // Até aqui o automático estava CONVERSANDO com o cliente — abrir um caso não
+    // silencia ninguém (`CASES_SYSTEM_BLOCK`: "você CONTINUA conversando"). O
+    // `performHumanHandoff` da linha seguinte é que corta, e corta de vez. Sem
+    // esta mensagem, do lado de fora, o atendimento simplesmente para no meio.
+    //
+    // Emissor do lado do CRM (`avisarLeadDoCrm`), e não o do motor: aqui não há
+    // job da fila, e `runBeforeSend` grava o ledger por `(job_id, seq)`. Forjar
+    // um job para mandar uma frase seria pior que perder os gates de pacing —
+    // que, neste caminho, protegem contra um risco que não existe: é UMA
+    // mensagem, disparada por um clique humano, dentro de uma conversa aberta.
+    const aviso = await avisarLeadDoCrm(createAdminClient(), {
+      organizationId: org.orgId,
+      conversationId,
+      contactId,
+      reason: body,
+    });
+
     // O handoff roda ANTES de fechar o caso, e nesta ordem de propósito: ele é
     // idempotente (re-executar é no-op) e recebe um pg.Pool próprio, então não
     // entra na transação abaixo. Se ele falhar, o caso continua `awaiting_human`
@@ -135,6 +158,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
       {
         reason: body,
         conversationSummary: buildCaseSummary(caseRow),
+        avisoAoLead: aviso,
         log: createLogger(),
       },
     );
@@ -143,7 +167,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
       // Corrida perdida entre a leitura e o update. O handoff já aconteceu (e é
       // idempotente), então não mentimos dizendo que escalamos: devolvemos o
       // conflito para a UI reler o caso.
-      return fail("invalid_state", "Este caso já foi respondido por outra pessoa.", 409, {
+      return fail("invalid_state", t("Este caso já foi respondido por outra pessoa."), 409, {
         requestId,
       });
     }
@@ -177,7 +201,7 @@ export async function POST(req: NextRequest, { params }: RouteParams): Promise<R
       client.release();
     }
     if (!transitioned) {
-      return fail("invalid_state", "Este caso já foi respondido por outra pessoa.", 409, {
+      return fail("invalid_state", t("Este caso já foi respondido por outra pessoa."), 409, {
         requestId,
       });
     }

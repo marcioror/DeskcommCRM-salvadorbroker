@@ -1,9 +1,32 @@
 name: perf
 
+# ⚠️ SEM `push: branches: [main]` NESTE FORK — decisão do dono do produto em
+# 2026-09-07, e ela é de CONTA, não de engenharia.
+#
+# O upstream roda esta bateria duas vezes por entrega: uma no PR e outra no push
+# de `main` depois do merge. Na casa dele isso é barato — repositório PÚBLICO,
+# Actions ilimitado. Aqui o repositório é PRIVADO: 2.000 min/mês, e a cota já
+# esgotou uma vez (2026-08-26).
+#
+# Medido em 2026-09-07, no dia da sincronização com a v1.16.1: 1.564 dos 2.000
+# minutos consumidos em UM dia. Por rodada completa: `e2e` ~65 min (roda em duas
+# partes paralelas, e cada uma é cobrada), `ci` ~19, publicação de imagem ~6,5,
+# `perf` ~4. Rodar tudo de novo no merge dobrava o custo de cada entrega.
+#
+# ⚠️ O QUE SE PERDE, ESCRITO PARA NÃO SER DESCOBERTO DEPOIS: o `pull_request`
+# testa `refs/pull/N/merge`, que É o resultado da junção — então o merge não
+# entra sem ter sido testado. O buraco é outro e é estreito: se um SEGUNDO PR
+# entrar depois de o primeiro mudar a `main`, o segundo pode ter sido medido
+# contra uma base já vencida. Vale a pena aqui porque o repositório tem um
+# operador só e os PRs entram um de cada vez; num time com merges concorrentes,
+# não valeria.
+#
+# ⚠️ A PUBLICAÇÃO DE IMAGEM NÃO ENTRA NESTE CORTE, e não é esquecimento:
+# `publish-image.yml` CONTINUA disparando em push de `main`, porque é ele que
+# publica a tag `latest` que o `.env` da VPS puxa. Cortá-lo faria o site parar
+# de receber atualização — economia que quebra o produto não é economia.
 on:
   pull_request:
-    branches: [main]
-  push:
     branches: [main]
 
 # O GITHUB_TOKEN deste job serve a `actions/checkout` (clone) e a

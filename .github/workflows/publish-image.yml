@@ -49,6 +49,38 @@ on:
 env:
   REGISTRY: ghcr.io
 
+concurrency:
+  # RODADA SUPERADA É CANCELADA — em PR, e só em PR.
+  #
+  # Sem isto, cada push numa branch com PR aberto deixa a rodada anterior
+  # correndo até o fim contra um commit que ninguém mais vai olhar. Não é
+  # hipótese: numa única sessão de sincronização com o upstream (2026-09-07)
+  # dois `e2e` completos ficaram órfãos assim, ~25 min de runner cada. E este
+  # repositório é PRIVADO — 2.000 min/mês —, com a cota já esgotada uma vez
+  # (2026-08-26), quando job que não conseguia iniciar aparecia como `failure`
+  # com zero passos e parecia defeito do commit.
+  #
+  # `github.ref` já separa os grupos sozinho: em PR ele é `refs/pull/N/merge`,
+  # num push de `main` é `refs/heads/main`. Duas PRs não se cancelam, e o push
+  # de `main` nunca cai no mesmo grupo que uma PR.
+  #
+  # ⚠️ `cancel-in-progress` é EXPRESSÃO, e não `true`, de propósito. Em push de
+  # `main` (e de tag) o cancelamento fica DESLIGADO: é de lá que sai a imagem
+  # publicada e o histórico dos checks obrigatórios. Cancelar uma publicação
+  # pela metade porque outro merge entrou logo atrás é trocar minuto de CI por
+  # imagem que não existe.
+  #
+  # ⚠️ E ISTO ACRESCENTA UM SENTIDO NOVO A "cancelled". O Actions já usava a
+  # mesma palavra para teto de tempo batido e para cancelamento de verdade —
+  # o que já mentiu numa triagem aqui. Agora há um terceiro: rodada superada.
+  # Como distinguir, sem adivinhar: se o `headSha` da rodada NÃO é mais o topo
+  # da branch, ela foi superada por um push seu e não há o que investigar.
+  #
+  #   gh run list -R <repo> --branch <branch> --json headSha,conclusion,createdAt
+  #   git rev-parse <branch>
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Nenhuma tag publica sem estar CONTIDA na `main`.
   #

@@ -861,10 +861,28 @@ jobs:
     if: always()
     needs: [e2e-parte]
     runs-on: ubuntu-latest
-    # Nenhuma permissão: este job só lê o resultado de `needs` e escreve o
-    # summary. Sem o bloco, o token herdaria o default do REPOSITÓRIO, que vive
-    # fora do repo e muda num clique.
-    permissions: {}
+    # `contents: read`, e NÃO `{}` como no upstream — divergência obrigatória
+    # deste fork, e a causa é o repositório ser PRIVADO.
+    #
+    # O raciocínio do upstream continua valendo e é o certo: este job só lê o
+    # resultado de `needs` e escreve o summary, então declarar o mínimo evita
+    # herdar o default do REPOSITÓRIO, que vive fora do repo e muda num clique.
+    # Só que ele NÃO é mínimo aqui: o passo `actions/checkout` abaixo precisa
+    # clonar, e num repositório PÚBLICO (a casa do Rafael) um token sem
+    # permissão nenhuma ainda clona. Num PRIVADO, não — e a mensagem não diz
+    # "sem permissão", diz:
+    #
+    #   remote: Repository not found.
+    #   fatal: repository 'https://github.com/marcioror/DeskcommCRM-salvadorbroker/' not found
+    #
+    # que se lê como repositório apagado ou URL errada. Ele repete três vezes,
+    # com backoff, e derruba o job DEPOIS de as duas partes terem passado —
+    # `e2e` vermelho com 270 testes verdes. Aconteceu duas vezes seguidas na
+    # sincronização de 2026-09-07 antes de eu olhar o passo certo.
+    #
+    # `contents: read` é o mínimo que clona. Nada além disso.
+    permissions:
+      contents: read
     steps:
       - name: Falhar se qualquer parte não passou
         run: |

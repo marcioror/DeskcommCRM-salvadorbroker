@@ -29,7 +29,11 @@
  * de o produto servir cinco nichos com o mesmo binário, e é o pilar que uma
  * extração de contribuição de um nicho não pode serrar.
  */
-import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import {
+  nomeCadastradoDoContato,
+  rotuloDoContato,
+  SEM_NOME,
+} from "@/lib/contacts/rotulo-do-contato";
 import type { PipelineVocabulary } from "@/lib/kanban/types";
 import { resolveVocabulary } from "@/lib/kanban/vocabulary";
 import {
@@ -170,6 +174,17 @@ export interface ContextoDoRelatorio {
   vocabulary: PipelineVocabulary | null | undefined;
   /** Tradutor da interface. Identidade por padrão — a função é pura. */
   t?: (texto: string) => string;
+  /**
+   * Quem está lendo pode ver telefone/e-mail de contato que não cadastrou?
+   *
+   * ⚠️ SEM DEFAULT, e obrigatório de propósito. Um `?: boolean` que caísse em
+   * `false` sozinho seria seguro mas invisível — a rota nova esqueceria de
+   * passar e ninguém notaria, porque "esconder demais" não quebra teste nenhum.
+   * Um `?: boolean` caindo em `true` seria pior ainda: o vazamento voltaria
+   * calado. Campo obrigatório faz o compilador cobrar a resposta de todo
+   * chamador novo, que é o único jeito de a pergunta não ser esquecida.
+   */
+  podeVerContatoSensivel: boolean;
 }
 
 function fatiaDe(quantidade: number, total: number): number {
@@ -285,12 +300,37 @@ export function montarRelatorio(
     contatoId: i.contact_id,
     // Sem contato vinculado a linha não inventa um rótulo: `rotuloDoContato`
     // devolveria "Sem nome", que afirmaria existir alguém ali.
+    //
+    // ⚠️ DIVERGÊNCIA DESTE FORK: para quem não pode ver contato sensível, o
+    // rótulo NÃO cai para o telefone. `rotuloDoContato` cai de propósito — e a
+    // rota é liberada a `viewer`, então o relatório virava um lugar onde o
+    // corretor lia o número de leads que não cadastrou, o mesmo dado que
+    // `GET /api/v1/contacts` nula na resposta.
+    //
+    // ⚠️ E o corte é POR PAPEL, não por quem cadastrou, que é a régua do resto
+    // do módulo. O motivo é de fonte de dados: as linhas vêm da função de banco
+    // `fn_relatorio_de_atividades` (migration 0217, do upstream), e ela não
+    // devolve `created_by_user_id` — sem essa coluna não há como decidir por
+    // contato. Buscar a coluna significaria manter uma cópia dessa função no
+    // fork, e cópia de função do upstream é exatamente a armadilha que a
+    // migration 0176 documenta: o corpo congela, ele edita o dele, e a nossa
+    // versão reverte a mudança dele em silêncio.
+    //
+    // O preço é conhecido e é para o lado seguro: um `agent` deixa de ver o
+    // telefone NESTE relatório mesmo para contato que ele próprio cadastrou.
+    // Ele continua vendo em todas as outras telas — a ficha, a tabela, a
+    // conversa —, onde a regra por criador se aplica de verdade.
     contatoNome: i.contact_id
-      ? rotuloDoContato({
-          display_name: i.contact_display_name,
-          name: i.contact_name,
-          phone_number: i.contact_phone,
-        })
+      ? (ctx.podeVerContatoSensivel
+          ? rotuloDoContato({
+              display_name: i.contact_display_name,
+              name: i.contact_name,
+              phone_number: i.contact_phone,
+            })
+          : (nomeCadastradoDoContato({
+              display_name: i.contact_display_name,
+              name: i.contact_name,
+            }) ?? t(SEM_NOME)))
       : null,
   }));
 

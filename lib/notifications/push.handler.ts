@@ -5,7 +5,7 @@ import { montarPayloadDeInbound, truncar } from "./push_payload";
 import { enviarPushAoUsuario, enviarPushDaOrg } from "./web_push";
 import { vapidPronto } from "./vapid";
 import type { PushPayload } from "./push_payload";
-import { rotuloDoContato, SEM_NOME } from "@/lib/contacts/rotulo-do-contato";
+import { nomeCadastradoDoContato } from "@/lib/contacts/rotulo-do-contato";
 
 export const WEB_PUSH_INBOUND_KEY = "web-push-inbound.v1";
 
@@ -47,8 +47,23 @@ async function handleInbound(row: EventRow): Promise<HandlerResult> {
     // `SEM_NOME` volta a `null` de propósito: o payload já tem um desfecho
     // melhor para "não sei o nome" (`"Nova mensagem"`, em push_payload.ts), e
     // trocá-lo por "Sem nome" pioraria o título sem ninguém pedir.
-    const rotulo = rotuloDoContato(c);
-    contactName = rotulo === SEM_NOME ? null : rotulo;
+    // ⚠️ `nomeCadastradoDoContato`, e NÃO `rotuloDoContato` — divergência deste
+    // fork, e aqui ela é obrigatória, não preferência.
+    //
+    // A queda para o telefone é útil na tela, onde a resposta é montada POR
+    // ESPECTADOR e a proteção de contato pode nular o número de quem não
+    // cadastrou o lead. Um push não tem espectador: `enviarPushDaOrg` envia UM
+    // payload para TODAS as inscrições da organização. Não há por-quem que
+    // mascare — o telefone de um lead apareceria na tela de bloqueio do celular
+    // de todo corretor da equipe, inclusive dos que a ficha do contato esconde,
+    // e fora do CRM, onde nenhuma regra nossa alcança.
+    //
+    // `nomeCadastradoDoContato` é a MESMA cadeia sem o degrau do telefone
+    // (mesma recusa de identificador técnico, mesmo `display_name`/`name`) e já
+    // existe para exatamente este caso — ela foi extraída quando o título do
+    // lead teve o mesmo problema. `null` aqui não é perda: o payload já tem um
+    // desfecho melhor para "não sei o nome" (`"Nova mensagem"`).
+    contactName = nomeCadastradoDoContato(c);
     if (c?.avatar_storage_path && !c.is_anonymized) {
       const { data: signed } = await admin.storage
         .from("whatsapp-media")

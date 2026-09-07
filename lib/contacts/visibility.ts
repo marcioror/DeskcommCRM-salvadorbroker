@@ -7,6 +7,7 @@
  */
 import type { Actor } from "@/lib/api/handlers/types";
 import { ROLE_RANK, type Role } from "@/lib/auth/types";
+import { rotuloDoContato, type ContatoNomeavel } from "@/lib/contacts/rotulo-do-contato";
 
 /**
  * Só atores humanos (`type: "user"`) são avaliados por regra de cadastro —
@@ -91,4 +92,53 @@ export function filtrarPropostasVisiveis<T extends { campo: string }>(
   return propostas.filter(
     (p) => !(CAMPOS_SENSIVEIS_DA_PROPOSTA as readonly string[]).includes(p.campo),
   );
+}
+
+/** O que `rotuloDoContatoProtegido` precisa: o rótulo, mais quem cadastrou. */
+export interface ContatoNomeavelComDono extends ContatoNomeavel {
+  created_by_user_id: string | null;
+}
+
+/**
+ * O RÓTULO DO CONTATO, JÁ FILTRADO PELA PROTEÇÃO — e num lugar só.
+ *
+ * `rotuloDoContato` cai para o telefone de propósito quando não há nome: é o
+ * que faz um contato que entrou pelo WhatsApp sem nome aparecer como ALGO em
+ * vez de "Sem nome". Essa queda, porém, não sabe nada de proteção de contato —
+ * então toda tela que a usa vira uma porta lateral para o número de um lead que
+ * o ator não cadastrou, exatamente o dado que `GET /api/v1/contacts` nula na
+ * resposta.
+ *
+ * ⚠️ ESTA FUNÇÃO EXISTE PARA NÃO HAVER DUAS CÓPIAS DA REGRA, e o precedente é
+ * do próprio projeto: o cabeçalho de `rotulo-do-contato.ts` conta que a cadeia
+ * de fallback do rótulo chegou a estar copiada em SEIS arquivos, com QUATRO
+ * finais diferentes — "não divergem por descuido, divergem porque cada tela
+ * nova reescreve a cadeia do jeito que parece certo naquele arquivo".
+ *
+ * (A cadeia NÃO se escreve aqui, nem em prosa: `rotulo-do-contato.test.ts`
+ * varre o TEXTO dos arquivos atrás dela, comentário incluído, e acusaria este
+ * bloco como a sétima cópia. O aviso está no cabeçalho de lá — e eu o citei
+ * neste mesmo comentário antes de esbarrar nele.)
+ *
+ * Era o que estava começando aqui: `followups/queue` tinha um
+ * `resolveContactName` local (achado I1 da revisão final do módulo) e
+ * `followups/enrollments/[id]`, a rota irmã, não tinha nada — um corretor lia o
+ * número no `contact.name` do dossiê. A segunda cópia não teria sido escrita
+ * torta; ela simplesmente nunca foi escrita.
+ *
+ * Quem não pode ver recebe o contato com `phone_number` nulado ANTES do rótulo
+ * ser montado, e a cadeia degrada sozinha para "Sem nome" — nunca para o dado
+ * protegido. Nulificar na entrada, e não filtrar a saída, é o que garante que
+ * nenhum ramo futuro de `rotuloDoContato` volte a alcançar o número.
+ */
+export function rotuloDoContatoProtegido(
+  contato: ContatoNomeavelComDono | null | undefined,
+  actor: Actor,
+  t: (texto: string) => string = (texto) => texto,
+): string {
+  // Os dois chamadores já diziam "Contato removido" (e não "Sem nome") para o
+  // vínculo perdido: o contato foi apagado, que é diferente de existir sem nome.
+  if (!contato) return t("Contato removido");
+  const podeVer = podeVerContatoSensivel(actor, contato.created_by_user_id);
+  return rotuloDoContato(podeVer ? contato : { ...contato, phone_number: null }, t);
 }

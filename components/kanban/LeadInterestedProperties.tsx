@@ -9,6 +9,7 @@ import {
 } from "@/hooks/leads/useLeadInterestedProperties";
 import { usePermission } from "@/hooks/auth/AuthProvider";
 import { LinkPropertyDialog } from "./LinkPropertyDialog";
+import { useT } from "@/hooks/i18n/useT";
 
 function formatBRL(cents: number | null): string {
   if (cents === null) return "—";
@@ -23,6 +24,7 @@ function formatBRL(cents: number | null): string {
  * mesmas mutações da tela de detalhe do imóvel (mesmo vínculo, duas telas).
  */
 export function LeadInterestedProperties({ leadId }: { leadId: string }) {
+  const t = useT();
   const [dialogOpen, setDialogOpen] = useState(false);
   const q = useLeadInterestedProperties(leadId);
   const unlink = useUnlinkPropertyFromLead(leadId);
@@ -35,7 +37,7 @@ export function LeadInterestedProperties({ leadId }: { leadId: string }) {
   return (
     <section className="border-t border-border py-3">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-text-muted">Imóveis de interesse</h3>
+        <h3 className="text-xs font-medium uppercase tracking-wide text-text-muted">{t("Imóveis de interesse")}</h3>
         {canEdit && (
           <Button size="sm" variant="ghost" onClick={() => setDialogOpen(true)}>
             Vincular
@@ -44,13 +46,13 @@ export function LeadInterestedProperties({ leadId }: { leadId: string }) {
       </div>
       {q.isError ? (
         <div className="space-y-1">
-          <p className="text-xs text-error-fg">Não foi possível carregar os imóveis vinculados.</p>
+          <p className="text-xs text-error-fg">{t("Não foi possível carregar os imóveis vinculados.")}</p>
           <Button size="sm" variant="ghost" onClick={() => q.refetch()}>
             Tentar novamente
           </Button>
         </div>
       ) : items.length === 0 ? (
-        <p className="text-xs text-text-muted">Nenhum imóvel vinculado ainda.</p>
+        <p className="text-xs text-text-muted">{t("Nenhum imóvel vinculado ainda.")}</p>
       ) : (
         <ul className="space-y-1">
           {items.map((item) =>

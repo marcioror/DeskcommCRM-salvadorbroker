@@ -7790,6 +7790,52 @@ export const DICIONARIO: Traducoes = {
   "Este ponto usa o modelo definido na versão publicada do agente; a escolha do painel não se aplica.": {
     es: "Este punto usa el modelo definido en la versión publicada del agente; la elección del panel no se aplica.",
   },
+
+  // ---- Módulo de imóveis e proteção de contato — DESTE FORK (Salvador Broker) ----
+  //
+  // O upstream não tem estas telas, então nenhuma fusão vai trazer estas linhas:
+  // toda sincronização que acrescentar chave nova aqui precisa acrescentar o
+  // espanhol junto. Quem cobra é `i18n-espanhol-cobre-a-tela.test.ts`, que veio
+  // na v1.16 e reprovou 39 textos crus deste módulo de uma vez — eles estavam
+  // em português puro desde agosto, e nada media isso.
+  //
+  // Vocabulário: "lead" vira `oportunidad` em espanhol (é como o resto do
+  // dicionário já trata o termo), e "imóvel" vira `inmueble`.
+  "Imóveis de interesse": { es: "Inmuebles de interés" },
+  "Cadastro de imóveis para venda e locação.": { es: "Registro de inmuebles en venta y alquiler." },
+  "Novo imóvel": { es: "Nuevo inmueble" },
+  "Editar imóvel": { es: "Editar inmueble" },
+  "Cadastrar imóvel": { es: "Registrar inmueble" },
+  "Buscar por título...": { es: "Buscar por título..." },
+  "Buscar imóvel pelo título...": { es: "Buscar inmueble por título..." },
+  "Buscar lead pelo título...": { es: "Buscar oportunidad por título..." },
+  "Não foi possível carregar os imóveis.": { es: "No fue posible cargar los inmuebles." },
+  "Não foi possível carregar os imóveis vinculados.": { es: "No fue posible cargar los inmuebles vinculados." },
+  "Não foi possível carregar os leads vinculados.": { es: "No fue posible cargar las oportunidades vinculadas." },
+  "Não foi possível buscar imóveis agora. Tente novamente.": { es: "No fue posible buscar inmuebles ahora. Inténtalo de nuevo." },
+  "Não foi possível buscar leads agora. Tente novamente.": { es: "No fue posible buscar oportunidades ahora. Inténtalo de nuevo." },
+  "Nenhum imóvel encontrado.": { es: "Ningún inmueble encontrado." },
+  "Nenhum imóvel encontrado para essa busca.": { es: "Ningún inmueble encontrado para esa búsqueda." },
+  "Nenhum imóvel cadastrado ainda. Clique em \"Novo imóvel\" para começar.": { es: "Aún no hay inmuebles registrados. Haz clic en \"Nuevo inmueble\" para empezar." },
+  "Nenhum imóvel vinculado ainda.": { es: "Aún no hay inmuebles vinculados." },
+  "Nenhum lead encontrado.": { es: "Ninguna oportunidad encontrada." },
+  "Nenhum lead vinculado ainda.": { es: "Aún no hay oportunidades vinculadas." },
+  "Imóvel não encontrado.": { es: "Inmueble no encontrado." },
+  "Foto do imóvel": { es: "Foto del inmueble" },
+  "Vincular imóvel": { es: "Vincular inmueble" },
+  "Vincular lead": { es: "Vincular oportunidad" },
+  Vincular: { es: "Vincular" },
+  Banheiros: { es: "Baños" },
+  Área: { es: "Área" },
+  "Área (m²)": { es: "Área (m²)" },
+  Locação: { es: "Alquiler" },
+  "Venda e locação": { es: "Venta y alquiler" },
+  "Preço de venda (R$)": { es: "Precio de venta (R$)" },
+  "Preço de locação (R$)": { es: "Precio de alquiler (R$)" },
+  "Características (separadas por vírgula)": { es: "Características (separadas por comas)" },
+  Protegido: { es: "Protegido" },
+  "Protegido — você não cadastrou este contato.": { es: "Protegido: no registraste este contacto." },
+  "Você não cadastrou este contato — atenda pelo chat do CRM.": { es: "No registraste este contacto: atiende por el chat del CRM." },
 };
 
 /**

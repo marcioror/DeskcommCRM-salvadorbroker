@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PropertyForm } from "./PropertyForm";
 import { useCreateProperty } from "@/hooks/properties/useCreateProperty";
 import type { PropertyCreate } from "@/lib/schemas/properties";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   open: boolean;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function NewPropertyDialog({ open, onOpenChange }: Props) {
+  const t = useT();
   const create = useCreateProperty();
 
   async function handleSubmit(input: PropertyCreate) {
@@ -27,7 +29,7 @@ export function NewPropertyDialog({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Novo imóvel</DialogTitle>
+          <DialogTitle>{t("Novo imóvel")}</DialogTitle>
         </DialogHeader>
         <PropertyForm onSubmit={handleSubmit} submitting={create.isPending} />
       </DialogContent>

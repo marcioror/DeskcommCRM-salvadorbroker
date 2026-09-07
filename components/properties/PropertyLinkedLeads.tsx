@@ -6,8 +6,10 @@ import { X } from "@/lib/ui/icons";
 import { usePropertyLeadLinks, useUnlinkLeadFromProperty } from "@/hooks/properties/usePropertyLeadLinks";
 import { usePermission } from "@/hooks/auth/AuthProvider";
 import { LinkLeadDialog } from "./LinkLeadDialog";
+import { useT } from "@/hooks/i18n/useT";
 
 export function PropertyLinkedLeads({ propertyId }: { propertyId: string }) {
+  const t = useT();
   const [dialogOpen, setDialogOpen] = useState(false);
   const q = usePropertyLeadLinks(propertyId);
   const unlink = useUnlinkLeadFromProperty(propertyId);
@@ -29,13 +31,13 @@ export function PropertyLinkedLeads({ propertyId }: { propertyId: string }) {
       </div>
       {q.isError ? (
         <div className="space-y-2">
-          <p className="text-sm text-error-fg">Não foi possível carregar os leads vinculados.</p>
+          <p className="text-sm text-error-fg">{t("Não foi possível carregar os leads vinculados.")}</p>
           <Button size="sm" variant="outline" onClick={() => q.refetch()}>
             Tentar novamente
           </Button>
         </div>
       ) : links.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhum lead vinculado ainda.</p>
+        <p className="text-sm text-muted-foreground">{t("Nenhum lead vinculado ainda.")}</p>
       ) : (
         <ul className="space-y-1">
           {links.map((l) => (

@@ -111,11 +111,22 @@ describe("sidebarGroups", () => {
     //
     // A lista é EXATA de propósito. `toContain` deixaria um sexto item entrar
     // calado no sidebar e reabrir a mesma corrida por pixel.
+    //
+    // ⚠️ A TERCEIRA VAGA É DE `/app/properties` NESTE FORK, e não de
+    // `/app/tasks`. Decisão do dono do produto em 2026-09-07, na fusão com a
+    // v1.16.1: o negócio é uma imobiliária, o acervo é o que se abre todo dia,
+    // e Tarefas chegou nesta mesma versão sem estar em uso aqui.
+    //
+    // O que NÃO muda é o número — continuam TRÊS, porque a regra que este teste
+    // guarda é a dobra de 900px, não quais três. Trocar um pelo outro mantém o
+    // menu do mesmo tamanho; acrescentar seria reabrir a corrida por pixel que
+    // o hub veio resolver. Tarefas segue no grupo CRM, atrás de "Ver tudo em
+    // CRM" (a asserção do hub, logo abaixo, prende isso).
     const crm = sidebarGroups(true, null).find((g) => g.group.id === "crm");
     expect(crm?.items.map((i) => i.href)).toEqual([
       "/app/kanban",
       "/app/contacts",
-      "/app/tasks",
+      "/app/properties",
     ]);
     expect(NAV_GROUPS.find((g) => g.id === "crm")?.hub?.href).toBe("/app/crm");
   });
@@ -142,16 +153,21 @@ describe("sidebarGroups", () => {
 });
 
 describe("hubSections", () => {
-  it("o hub do CRM é inventário: as cinco telas do grupo, nas duas seções", () => {
+  it("o hub do CRM é inventário: as SEIS telas do grupo, nas duas seções", () => {
     // As seções são a régua do sidebar escrita por extenso — o que se abre todo
     // dia contra o que se define uma vez. Lista EXATA: `toContain` deixaria uma
     // tela nova entrar sem que ninguém decidisse de que lado dela ela cai.
     const secoes = hubSections("crm", true, null);
     expect(secoes.map((s) => s.section)).toEqual(["O dia a dia da venda", "Preparar a venda"]);
+    // Seis, e não as cinco do upstream: `/app/properties` é tela DESTE FORK.
+    // O hub é inventário — mostra também o que está no sidebar —, então Imóveis
+    // aparece aqui mesmo estando no menu, e Tarefas aparece aqui por ter cedido
+    // a vaga do menu. Nenhum dos dois saiu do grupo.
     expect(secoes.flatMap((s) => s.items.map((i) => i.href))).toEqual([
       "/app/kanban",
       "/app/contacts",
       "/app/tasks",
+      "/app/properties",
       "/app/products",
       "/app/settings/tenant/pipelines",
     ]);

@@ -49,8 +49,25 @@ const ACTION = join(process.cwd(), ".github/actions/preparar-node/action.yml");
  */
 const TETOS: Record<string, { minutos: number; razao: string }> = {
   "ci.yml::verify": {
-    minutos: 15,
-    razao: "trabalho real medido: p90 594s, máximo 609s em 51 verdes — folga de ~4m45",
+    // 25 NESTE FORK, e não os 15 do upstream. A régua deste arquivo é "quem
+    // sobe o teto tem de dizer por que o TRABALHO REAL cresceu" — e aqui ele
+    // cresceu por uma razão que não existe na casa do Rafael: a suíte carrega
+    // os arquivos de teste que só o fork tem (proteção de contato, módulo de
+    // imóveis, título de lead). Medido em 2026-08-26: ~390s só de `environment`
+    // nesses arquivos, num run de 750s contra o teto de 15 — o job era cortado
+    // pelo relógio DEPOIS de a suíte terminar, escondendo 4 falhas reais que só
+    // apareceram lendo o log. Vermelho por relógio não é vermelho honesto: ele
+    // esconde o vermelho de verdade.
+    //
+    // Medição desta rodada, para a próxima pessoa conferir em vez de acreditar:
+    // 713 arquivos, 7.608 casos. O número que decide subir de novo é a duração
+    // do passo "Unit tests", não a do job (o preâmbulo tem teto próprio, que é
+    // o que este arquivo inteiro existe para separar).
+    minutos: 25,
+    razao:
+      "fork: os arquivos de teste exclusivos (proteção de contato, imóveis) somam ~390s de " +
+      "environment; com teto de 15 o job era cortado DEPOIS da suíte terminar, escondendo 4 " +
+      "falhas reais (2026-08-26)",
   },
   "ci.yml::invariants": {
     minutos: 20,

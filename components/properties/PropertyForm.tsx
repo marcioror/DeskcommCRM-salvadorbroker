@@ -19,6 +19,7 @@ import {
 } from "@/lib/schemas/properties";
 import { parseReaisToCents } from "@/lib/money";
 import type { Property } from "@/lib/types/properties";
+import { useT } from "@/hooks/i18n/useT";
 
 interface FormShape {
   title: string;
@@ -61,6 +62,7 @@ function centsToReais(cents: number | null | undefined): string {
 }
 
 export function PropertyForm(props: Props) {
+  const t = useT();
   const { initial, submitting } = props;
   const form = useForm<FormShape>({
     defaultValues: {
@@ -153,11 +155,11 @@ export function PropertyForm(props: Props) {
   return (
     <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
       <div>
-        <Label htmlFor="title">Título</Label>
+        <Label htmlFor="title">{t("Título")}</Label>
         <Input id="title" {...form.register("title", { required: true })} />
       </div>
       <div>
-        <Label htmlFor="description">Descrição</Label>
+        <Label htmlFor="description">{t("Descrição")}</Label>
         <Textarea id="description" {...form.register("description")} />
       </div>
       <div className="grid grid-cols-2 gap-4">
@@ -191,22 +193,22 @@ export function PropertyForm(props: Props) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="sale">Venda</SelectItem>
-              <SelectItem value="rent">Locação</SelectItem>
-              <SelectItem value="both">Venda e locação</SelectItem>
+              <SelectItem value="rent">{t("Locação")}</SelectItem>
+              <SelectItem value="both">{t("Venda e locação")}</SelectItem>
             </SelectContent>
           </Select>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label htmlFor="priceSaleReais">Preço de venda (R$)</Label>
+          <Label htmlFor="priceSaleReais">{t("Preço de venda (R$)")}</Label>
           <Input id="priceSaleReais" placeholder="850.000,00" {...form.register("priceSaleReais")} />
           {form.formState.errors.priceSaleReais && (
             <p className="text-xs text-error-fg">{form.formState.errors.priceSaleReais.message}</p>
           )}
         </div>
         <div>
-          <Label htmlFor="priceRentReais">Preço de locação (R$)</Label>
+          <Label htmlFor="priceRentReais">{t("Preço de locação (R$)")}</Label>
           <Input id="priceRentReais" placeholder="3.500,00" {...form.register("priceRentReais")} />
           {form.formState.errors.priceRentReais && (
             <p className="text-xs text-error-fg">{form.formState.errors.priceRentReais.message}</p>
@@ -229,7 +231,7 @@ export function PropertyForm(props: Props) {
           <Input id="bedrooms" type="number" {...form.register("bedrooms")} />
         </div>
         <div>
-          <Label htmlFor="bathrooms">Banheiros</Label>
+          <Label htmlFor="bathrooms">{t("Banheiros")}</Label>
           <Input id="bathrooms" type="number" {...form.register("bathrooms")} />
         </div>
         <div>
@@ -237,16 +239,16 @@ export function PropertyForm(props: Props) {
           <Input id="parking_spots" type="number" {...form.register("parking_spots")} />
         </div>
         <div>
-          <Label htmlFor="area_total_m2">Área (m²)</Label>
+          <Label htmlFor="area_total_m2">{t("Área (m²)")}</Label>
           <Input id="area_total_m2" type="number" {...form.register("area_total_m2")} />
         </div>
       </div>
       <div>
-        <Label htmlFor="featuresRaw">Características (separadas por vírgula)</Label>
+        <Label htmlFor="featuresRaw">{t("Características (separadas por vírgula)")}</Label>
         <Input id="featuresRaw" placeholder="piscina, elevador, varanda" {...form.register("featuresRaw")} />
       </div>
       <Button type="submit" disabled={submitting}>
-        {submitting ? "Salvando…" : initial ? "Salvar alterações" : "Cadastrar imóvel"}
+        {submitting ? t("Salvando…") : initial ? t("Salvar alterações") : t("Cadastrar imóvel")}
       </Button>
     </form>
   );

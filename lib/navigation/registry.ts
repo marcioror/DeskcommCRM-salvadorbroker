@@ -227,13 +227,20 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     // vence hoje, do mesmo jeito que abre o Inbox. Sem `minRole`: `viewer` VÊ
     // o que o time combinou (é informação de operação), e a criação é cobrada
     // pela rota, com `requireRole("agent")`.
+    //
+    // ⚠️ SEM `sidebar` NESTE FORK — decisão do dono do produto, 2026-09-07.
+    // O sidebar do CRM comporta TRÊS destinos (acima disso o menu rola em
+    // 900px, provado por `navegacao.spec.ts`), e este fork tem um quarto
+    // candidato que o upstream não tem: Imóveis. Numa imobiliária o acervo é o
+    // dia a dia; Tarefas chegou na v1.16 e ainda não está em uso aqui.
+    // Continua sendo CRM e continua alcançável por "Ver tudo em CRM" e pelo ⌘K
+    // — o que muda é um clique, não o grupo.
     href: "/app/tasks",
     label: "Tarefas",
     description: "O que ficou combinado, com prazo — e o que já venceu sem ninguém fazer.",
     icon: ListChecks,
     group: "crm",
     section: "O dia a dia da venda",
-    sidebar: true,
   },
   {
     // ⚠️ Esta tela nasceu porque a FERRAMENTA já existia sem ela. O agente de IA
@@ -314,11 +321,18 @@ export const NAV_DESTINATIONS: NavDestination[] = [
     // Tarefas se abrem todo dia. É esse o corte que decide quem fica no menu.
   },
   {
+    // Tela DESTE FORK (Salvador Broker). `section` é obrigatória em grupo com
+    // hub — sem ela o destino some do hub, e `navegacao-registry.test.ts`
+    // reprova. O grupo CRM ganhou hub na v1.16, e esta tela é anterior a isso:
+    // ela atravessou a fusão sem a chave nova.
+    //
+    // Fica no sidebar, e Tarefas cede a vaga — ver o comentário lá em cima.
     href: "/app/properties",
     label: "Imóveis",
     description: "Catálogo de imóveis para venda e locação, vinculados aos leads interessados.",
     icon: Buildings,
     group: "crm",
+    section: "O dia a dia da venda",
     sidebar: true,
   },
 

@@ -11,6 +11,7 @@ import { PropertyGallery } from "@/components/properties/PropertyGallery";
 import { PropertyLinkedLeads } from "@/components/properties/PropertyLinkedLeads";
 import { EditPropertyDialog } from "@/components/properties/EditPropertyDialog";
 import { usePermission } from "@/hooks/auth/AuthProvider";
+import { useT } from "@/hooks/i18n/useT";
 import {
   PROPERTY_PURPOSE_LABEL,
   PROPERTY_STATUS_LABEL,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/types/properties";
 
 export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
+  const t = useT();
   const [editOpen, setEditOpen] = useState(false);
   const q = useProperty(propertyId);
   const deactivate = useDeactivateProperty(propertyId);
@@ -38,7 +40,7 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
   if (q.isError || !q.data?.data) {
     return (
       <div className="p-6">
-        <Card className="p-6 text-center text-sm text-muted-foreground">Imóvel não encontrado.</Card>
+        <Card className="p-6 text-center text-sm text-muted-foreground">{t("Imóvel não encontrado.")}</Card>
       </div>
     );
   }
@@ -87,7 +89,7 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
           <dd>{property.bedrooms ?? "—"}</dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Banheiros</dt>
+          <dt className="text-muted-foreground">{t("Banheiros")}</dt>
           <dd>{property.bathrooms ?? "—"}</dd>
         </div>
         <div>
@@ -95,7 +97,7 @@ export function PropertyDetailClient({ propertyId }: { propertyId: string }) {
           <dd>{property.parking_spots ?? "—"}</dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Área</dt>
+          <dt className="text-muted-foreground">{t("Área")}</dt>
           <dd>{property.area_total_m2 ?? "—"} m²</dd>
         </div>
       </Card>

@@ -111,7 +111,9 @@ export function EditContactDialog({ contact, open, onOpenChange, customFieldDefs
             <Label htmlFor="ec-email">Email</Label>
             <Input id="ec-email" type="email" disabled={contact.contact_protected} {...form.register("email")} />
             {contact.contact_protected && (
-              <p className="text-xs text-muted-foreground">Protegido — você não cadastrou este contato.</p>
+              <p className="text-xs text-muted-foreground">
+                {t("Protegido — você não cadastrou este contato.")}
+              </p>
             )}
           </div>
           <div className="space-y-2">

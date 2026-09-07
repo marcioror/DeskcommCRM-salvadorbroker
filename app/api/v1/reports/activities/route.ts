@@ -30,6 +30,7 @@ import { z } from "zod";
 import { fail, ok } from "@/lib/api/wrappers";
 import { isServiceRoleConfigured } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
+import { roleAtLeast } from "@/lib/auth/types";
 import type { PipelineVocabulary } from "@/lib/kanban/types";
 import {
   fusoValido,
@@ -128,6 +129,11 @@ export async function GET(req: NextRequest): Promise<Response> {
   const relatorio = montarRelatorio(bruto, {
     nomes,
     vocabulary: (funil?.vocabulary ?? null) as PipelineVocabulary | null,
+    // A rota é liberada a `viewer`; o rótulo do contato cai para o TELEFONE
+    // quando não há nome, e esse é dado que a proteção de contato esconde de
+    // quem não cadastrou o lead. Ver o comentário no ponto de uso, em
+    // `lib/reports/atividades.ts`, para por que aqui o corte é por papel.
+    podeVerContatoSensivel: roleAtLeast(activeOrg.role, "manager"),
   });
 
   return ok(

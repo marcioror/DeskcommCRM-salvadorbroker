@@ -24,7 +24,23 @@ import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
-import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import {
+  rotuloDoContatoProtegido,
+  type ContatoNomeavelComDono,
+} from "@/lib/contacts/visibility";
+import type { Actor } from "@/lib/api/handlers/types";
+
+/**
+ * O contato como este dossiê o lê. `created_by_user_id` é o campo que a
+ * proteção de contato precisa para decidir, e ele NÃO estava sendo selecionado
+ * — era por isso que a regra não tinha como ser aplicada aqui.
+ */
+type ContatoDoDossie = ContatoNomeavelComDono & {
+  id: string;
+  name: string | null;
+  display_name: string | null;
+  phone_number: string | null;
+};
 import {
   resumoDoNo,
   rotuloDaAresta,
@@ -142,7 +158,10 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const authz = await requireRole("viewer", { requestId, resource: "followup_enrollments" });
   if (!authz.ok) return authz.response;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { org } = authz;
+  const { org, user } = authz;
+  // O papel vem do resultado do `requireRole`, nunca do body — mesmo padrão da
+  // rota irmã (`followups/queue`) e do resto do módulo de proteção.
+  const actor: Actor = { type: "user", id: user.id, role: org.role };
 
   const supabase = await createClient();
   const { data: row, error } = await supabase
@@ -151,7 +170,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
       `id, status, contact_id, pointer_id, version_id, current_node_id, next_eval_at, claimed_until,
        started_at, completed_at, updated_at, outcome, cancel_reason, last_error, attempts, max_attempts,
        steps_taken, timing_plan,
-       contacts:contact_id(id, name, display_name, phone_number),
+       contacts:contact_id(id, name, display_name, phone_number, created_by_user_id),
        followup_flow_pointers:pointer_id(name),
        ai_agents:agent_id(name),
        followup_flow_versions:version_id(graph)`,
@@ -199,8 +218,8 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
 
   const contato = embedded(
     row.contacts as
-      | { id: string; name: string | null; display_name: string | null; phone_number: string | null }
-      | Array<{ id: string; name: string | null; display_name: string | null; phone_number: string | null }>
+      | ContatoDoDossie
+      | ContatoDoDossie[]
       | null,
   );
   const pointer = embedded(
@@ -229,7 +248,11 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
     steps_taken: row.steps_taken,
     contact: {
       id: row.contact_id,
-      name: contato ? rotuloDoContato(contato) : "Contato removido",
+      // ⚠️ `rotuloDoContatoProtegido`, e não `rotuloDoContato`: a queda para o
+      // telefone quando não há nome é de propósito, mas não sabe nada de
+      // proteção de contato — e este campo é o ÚNICO lugar do dossiê onde o
+      // número aparece. Ver o cabeçalho da função.
+      name: rotuloDoContatoProtegido(contato, actor),
     },
     flow: {
       pointer_id: row.pointer_id,

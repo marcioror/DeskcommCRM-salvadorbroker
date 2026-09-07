@@ -6,6 +6,7 @@ import { checkDailyLimit, espacarEnvio } from "@/lib/automation/throttle";
 import { adiarAteAJanelaAbrir } from "@/lib/automation/janela-do-canal";
 import { sendMessageHandler } from "@/app/api/v1/messages/_handler";
 import { reportarEnvio, type MensagemEnviada } from "@/lib/automation/desfecho-do-envio";
+import { checarGuardasDeContato } from "@/lib/automation/guarda-do-contato";
 
 async function postponeUntil(ctx: ActionCtx, config: Record<string, unknown>): Promise<string | null> {
   const sessionId = typeof config.channel_session_id === "string" ? config.channel_session_id : null;
@@ -26,10 +27,11 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
   if (!sessionId || !template) {
     return { type: "send_whatsapp_message", status: "failed", error: "missing_config" };
   }
-  const contact = ctx.context.contact as { id: string; is_blocked?: boolean; phone_number?: string | null } | undefined;
-  if (!contact) return { type: "send_whatsapp_message", status: "skipped", detail: { reason: "no_contact" } };
-  if (contact.is_blocked) return { type: "send_whatsapp_message", status: "skipped", detail: { reason: "contact_blocked" } };
-  if (!contact.phone_number) return { type: "send_whatsapp_message", status: "skipped", detail: { reason: "no_phone" } };
+  // Guardas compartilhadas com send_ai_message — ver guarda-do-contato.ts
+  // (existe/bloqueado/telefone/consentimento, este último um gate FIXO).
+  const guarda = checarGuardasDeContato(ctx);
+  if (!guarda.ok) return { type: "send_whatsapp_message", status: "skipped", detail: { reason: guarda.reason } };
+  const contact = guarda.contact;
 
   // O espaçamento é COMPARTILHADO com a ação de IA (mesmo número, mesmo
   // contador) — ver lib/automation/throttle.ts.

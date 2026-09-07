@@ -1,7 +1,10 @@
 "use client";
+
+import { useLocaleDeData } from "@/hooks/i18n/useLocaleDeData";
+
+import { useT } from "@/hooks/i18n/useT";
 import { useState } from "react";
 import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { ShieldCheck, PencilSimple } from "@/lib/ui/icons";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
@@ -10,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useContact } from "@/hooks/contacts/useContact";
 import { useAuth } from "@/hooks/auth/AuthProvider";
+import { useDefaultPipeline } from "@/hooks/pipelines/useDefaultPipeline";
+import { camposDoFunil } from "@/lib/leads/campos-do-funil";
 import { ROLE_RANK } from "@/lib/auth/types";
 import { TimelineView } from "@/components/contacts/TimelineView";
 import { EditContactDialog } from "@/components/contacts/EditContactDialog";
@@ -17,6 +22,7 @@ import { AnonymizeDialog } from "@/components/contacts/AnonymizeDialog";
 import { PropostasDeDado } from "@/components/contacts/PropostasDeDado";
 import { ConversaNoDossie } from "@/components/kanban/ConversaNoDossie";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { phoneForDisplay } from "@/lib/channels/phone-variants";
 import { ContatoProtegido } from "@/components/contacts/ContatoProtegido";
 
 interface Props {
@@ -24,8 +30,13 @@ interface Props {
 }
 
 export function ContactDetailClient({ contactId }: Props) {
+  const localeDaData = useLocaleDeData();
+  const t = useT();
   const q = useContact(contactId);
   const { user, activeOrg } = useAuth();
+  // As DEFINIÇÕES continuam no funil (`crm_pipelines.settings.fields[]`) — só o
+  // VALOR mora no contato. `camposDoFunil` é o mesmo leitor que o Kanban usa.
+  const pipelineQuery = useDefaultPipeline(Boolean(activeOrg));
   const [editOpen, setEditOpen] = useState(false);
   const [anonOpen, setAnonOpen] = useState(false);
 
@@ -41,36 +52,33 @@ export function ContactDetailClient({ contactId }: Props) {
   if (q.isError || !q.data) {
     return (
       <div className="p-6">
-        <Card className="p-6 text-center text-sm text-error-fg">
-          Erro ao carregar contato.
-        </Card>
+        <Card className="p-6 text-center text-sm text-error-fg">{t("Erro ao carregar contato.")}</Card>
       </div>
     );
   }
 
   const contact = q.data.data;
   const isAdmin =
-    user.is_platform_admin ||
-    (activeOrg && ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin);
+    user.is_platform_admin || (activeOrg && ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin);
 
   // Uma decisão, um lugar (lib/contacts/rotulo-do-contato.ts). Esta tela era
   // uma das DUAS que ignoravam o telefone: contato com número e sem nome
   // aparecia como "Sem nome" aqui e com o número no inbox.
-  const displayName = rotuloDoContato(contact);
+  const displayName = rotuloDoContato(contact, t);
 
   return (
     <div className="space-y-4 p-6">
       {contact.is_anonymized && (
         <div
           role="alert"
-          className="sticky top-0 z-20 flex items-center gap-3 rounded-md border border-error-fg/30 bg-error-bg p-3 text-sm text-error-fg"
+          className="border-error-fg/30 sticky top-0 z-20 flex items-center gap-3 rounded-md border bg-error-bg p-3 text-sm text-error-fg"
         >
           <ShieldCheck size={18} weight="duotone" aria-hidden />
           <span>
-            Contato anonimizado (LGPD)
+            {t("Contato anonimizado (LGPD)")}
             {contact.anonymized_at &&
-              ` em ${format(new Date(contact.anonymized_at), "dd/MM/yyyy", { locale: ptBR })}`}
-            {" — edição bloqueada."}
+              ` em ${format(new Date(contact.anonymized_at), "dd/MM/yyyy", { locale: localeDaData })}`}
+            {t(" — edição bloqueada.")}
           </span>
         </div>
       )}
@@ -80,7 +88,7 @@ export function ContactDetailClient({ contactId }: Props) {
           {/* Sem truncar: nome é dado que a tela existe pra mostrar, e cortar
               com reticências sem um jeito de ver o resto violaria o princípio
               de nunca esconder informação crítica. Deixa quebrar linha. */}
-          <h1 className="text-2xl font-semibold tracking-tight break-words">{displayName}</h1>
+          <h1 className="break-words text-2xl font-semibold tracking-tight">{displayName}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             {contact.contact_protected ? (
               <ContatoProtegido valor={null} protegido />
@@ -88,22 +96,24 @@ export function ContactDetailClient({ contactId }: Props) {
               <>
                 {contact.email && <span>{contact.email}</span>}
                 {contact.email && contact.phone_number && <span>•</span>}
-                {contact.phone_number && <span>{contact.phone_number}</span>}
+                {contact.phone_number && <span>{phoneForDisplay(contact.phone_number)}</span>}
               </>
             )}
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             {contact.tags.map((t) => (
-              <Badge key={t} variant="neutral">{t}</Badge>
+              <Badge key={t} variant="neutral">
+                {t}
+              </Badge>
             ))}
-            {contact.is_blocked && <Badge variant="warning">Bloqueado</Badge>}
-            {contact.is_anonymized && <Badge variant="destructive">Anonimizado</Badge>}
+            {contact.is_blocked && <Badge variant="warning">{t("Bloqueado")}</Badge>}
+            {contact.is_anonymized && <Badge variant="destructive">{t("Anonimizado")}</Badge>}
           </div>
         </div>
         {!contact.is_anonymized && (
           <Button variant="outline" onClick={() => setEditOpen(true)} className="shrink-0">
             <PencilSimple size={16} weight="bold" aria-hidden />
-            <span>Editar</span>
+            <span>{t("Editar")}</span>
           </Button>
         )}
       </header>
@@ -124,7 +134,7 @@ export function ContactDetailClient({ contactId }: Props) {
 
       <Tabs defaultValue="overview">
         <TabsList>
-          <TabsTrigger value="overview">Visão geral</TabsTrigger>
+          <TabsTrigger value="overview">{t("Visão geral")}</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           {isAdmin && <TabsTrigger value="lgpd">LGPD</TabsTrigger>}
         </TabsList>
@@ -133,7 +143,7 @@ export function ContactDetailClient({ contactId }: Props) {
           <Card className="p-4">
             <dl className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
               <div>
-                <dt className="text-xs uppercase text-muted-foreground">Nome</dt>
+                <dt className="text-xs uppercase text-muted-foreground">{t("Nome")}</dt>
                 <dd className="mt-1">{contact.name ?? "—"}</dd>
               </div>
               <div>
@@ -147,29 +157,35 @@ export function ContactDetailClient({ contactId }: Props) {
                 </dd>
               </div>
               <div>
-                <dt className="text-xs uppercase text-muted-foreground">Telefone</dt>
+                <dt className="text-xs uppercase text-muted-foreground">{t("Telefone")}</dt>
                 <dd className="mt-1">
-                  <ContatoProtegido valor={contact.phone_number} protegido={contact.contact_protected} />
+                  {/* A formatação do upstream entra no VALOR, não em volta do
+                      componente: contato protegido não mostra dígito nenhum, e
+                      formatar antes mantém as duas regras em um lugar só. */}
+                  <ContatoProtegido
+                    valor={contact.phone_number ? phoneForDisplay(contact.phone_number) : null}
+                    protegido={contact.contact_protected}
+                  />
                 </dd>
               </div>
               <div>
-                <dt className="text-xs uppercase text-muted-foreground">Origem</dt>
+                <dt className="text-xs uppercase text-muted-foreground">{t("Origem")}</dt>
                 <dd className="mt-1">{contact.source}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase text-muted-foreground">Última atividade</dt>
+                <dt className="text-xs uppercase text-muted-foreground">{t("Última atividade")}</dt>
                 <dd className="mt-1">
                   {contact.last_activity_at
                     ? format(new Date(contact.last_activity_at), "dd/MM/yyyy HH:mm", {
-                        locale: ptBR,
+                        locale: localeDaData,
                       })
                     : "—"}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs uppercase text-muted-foreground">Criado em</dt>
+                <dt className="text-xs uppercase text-muted-foreground">{t("Criado em")}</dt>
                 <dd className="mt-1">
-                  {format(new Date(contact.created_at), "dd/MM/yyyy", { locale: ptBR })}
+                  {format(new Date(contact.created_at), "dd/MM/yyyy", { locale: localeDaData })}
                 </dd>
               </div>
               <div>
@@ -178,7 +194,9 @@ export function ContactDetailClient({ contactId }: Props) {
                   {contact.tags.length === 0
                     ? "—"
                     : contact.tags.map((t) => (
-                        <Badge key={t} variant="neutral">{t}</Badge>
+                        <Badge key={t} variant="neutral">
+                          {t}
+                        </Badge>
                       ))}
                 </dd>
               </div>
@@ -192,24 +210,25 @@ export function ContactDetailClient({ contactId }: Props) {
 
         {isAdmin && (
           <TabsContent value="lgpd" className="mt-4">
-            <Card className="p-4 space-y-4">
+            <Card className="space-y-4 p-4">
               <div>
-                <h2 className="text-lg font-semibold">Direito ao esquecimento (LGPD)</h2>
+                <h2 className="text-lg font-semibold">{t("Direito ao esquecimento (LGPD)")}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  A anonimização é irreversível. Use somente após confirmação formal
-                  do titular ou ordem judicial.
+                  {t(
+                    "A anonimização é irreversível. Use somente após confirmação formal do titular ou ordem judicial.",
+                  )}
                 </p>
               </div>
               {contact.is_anonymized ? (
                 <p className="text-sm text-muted-foreground">
-                  Este contato já foi anonimizado
+                  {t("Este contato já foi anonimizado")}
                   {contact.anonymized_at &&
-                    ` em ${format(new Date(contact.anonymized_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}`}
+                    ` em ${format(new Date(contact.anonymized_at), "dd/MM/yyyy HH:mm", { locale: localeDaData })}`}
                   .
                 </p>
               ) : (
                 <Button variant="destructive" onClick={() => setAnonOpen(true)}>
-                  Anonimizar contato
+                  {t("Anonimizar contato")}
                 </Button>
               )}
             </Card>
@@ -221,12 +240,9 @@ export function ContactDetailClient({ contactId }: Props) {
         contact={contact}
         open={editOpen}
         onOpenChange={setEditOpen}
+        customFieldDefs={camposDoFunil(pipelineQuery.data?.pipeline.settings ?? null)}
       />
-      <AnonymizeDialog
-        contactId={contactId}
-        open={anonOpen}
-        onOpenChange={setAnonOpen}
-      />
+      <AnonymizeDialog contactId={contactId} open={anonOpen} onOpenChange={setAnonOpen} />
     </div>
   );
 }

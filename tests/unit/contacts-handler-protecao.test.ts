@@ -79,6 +79,12 @@ function makeSupabase(
       const builder = {
         select: () => builder,
         eq: () => builder,
+        // `.is("is_merged_into", null)` entrou na fusão de 2026-09-07 (o
+        // upstream passou a esconder da lista o contato já fundido em outro).
+        // O dublê APRENDE o método novo — nunca se afrouxa a regra que ele
+        // mede: sem esta linha os três casos morrem em "is is not a function",
+        // que se lê como defeito da proteção e não é.
+        is: () => builder,
         in: () => builder,
         order: () => builder,
         limit: () => builder,

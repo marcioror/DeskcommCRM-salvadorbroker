@@ -204,6 +204,26 @@ v_hex() {
   return 1
 }
 
+# O idioma em que o sistema abre para QUEM INSTALA e para quem ele convidar.
+#
+# Vai para `organizations.locale`, e não só para o usuário dono: é a organização
+# que responde pelos convidados que ainda não existem — quem entra sem
+# preferência própria cai no idioma da empresa (a cadeia vive em
+# `lib/auth/server.ts`). Sem isto, uma clínica na Colômbia instalava em espanhol
+# e via o produto inteiro em português na primeira tela, sem nada indicando onde
+# trocar.
+#
+# Aceita o código e o número da opção, porque quem lê "1) Português" digita "1".
+v_locale() {
+  case "$1" in
+    ''|pt-BR|es) return 0;;
+    1) return 0;;
+    2) return 0;;
+  esac
+  echo "Escolha 1 (Português) ou 2 (Español) — ou Enter para Português"
+  return 1
+}
+
 v_supabase_url() {
   case "$1" in
     https://*.supabase.co) ;;
@@ -487,10 +507,35 @@ envq() { printf '%s="%s"\n' "$1" "$(printf '%s' "${2-}" | sed 's/[\\"$`]/\\&/g')
 # mais difícil, e a última das credenciais — perdia tudo o que já tinha digitado
 # e recomeçava do zero na tentativa seguinte. Justamente quem mais precisa de
 # uma segunda tentativa é quem tem menos paciência para redigitar 11 campos.
-# Mesma permissão do .env (600): o conteúdo é o mesmo, inclusive os segredos.
+# Mesma permissão do .env (600): o conteúdo é quase o mesmo, segredos inclusive
+# — a exceção é o token de CONTA, e o bloco abaixo explica por quê.
 PARTIAL_FILE="${PARTIAL_FILE:-.env.partial}"
+
+# A exceção: segredo de CONTA não entra no rascunho, nem por um instante.
+#
+# O `SUPABASE_ACCESS_TOKEN` abre a Management API, que cria e apaga projetos —
+# por isso ele já não vai para o `.env` (não há `envq` para ele) e o README
+# promete, na tabela de pré-requisitos, que "ele não fica salvo: é usado uma vez
+# e some com o processo". O rascunho desmentia as duas coisas: `ask_one` chama
+# `save_partial` para TODA resposta aceita, então o token ficava em `.env.partial`
+# desde a pergunta até o `rm -f` que só acontece depois de o `.env` ser escrito —
+# e qualquer aborto no meio (Ctrl-C, DNS errado, `die` de validação) o deixava no
+# disco, para a tentativa seguinte recarregar.
+#
+# POR QUE PULAR A VARIÁVEL, e não um `trap` que apague o rascunho em qualquer
+# saída: o trap protegeria este segredo melhor e mataria a única razão de o
+# rascunho existir. Ele existe para a saída ANORMAL — é exatamente aí que o trap
+# dispararia, e quem travou na connection string voltaria a redigitar as 11
+# respostas anteriores. Pular tira do disco o que não pode ficar e deixa intacto
+# o que o rascunho protege.
+#
+# O efeito colateral é deliberado e está dito na tela (ver o aviso junto do
+# "✓ retomando"): ao retomar, o token é perguntado de novo. Para um segredo de
+# conta esse é o comportamento certo, e o campo é opcional — Enter pula.
+RASCUNHO_NAO_GUARDA=" SUPABASE_ACCESS_TOKEN "
 save_partial() {
   local var="$1" val="${!1-}" tmp="${PARTIAL_FILE}.tmp.$$"
+  case "$RASCUNHO_NAO_GUARDA" in *" $var "*) return 0 ;; esac
   umask 077
   { [ -f "$PARTIAL_FILE" ] && grep -vE "^${var}=" "$PARTIAL_FILE" || true; } > "$tmp"
   envq "$var" "$val" >> "$tmp"
@@ -809,6 +854,9 @@ if [ -f "$PARTIAL_FILE" ]; then
   load_env "$PARTIAL_FILE"
   c_grn "✓ retomando: $(grep -c '=' "$PARTIAL_FILE" 2>/dev/null || echo 0) resposta(s) guardadas da tentativa anterior"
   c_dim "  (para responder tudo de novo do zero: rm $PARTIAL_FILE)"
+  # Sem esta linha, ser perguntado de novo sobre o token — depois de uma tela
+  # dizendo que N respostas foram guardadas — lê como defeito do instalador.
+  c_dim "  (o token do Supabase é de conta e nunca entra no rascunho: ele é perguntado de novo. Enter pula)"
 fi
 
 # ── Proxy reverso: quem está com as portas 80 e 443? ────────────────────────
@@ -1100,7 +1148,7 @@ esac
 if [ "$AI_PROVIDER" = "openai" ]; then
   CAMPO_OPENAI_EXTRA=""
 else
-  CAMPO_OPENAI_EXTRA="OPENAI_API_KEY|Chave da OpenAI — só para ouvir áudios e usar a base de conhecimento (Enter pula)||v_openai|secret|opcional"
+  CAMPO_OPENAI_EXTRA="OPENAI_API_KEY|Chave da OpenAI — só para ouvir áudios e usar a base de conhecimento (Enter pula: dá para cadastrar depois pela tela, em IA › Credenciais)||v_openai|secret|opcional"
 fi
 
 # ── A versão que esta instalação vai rodar ───────────────────────────────────
@@ -1158,11 +1206,25 @@ FIELDS=(
   "NEXT_PUBLIC_SUPABASE_ANON_KEY|Supabase anon key (Settings > API)||v_anon||"
   "SUPABASE_SERVICE_ROLE_KEY|Supabase service_role key (Settings > API)||v_service|secret|"
   "SUPABASE_DB_URL|Supabase connection string — Session pooler, modo URI (Settings > Database)||v_db_url|secret|"
+  # Token de conta, e por isso NÃO vai para o `.env` (não há `envq` para ele):
+  # a Management API que ele abre cria e apaga projetos, e guardá-lo numa VPS
+  # seria trocar um bug de primeira impressão por um passivo de segurança. Ele
+  # é usado uma vez, aqui, e some com o processo.
+  #
+  # Sem ele, o Site URL do projeto Supabase fica em `localhost:3000` — e o reset
+  # de senha, a confirmação de e-mail e o aceite de convite chegam com link para
+  # uma máquina que não existe fora do laptop de quem desenvolve. Era o estado
+  # de TODA instalação feita pelo caminho documentado. (issue #431/#426)
+  "SUPABASE_ACCESS_TOKEN|Token de acesso do Supabase — configura os links de e-mail (supabase.com/dashboard/account/tokens). NÃO fica salvo. Enter pula|||secret|opcional"
   "$CAMPO_IA"
   ${CAMPO_OPENAI_EXTRA:+"$CAMPO_OPENAI_EXTRA"}
   "OWNER_EMAIL|E-mail do primeiro admin (dono)||v_email||"
   "OWNER_PASSWORD|Senha do primeiro admin (mínimo 8 caracteres)||v_password|secret|"
   "APP_NAME|Nome que aparece na interface (Enter para o padrão)|DeskcommCRM|||"
+  # Idioma da instalação. Fica JUNTO do nome do produto de propósito: as duas
+  # perguntas são "como o sistema se apresenta", e separá-las faria a segunda
+  # parecer configuração técnica.
+  "APP_LOCALE|Idioma do sistema — 1) Português  2) Español (Enter = Português)|1|v_locale||"
   # Sem default, e `opcional`: em `--yes` o `ask_one` devolve 0 sem associar a
   # variável (campo sem default e sem `opcional` morre em `die`), e o `envq` lá
   # embaixo usa `${APP_ACCENT_HEX:-}`. Enter = a cor do produto, que é o
@@ -1461,7 +1523,15 @@ esac
   printf '# APP_ACCENT_HEX é a SEMENTE da cor: o banco (platform_branding) manda depois\n'
   printf '# da primeira leitura, mas é daqui que sai a cor dos e-mails de acesso, que o\n'
   printf '# marca-emails.sh empurra para o GoTrue e o banco não alcança.\n'
+  # Normaliza a escolha do idioma ANTES de gravar: o campo aceita "1"/"2"
+  # porque é o que se digita lendo um menu numerado, mas quem lê o `.env` — o
+  # bootstrap, o SQL abaixo, um operador conferindo — precisa do código.
+  case "${APP_LOCALE:-}" in
+    2|es) APP_LOCALE="es";;
+    *)    APP_LOCALE="pt-BR";;
+  esac
   envq APP_NAME "$APP_NAME"
+  envq APP_LOCALE "$APP_LOCALE"
   envq APP_LOGO_URL "${APP_LOGO_URL:-}"
   # Perguntar sem gravar seria PIOR que não perguntar: este bloco fecha com
   # `} > .env`, que TRUNCA o arquivo a partir da lista fechada de `envq` acima e
@@ -1474,6 +1544,19 @@ esac
   printf '# Endereço de suporte que o CLIENTE FINAL vê (conta suspensa, cobrança).\n'
   printf '# Vazio = a tela não mostra endereço nenhum.\n'
   envq SUPPORT_EMAIL "${SUPPORT_EMAIL:-}"
+  # AGENDA · GOOGLE CALENDAR — gravadas VAZIAS, e de propósito NÃO perguntadas.
+  #
+  # Sem as duas a Agenda funciona inteira: some o botão "Conectar Google" e a
+  # tela explica o que falta — inclusive o endereço de retorno a registrar no
+  # console, pronto para copiar. Quem quiser ligar preenche no `.env` depois.
+  #
+  # ⚠️ Não viram pergunta na entrevista porque o instalador é a PRIMEIRA
+  # impressão do produto: duas perguntas a mais, sobre um recurso opcional que a
+  # maioria não usa, custam a todo mundo para servir a poucos. Elas existem aqui
+  # para que quem PREENCHER à mão não perca o valor no próximo `install.sh` —
+  # que é exatamente o que o gate `test-validators.sh` cobra.
+  envq GOOGLE_CALENDAR_CLIENT_ID "${GOOGLE_CALENDAR_CLIENT_ID:-}"
+  envq GOOGLE_CALENDAR_CLIENT_SECRET "${GOOGLE_CALENDAR_CLIENT_SECRET:-}"
   # As três acima e as duas abaixo entram aqui pelo MESMO motivo, e não por
   # simetria: o .env é escrito com truncamento (`} > .env`, no fecho deste
   # bloco), então chave que este script não grava é APAGADA na execução
@@ -1503,6 +1586,13 @@ esac
   printf '# OpenAI: transcrição dos áudios do WhatsApp (Whisper) + embeddings do RAG.\n'
   printf '# Opcional — sem ela a IA responde sem a base e pede o áudio em texto.\n'
   envq OPENAI_API_KEY "${OPENAI_API_KEY:-}"
+  printf '# Web Push: aviso na bandeja do sistema com a aba do CRM fechada.\n'
+  printf '# Opcional e VAZIO por padrão — sem o par, os avisos aparecem só com o\n'
+  printf '# site aberto, que é exatamente o que acontecia antes. Para ligar:\n'
+  printf '#   npx web-push generate-vapid-keys\n'
+  printf '# e cole as duas chaves aqui (depois: docker compose up -d app).\n'
+  envq VAPID_PUBLIC_KEY "${VAPID_PUBLIC_KEY:-}"
+  envq VAPID_PRIVATE_KEY "${VAPID_PRIVATE_KEY:-}"
   printf '# Telemetria de erros (você escolheu isto durante a instalação).\n'
   printf '#   "off"  = não envia nada.\n'
   printf '#   vazio  = só ERRO pro Sentry da comunidade, com CPF/telefone/e-mail\n'
@@ -1684,7 +1774,46 @@ fi
 #
 # `|| true` como cinto de segurança: o script já promete nunca sair diferente de
 # 0, e mesmo assim a instalação não pode morrer por causa do e-mail.
-bash "$KIT_DIR/marca-emails.sh" --projeto "$PROJECT_DIR" || true
+# O que o `marca-emails.sh` não conseguiu fazer sozinho, repetido na TELA FINAL
+# com o domínio já preenchido.
+#
+# O aviso dele existe desde sempre, e sai ~200 linhas antes do fim — no meio de
+# um log de dez minutos, seguido de uma tela verde de "Instalação concluída!".
+# Quem instala não volta para lê-lo, e descobre o problema quando um usuário
+# clica em "esqueci minha senha" e cai num `localhost:3000` que não existe fora
+# da máquina de quem desenvolve. (issue #431/#426)
+pendencia_dos_emails() {
+  [ -s "${PENDENCIA_EMAIL:-/dev/null}" ] || return 0
+  cat <<PEND
+
+$(c_ylw "  ─── FALTA UM PASSO, e ele é no painel do Supabase ─────")
+
+  Os e-mails de acesso (esqueci minha senha, confirmação de cadastro e
+  aceite de convite) ainda não levam para este app. Sem este passo,
+  ninguém consegue redefinir a própria senha.
+
+  O que o passo automático encontrou:
+
+$(sed 's/^/    /' "$PENDENCIA_EMAIL")
+
+  Em https://supabase.com/dashboard → seu projeto → Authentication →
+  URL Configuration, preencha:
+
+       Site URL:       https://${DOMAIN}
+       Redirect URLs:  https://${DOMAIN}/auth/confirm
+
+  Depois é só salvar — não precisa reiniciar nada aqui.
+
+  Para o instalador fazer isso sozinho da próxima vez, rode
+  \`bash hostgator-setup-kit/install.sh\` de novo e informe o token de
+  acesso quando ele perguntar (supabase.com/dashboard/account/tokens).
+PEND
+}
+
+PENDENCIA_EMAIL="$(mktemp)"
+PENDENCIA_ARQUIVO="$PENDENCIA_EMAIL" \
+  SUPABASE_ACCESS_TOKEN="${SUPABASE_ACCESS_TOKEN:-}" \
+  bash "$KIT_DIR/marca-emails.sh" --projeto "$PROJECT_DIR" || true
 
 # ── 8. Bootstrap do 1º dono (cria no Auth + promove via psql) ───────────────
 step "Criando o primeiro admin (${OWNER_EMAIL})"
@@ -1694,7 +1823,7 @@ curl -fsS -X POST "${NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users" \
   -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
   -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"${OWNER_EMAIL}\",\"password\":\"${OWNER_PASSWORD}\",\"email_confirm\":true}" \
+  -d "{\"email\":\"${OWNER_EMAIL}\",\"password\":\"${OWNER_PASSWORD}\",\"email_confirm\":true,\"user_metadata\":{\"locale\":\"${APP_LOCALE:-pt-BR}\"}}" \
   >/dev/null 2>&1 || true
 
 # 2) Resolve o id direto do auth.users e cria org + membership + platform_admin.
@@ -1714,8 +1843,21 @@ begin
   end if;
   select id into v_org from public.organizations where slug='minha-empresa';
   if v_org is null then
-    insert into public.organizations (slug, display_name, legal_name, created_by)
-    values ('minha-empresa','Minha Empresa','Minha Empresa', v_uid) returning id into v_org;
+    -- `locale` aqui, e não só no usuário dono: é a organização que responde
+    -- pelos convidados que ainda não existem. Quem entra sem preferência
+    -- própria cai neste valor, então gravar só no dono entregaria o sistema em
+    -- português para todo mundo que ele convidasse numa instalação em espanhol.
+    insert into public.organizations (slug, display_name, legal_name, locale, created_by)
+    values ('minha-empresa','Minha Empresa','Minha Empresa','${APP_LOCALE:-pt-BR}', v_uid)
+    returning id into v_org;
+  else
+    -- Re-execução do instalador com outra resposta: quem rodou de novo para
+    -- trocar o idioma esperaria que trocasse. Só mexe se a organização ainda
+    -- estiver no padrão — se alguém já escolheu pela tela, a escolha dela vale
+    -- mais que uma resposta repetida no terminal.
+    update public.organizations
+       set locale = '${APP_LOCALE:-pt-BR}'
+     where id = v_org and coalesce(locale, 'pt-BR') = 'pt-BR';
   end if;
   -- O provedor que a pessoa ESCOLHEU passa a valer no banco. O trigger
   -- fn_seed_org_llm_defaults semeia 'anthropic' fixo — o que estava certo
@@ -1738,8 +1880,37 @@ begin
   values (v_uid, v_org, 'admin', now())
   on conflict (user_id, organization_id) do update set role='admin', revoked_at=null;
   if not exists (select 1 from public.platform_admins where user_id=v_uid and revoked_at is null) then
-    insert into public.platform_admins (user_id, granted_by, scope, reason)
-    values (v_uid, v_uid, 'full', 'Bootstrap inicial do self-host');
+    -- ⚠️ ATENÇÃO: este heredoc NÃO é citado, então o bash expande crase aqui
+    -- dentro. Crase em volta de nome de coluna vira substituição de comando e o
+    -- instalador morre com "command not found" no meio da criação do dono.
+    -- Medido: a primeira versão deste comentário usava crase e a suíte do kit
+    -- reprovou em três casos. Nome de coluna aqui vai sem crase.
+    --
+    -- mfa_required EXPLÍCITO, contra o default "true" da coluna — a MESMA razão
+    -- que scripts/bootstrap-owner.ts:201 já documenta, e que este INSERT não
+    -- acompanhou.
+    --
+    -- Medido numa instalação self-host recém-feita por este script:
+    --
+    --   select column_default from information_schema.columns
+    --    where table_name='platform_admins' and column_name='mfa_required';
+    --   -> true
+    --
+    -- Como o INSERT abaixo não informava a coluna, TODA instalação nascia
+    -- exigindo TOTP do dono. lib/auth/politica-mfa.ts passou a LER essa coluna
+    -- (antes o gate olhava só is_platform_admin), e o cabeçalho dele registra
+    -- que o cadastro virou opcional exatamente para acabar com o bloqueador de
+    -- tela cheia logo depois do onboarding — "segurança que expulsa o usuário na
+    -- primeira tela não protege ninguém".
+    --
+    -- Ou seja: o defeito que a mudança de doutrina eliminou continuava vivo pelo
+    -- caminho do instalador, que é justamente o caminho de TODO self-hoster. O
+    -- bootstrap-owner.ts estava certo; este INSERT é que ficou para trás.
+    --
+    -- false e não omitir: quem quiser exigir liga em Configurações › Segurança,
+    -- e a decisão fica visível na linha em vez de herdada de um default.
+    insert into public.platform_admins (user_id, granted_by, scope, mfa_required, reason)
+    values (v_uid, v_uid, 'full', false, 'Bootstrap inicial do self-host');
   end if;
 end \$\$;
 SQL
@@ -1836,6 +2007,7 @@ $(c_grn "═══════════════════════�
 $(c_grn " Instalação concluída!")
 $(c_grn "═══════════════════════════════════════════════════════")
 
+$(pendencia_dos_emails)
   1. Acesse:  https://${DOMAIN}
      (o SSL leva ~1min pra emitir no primeiro acesso)
 

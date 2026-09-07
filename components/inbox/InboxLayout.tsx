@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "@/hooks/i18n/useT";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/auth/AuthProvider";
 import { estadoDaJanela, formatarDecorrido } from "@/lib/channels/janela";
@@ -22,14 +23,16 @@ import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
 import type { Message as ConversationMensagem } from "@/lib/types/messaging";
 import { InboxKeyboardShortcuts } from "./InboxKeyboardShortcuts";
-import { CONVERSATION_QUEUE_STATUSES } from "@/lib/schemas";
 
 import { ShortcutsHelpDialog } from "./ShortcutsHelpDialog";
+import { OpenConversationProvider } from "@/hooks/notifications/OpenConversationContext";
 // ADR-05: ícone de feature sai do mapa canônico, nunca do pacote direto.
-import { CaretLeft, IdentificationCard } from "@/lib/ui/icons";
+import { CaretLeft, ChatCircle, IdentificationCard } from "@/lib/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { comandosDaFila } from "@/lib/inbox/comando-da-conversa";
+import { useAutomaticoAtivo } from "@/hooks/ai/useAutomaticoAtivo";
 
 /**
  * QUAL COLUNA APARECE NO CELULAR — as duas saem da MESMA pergunta.
@@ -61,15 +64,23 @@ export function colunasDoCelular(temSelecao: boolean): { lista: string; conversa
  * que este mapa já teve (Minhas mostrando tudo que o atendente fechou) não
  * aparece em nenhuma tela até alguém reclamar, então vale prender por teste.
  */
-export function tabToFilter(tab: InboxFiltersValue["tab"]): Partial<ConversationsFilters> {
+export function tabToFilter(
+  tab: InboxFiltersValue["tab"],
+  automaticoDaOrg?: boolean,
+): Partial<ConversationsFilters> {
   switch (tab) {
     case "unassigned":
-      // Os DOIS estados de espera, não só `open`. A conversa que o automático
-      // escalou é `pending` e não aparecia em aba nenhuma que o atendente vê —
-      // "Fila" pedia `open`, "Minhas" exige dono, "IA" filtra `ai_handling` e
-      // "Todas" é escondida do papel `agent` fora do modo `all`. A conversa que
-      // mais precisa de uma pessoa era a única invisível.
-      return { assigned_to: "unassigned", status: [...CONVERSATION_QUEUE_STATUSES] };
+      // A FILA PERGUNTA POR QUEM MANDA, NÃO POR STATUS.
+      //
+      // Antes ela pedia `assigned_to=unassigned` + os dois estados de espera. Só
+      // que "sem dono e aberta" é também a conversa que o robô está atendendo
+      // agora — medido na VPS em 2026-08-30, a aba dizia 83 e 47 daquelas tinham
+      // o automático no comando. O atendente abria a Fila e via como trabalho
+      // dele quase tudo que já estava sendo respondido.
+      //
+      // `comandosDaFila` é quem cruza isso com o fato org-wide: numa instalação
+      // sem nenhum agente no ar, `automatico` também é "esperando gente".
+      return { comando: comandosDaFila(automaticoDaOrg) };
     case "mine":
       // Sem `exclude_finished` a aba mostra tudo que o atendente JÁ atendeu —
       // `Fechar` muda o status mas não solta o dono (de propósito: quem atendeu
@@ -78,7 +89,10 @@ export function tabToFilter(tab: InboxFiltersValue["tab"]): Partial<Conversation
     case "closed":
       return { status: "closed" };
     case "ai":
-      return { status: "ai_handling" };
+      // `ai_handling` é escrito por UM caminho só em produção (a volta pelo botão
+      // "Devolver ao automático"), então a aba vivia mostrando 2 enquanto o robô
+      // atendia 47. Agora ela pergunta a régua do MOTOR.
+      return { comando: ["automatico"] };
     case "all":
     default:
       return {};
@@ -100,6 +114,7 @@ interface InboxLayoutProps {
 }
 
 export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {}) {
+  const t = useT();
   const { activeOrg } = useAuth();
   const orgId = activeOrg?.orgId ?? null;
 
@@ -139,16 +154,34 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
    * quem MOSTRA é o composer — são irmãos, e o estado comum é do pai.
    */
   const [respondendo, setRespondendo] = useState<ConversationMensagem | null>(null);
+
+  /**
+   * A ORG tem automático de pé? Sobe para cá porque agora é a ABA que precisa —
+   * `ConversationList` e `ConversationHeader` continuam lendo o mesmo hook, e o
+   * react-query dedupa: segue sendo uma requisição só.
+   *
+   * `undefined` enquanto carrega, e `comandosDaFila` trata isso como "assume que
+   * há" — a mesma convenção da regra. Numa org SEM automático a Fila nasce menor
+   * e completa quando a resposta chega; a janela é de ~200ms e o rótulo nunca
+   * discorda do filtro, porque os dois usam a mesma convenção.
+   */
+  const { data: automaticoDaOrg } = useAutomaticoAtivo();
   const composerRef = useRef<ComposerHandle | null>(null);
 
   const filters: ConversationsFilters = useMemo(
     () => ({
-      ...tabToFilter(filterValue.tab),
+      ...tabToFilter(filterValue.tab, automaticoDaOrg),
       search: filterValue.search || undefined,
       channel_session_id: filterValue.channel_session_id,
       tag: filterValue.tag,
     }),
-    [filterValue.tab, filterValue.search, filterValue.channel_session_id, filterValue.tag],
+    [
+      filterValue.tab,
+      automaticoDaOrg,
+      filterValue.search,
+      filterValue.channel_session_id,
+      filterValue.tag,
+    ],
   );
 
   const clientFilter = useMemo(
@@ -242,14 +275,14 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   const motivoDaJanela =
     janela.tipo === "fechada"
       ? janela.fechadaHaMs === null
-        ? "O cliente ainda não escreveu — a janela de 24h nunca abriu. Só um modelo aprovado sai daqui."
-        : `A janela de 24h fechou há ${formatarDecorrido(janela.fechadaHaMs)}. Só um modelo aprovado sai daqui — texto livre é recusado pela plataforma.`
+        ? t("O cliente ainda não escreveu — a janela de 24h nunca abriu. Só um modelo aprovado sai daqui.")
+        : `${t("A janela de 24h fechou há")} ${formatarDecorrido(janela.fechadaHaMs)}. ${t("Só um modelo aprovado sai daqui — texto livre é recusado pela plataforma.")}`
       : null;
 
   const blockedReason = selectedConversation?.contacts?.is_blocked
-    ? "Contato bloqueado — envio de mensagens desabilitado."
+    ? t("Contato bloqueado — envio de mensagens desabilitado.")
     : selectedConversation?.contacts?.is_anonymized
-      ? "Contato anonimizado — não é possível enviar mensagens."
+      ? t("Contato anonimizado — não é possível enviar mensagens.")
       : null;
 
   // Altura da grade: a conta desconta TUDO que fica acima e abaixo dela.
@@ -261,9 +294,12 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   // parcialmente abaixo da borda, atrapalhando justo na hora de escrever.
   //
   // As duas parcelas NÃO estão na mesma unidade, e por isso o padding entra pelo
-  // token e não como `3rem`: o `tailwind.config.ts` remapeia a escala de spacing
-  // para `var(--space-N)` — `--space-6` é `24px` LITERAL (app/globals.css) —, mas
-  // não remapeia o `14`, que segue sendo `3.5rem` de verdade. Escrever a soma como
+  // token e não como `3rem`: o `@theme inline` de `app/globals.css` remapeia a
+  // escala de spacing para `var(--space-N)` — `--space-6` é `24px` LITERAL —, mas
+  // não remapeia o `14`, que o Tailwind 4 calcula pelo multiplicador `--spacing`
+  // e segue sendo `3.5rem` de verdade. (Até o Tailwind 4 quem remapeava era o
+  // `tailwind.config.ts`; o arquivo não existe mais, o efeito é o mesmo.)
+  // Escrever a soma como
   // `6.5rem` só acerta enquanto a raiz for 16px; com acessibilidade de fonte maior
   // ou menor o composer sai da tela de novo. Pelo token, a conta se auto-corrige
   // se a escala de espaçamento mudar.
@@ -290,7 +326,32 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
   // piso do composer (370px), em vez dos 2px que a versão de uma faixa só
   // deixava. Margem de 2px não é margem, é sorte.
   return (
-    <div className="grid h-[calc(100dvh-3.5rem-2*var(--space-6))] w-full grid-cols-1 md:grid-cols-[300px_1fr] xl:grid-cols-[272px_1fr_296px] 2xl:grid-cols-[300px_1fr_320px]">
+    <OpenConversationProvider conversationId={selectedId}>
+    <div
+      className="grid h-[calc(100dvh-3.5rem-2*var(--space-6))] w-full grid-cols-1 md:grid-cols-[300px_1fr] xl:grid-cols-[272px_1fr_296px] 2xl:grid-cols-[300px_1fr_320px]"
+      /*
+       * O ESTADO DO TEMPO REAL, LEGÍVEL DE FORA — mesmo par que o dossiê do lead
+       * já publica (`LeadDossier`), e pela mesma razão: quando a entrega morre,
+       * nenhuma tela avisa. Foi o único achado que atravessou o dia intacto
+       * quando o realtime quebrou pela primeira vez, e voltou a morder agora.
+       *
+       * `divergencias` é o que a rede de segurança contou: refetch trouxe estado
+       * novo que o canal NÃO tinha entregue. Zero com o canal vivo; subindo é a
+       * assinatura de canal que assina e não entrega — o defeito que não grita.
+       *
+       * ⚠️ `data-realtime-status` vem do STATUS do canal, não de um objeto que
+       * existe sempre. A primeira versão desta linha derivava o valor de
+       * `listQ.seguranca`, que nunca é nulo — ela diria `ativo` inclusive com o
+       * canal morto. Controle decorativo é pior que controle nenhum: mente com
+       * cara de instrumento.
+       *
+       * Atributo de dado e não texto na tela de propósito: quem lê isto é o
+       * teste e quem depura, não o atendente. Pôr um aviso permanente na cara de
+       * quem atende seria ruído; esconder o sinal do todo é o que custou o dia.
+       */
+      data-realtime-status={listQ.realtimeStatus}
+      data-refetch-divergencias={listQ.seguranca?.divergencias ?? 0}
+    >
       {/*
         NO CELULAR, UMA COISA POR VEZ.
 
@@ -313,8 +374,8 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
         <InboxFilters value={filterValue} onChange={setFilterValue} />
         <div className="min-h-0 flex-1 overflow-hidden">
           <ConversationList
+            listQuery={listQ}
             filters={filters}
-            orgId={orgId}
             selectedId={selectedId}
             onSelect={handleSelect}
             clientFilter={clientFilter}
@@ -356,7 +417,7 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
               onClick={() => handleSelect(null)}
             >
               <CaretLeft size={16} />
-              Conversas
+              {t("Conversas")}
             </Button>
             <div className="flex-1" />
             {selectedConversation && (
@@ -364,11 +425,11 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
                 <SheetTrigger asChild>
                   <Button variant="ghost" size="sm" className="h-9 gap-1 px-2 xl:hidden">
                     <IdentificationCard size={16} />
-                    Ficha
+                    {t("Ficha")}
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="right" className="w-[min(22rem,90vw)] overflow-y-auto p-0">
-                  <SheetTitle className="sr-only">Ficha do contato</SheetTitle>
+                  <SheetTitle className="sr-only">{t("Ficha do contato")}</SheetTitle>
                   <CRMSidePanel conversation={selectedConversation} />
                 </SheetContent>
               </Sheet>
@@ -403,11 +464,13 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
           </>
         ) : selectionNotFound ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-            Conversa não encontrada ou fora do seu acesso.
+            {t("Conversa não encontrada ou fora do seu acesso.")}
           </div>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Selecione uma conversa
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <ChatCircle size={36} weight="thin" className="text-text-subtle" aria-hidden />
+            <p className="text-sm font-medium text-text-muted">{t("Selecione uma conversa")}</p>
+            <p className="text-xs text-text-muted">{t("Ou navegue com J e K")}</p>
           </div>
         )}
       </div>
@@ -427,5 +490,6 @@ export function InboxLayout({ initialSelectedId = null }: InboxLayoutProps = {})
       />
       <ShortcutsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
+    </OpenConversationProvider>
   );
 }

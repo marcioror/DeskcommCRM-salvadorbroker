@@ -25,6 +25,11 @@ function supabaseEspiao() {
   const chain: any = {
     select: () => chain,
     eq: () => chain,
+    // `.is("is_merged_into", null)` — o upstream passou a esconder da lista o
+    // contato já fundido em outro (fusão de 2026-09-07). O espião aprende o
+    // método; a regra que ele mede (quem pode buscar por telefone/e-mail/cpf)
+    // não muda.
+    is: () => chain,
     order: () => chain,
     limit: () => chain,
     contains: () => chain,

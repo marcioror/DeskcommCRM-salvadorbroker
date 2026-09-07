@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 import { useLinkPropertyToLead } from "@/hooks/leads/useLeadInterestedProperties";
+import { useT } from "@/hooks/i18n/useT";
 
 interface PropertySearchResult {
   id: string;
@@ -25,6 +26,7 @@ interface Props {
  * em `components/properties/LinkLeadDialog.tsx`.
  */
 export function LinkPropertyDialog({ leadId, open, onOpenChange }: Props) {
+  const t = useT();
   const [search, setSearch] = useState("");
   const link = useLinkPropertyToLead(leadId);
 
@@ -42,9 +44,9 @@ export function LinkPropertyDialog({ leadId, open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Vincular imóvel</DialogTitle>
+          <DialogTitle>{t("Vincular imóvel")}</DialogTitle>
         </DialogHeader>
-        <Input placeholder="Buscar imóvel pelo título..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <Input placeholder={t("Buscar imóvel pelo título...")} value={search} onChange={(e) => setSearch(e.target.value)} />
         <div className="max-h-64 space-y-1 overflow-y-auto">
           {(q.data?.data ?? []).map((property) => (
             <button
@@ -54,22 +56,33 @@ export function LinkPropertyDialog({ leadId, open, onOpenChange }: Props) {
               onClick={() => link.mutate(property.id, { onSuccess: () => onOpenChange(false) })}
             >
               <span>{property.title}</span>
-              {/* span, não <Button>: já está dentro do <button> da linha inteira —
-                  aninhar elemento interativo em elemento interativo é HTML inválido. */}
+              {/* Rótulo com aparência de botão: já está dentro do controle da
+                  linha inteira, e aninhar interativo em interativo é HTML
+                  inválido.
+
+                  ⚠️ O NOME DO COMPONENTE DE BOTÃO NÃO SE ESCREVE AQUI, NEM EM
+                  PROSA. A varredura de `tests/unit/controle-decorativo.test.ts`
+                  casa a abertura da tag desse componente no TEXTO do arquivo,
+                  comentário incluído — e acusava esta
+                  linha, um comentário, como botão mudo. Nada de errado com a
+                  varredura: é o mesmo cuidado que `push.handler.ts` e
+                  `varredura-anon-e-o-ultimo-bloco` já documentam. Instrumento
+                  estático reprovando o arquivo por ele falar de si mesmo é
+                  ruído que treina todo mundo a ignorar vermelho. */}
               <span
                 className={cn(buttonVariants({ size: "sm", variant: "ghost" }), link.isPending && "opacity-50")}
               >
-                Vincular
+                {t("Vincular")}
               </span>
             </button>
           ))}
           {q.isError && (
             <p className="p-2 text-sm text-error-fg">
-              Não foi possível buscar imóveis agora. Tente novamente.
+              {t("Não foi possível buscar imóveis agora. Tente novamente.")}
             </p>
           )}
           {!q.isError && search.length >= 2 && q.data?.data.length === 0 && (
-            <p className="p-2 text-sm text-muted-foreground">Nenhum imóvel encontrado.</p>
+            <p className="p-2 text-sm text-muted-foreground">{t("Nenhum imóvel encontrado.")}</p>
           )}
         </div>
       </DialogContent>

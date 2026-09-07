@@ -12,6 +12,8 @@ import {
 import {
   RETENCAO_AUDITORIA_DIAS_PADRAO,
   RETENCAO_AUDITORIA_DIAS_PISO,
+  RETENCAO_ESPELHO_AGENDA_DIAS_PADRAO,
+  RETENCAO_ESPELHO_AGENDA_DIAS_PISO,
   RETENCAO_FILA_DIAS_PADRAO,
   RETENCAO_FILA_DIAS_PISO,
   interpretarRetencao,
@@ -33,8 +35,27 @@ let respostaRpc: { data: number | null; error: { message: string } | null } = {
   data: 0,
   error: null,
 };
+/**
+ * As linhas que a varredura de anonimização enxerga nesta rodada. Vazio por
+ * padrão: os casos deste arquivo medem a PODA, e uma varredura com trabalho a
+ * fazer acrescentaria linhas de auditoria que confundiriam a contagem — o que a
+ * varredura faz é medido em `lgpd-varredura-completa-a-cascata.test.ts`.
+ */
+let contatosAnonimizados: Array<{ id: string; organization_id: string }> = [];
 vi.mock("@/lib/supabase/admin", () => ({
-  createAdminClient: () => ({ rpc: async () => respostaRpc }),
+  createAdminClient: () => ({
+    rpc: async () => respostaRpc,
+    from: () => {
+      const q: Record<string, unknown> = {
+        eq: () => q,
+        in: () => q,
+        limit: () => q,
+        then: (r: (v: unknown) => unknown) =>
+          Promise.resolve({ data: contatosAnonimizados, error: null }).then(r),
+      };
+      return { select: () => q, update: () => q };
+    },
+  }),
 }));
 
 /**
@@ -179,8 +200,14 @@ describe("houveEfeito — as duas direções", () => {
     lotes_auditoria: 1,
     fila_tem_resto: false,
     auditoria_tem_resto: false,
+    espelho_apagado: 0,
+    // Quarta poda (migration 0190): os nonces de OAuth do Google já queimados.
+    nonces_apagados: 0,
+    lotes_espelho: 0,
+    espelho_tem_resto: false,
     retencao_fila_dias: RETENCAO_FILA_DIAS_PADRAO,
     retencao_auditoria_dias: RETENCAO_AUDITORIA_DIAS_PADRAO,
+    retencao_espelho_dias: RETENCAO_ESPELHO_AGENDA_DIAS_PADRAO,
     avisos: [] as string[],
   };
 
@@ -188,11 +215,27 @@ describe("houveEfeito — as duas direções", () => {
     expect(houveEfeito(base)).toBe(false);
   });
 
+  it("apagou nonce → audita, pela mesma razão das outras três", () => {
+    // Sem esta linha em `houveEfeito`, uma rodada que só podou nonces apagaria
+    // linhas e não deixaria registro. O caso entrou porque quem acrescentou a
+    // quarta poda (eu) a ligou ao laço e ao retorno e esqueceu do predicado —
+    // um parágrafo abaixo do comentário que descreve exatamente esse defeito.
+    expect(houveEfeito({ ...base, nonces_apagados: 1 })).toBe(true);
+  });
+
   it("apagou job → audita; apagou auditoria → audita", () => {
     // A segunda é a que não pode se perder: é ela que faz o expurgo do audit
     // deixar rastro em vez de encolher a trilha em silêncio.
     expect(houveEfeito({ ...base, jobs_apagados: 1 })).toBe(true);
     expect(houveEfeito({ ...base, auditoria_apagada: 1 })).toBe(true);
+  });
+
+  it("...e apagou espelho da agenda → TAMBÉM audita (migration 0187)", () => {
+    // Sem este caso, uma rodada que só podou o espelho apagaria linhas e não
+    // deixaria registro. A doutrina do repo é auditar QUANDO HÁ EFEITO — nunca
+    // parar de auditar —, e um efeito novo que não entra em `houveEfeito` é
+    // exatamente o silêncio que ela proíbe.
+    expect(houveEfeito({ ...base, espelho_apagado: 1 })).toBe(true);
   });
 });
 
@@ -211,6 +254,24 @@ describe("os pisos do TypeScript e os do SQL são os mesmos números", () => {
       `greatest(coalesce(p_retencao_dias, ${RETENCAO_AUDITORIA_DIAS_PADRAO}), ${RETENCAO_AUDITORIA_DIAS_PISO})`,
     );
   });
+
+  it("...e o do espelho da agenda também (migration 0187)", async () => {
+    // A lista deste describe era FIXA em dois pares, e o terceiro nasceria fora
+    // dela sem ninguém ser avisado — o mesmo eixo de completude que já mordeu
+    // nesta entrega. Um piso que só existe no TypeScript é decorativo.
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const sql = readFileSync(join(__dirname, "..", "..", "supabase", "baseline.sql"), "utf8");
+    // O rótulo aponta para o bloco da FUNÇÃO, não para o do `comment on table`.
+    // A 0187 está PARTIDA em dois no baseline — a função antes da varredura anon,
+    // o resto no fim —, e o `greatest` mora só na primeira metade. Apontar para o
+    // rótulo errado dava vermelho num conserto que estava certo.
+    const bloco = sql.slice(sql.indexOf("-- ---- o espelho do Google é cache com prazo: função (migration 0187)"));
+    expect(bloco.length).toBeGreaterThan(500);
+    expect(bloco).toContain(
+      `greatest(coalesce(p_retencao_dias, ${RETENCAO_ESPELHO_AGENDA_DIAS_PADRAO}), ${RETENCAO_ESPELHO_AGENDA_DIAS_PISO})`,
+    );
+  });
 });
 
 describe("o handler HTTP — a falha entra na trilha, o vazio não", () => {
@@ -221,6 +282,7 @@ describe("o handler HTTP — a falha entra na trilha, o vazio não", () => {
 
   beforeEach(() => {
     auditou.mockClear();
+    contatosAnonimizados = [];
   });
 
   it("rodada que não apagou nada responde 200 e NÃO audita", async () => {

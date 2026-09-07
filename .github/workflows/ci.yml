@@ -33,14 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        # O teto do preâmbulo mora aqui porque passo de composite action não
+        # aceita `timeout-minutes`. Razão e medições: o cabeçalho da action.
+        timeout-minutes: 5
 
       # O `tsc` desta árvore encosta no teto de heap padrão do Node: passou em
       # 77s no run 32962605518 e MORREU em 92s no 32967326531, com o mesmo
@@ -64,6 +60,7 @@ jobs:
 
       - name: Unit tests
         run: pnpm test:unit
+
 
       # Scripts do kit self-host num repo git descartável (docker/crontab
       # dublados). É o único gate que exercita o update.sh — um erro aqui
@@ -90,14 +87,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/preparar-node
+        # O teto do preâmbulo mora aqui porque passo de composite action não
+        # aceita `timeout-minutes`. Razão e medições: o cabeçalho da action.
+        timeout-minutes: 5
 
       - name: RLS isolation + governance invariants
         run: pnpm test:db

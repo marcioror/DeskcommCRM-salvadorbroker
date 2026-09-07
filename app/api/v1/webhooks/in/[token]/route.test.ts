@@ -74,16 +74,30 @@ function makeAdmin(cfg: AdminCfg = {}) {
         };
       }
       if (table === "contacts") {
+        // ⚠️ CADEIA FLUENTE, e não literais aninhados, porque agora são DUAS
+        // formas de consulta contra a mesma tabela. Na fusão de 2026-09-07 o
+        // upstream trocou a busca por telefone por `buscarPorVariantes`
+        // (`lib/channels/contato-por-telefone.ts`), que encadeia
+        // `.select().eq().in().is().limit()` — enquanto o caminho antigo é
+        // `.select().eq().eq().is().maybeSingle()`. Um literal aninhado só sabe
+        // a forma que foi digitada, e a forma nova morria em
+        // "in is not a function", que se lê como defeito do produto.
+        //
+        // `limit` resolve LISTA (é o que `buscarPorVariantes` consome antes de
+        // `escolherContatoCanonico`) e `maybeSingle` resolve LINHA — os dois
+        // saem do mesmo `contactSelectResult`, então o teste continua sendo
+        // configurado por um campo só.
+        const contatos: Record<string, unknown> = {};
+        for (const m of ["select", "eq", "in", "is", "order"]) contatos[m] = () => contatos;
+        contatos.maybeSingle = () =>
+          Promise.resolve({ data: cfg.contactSelectResult ?? null, error: null });
+        contatos.limit = () =>
+          Promise.resolve({
+            data: cfg.contactSelectResult ? [cfg.contactSelectResult] : [],
+            error: null,
+          });
         return {
-          select: () => ({
-            eq: () => ({
-              eq: () => ({
-                is: () => ({
-                  maybeSingle: () => Promise.resolve({ data: cfg.contactSelectResult ?? null, error: null }),
-                }),
-              }),
-            }),
-          }),
+          ...contatos,
           insert: () => ({
             select: () => ({
               maybeSingle: () =>

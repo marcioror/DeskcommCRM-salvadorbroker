@@ -1,6 +1,9 @@
 "use client";
+
+import { useTagDeIdioma } from "@/hooks/i18n/useLocaleDeData";
 import { useRef } from "react";
 
+import { useT } from "@/hooks/i18n/useT";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useLeadTimeline } from "@/hooks/leads/useLeadTimeline";
 import type { Lead } from "@/lib/types/leads";
@@ -11,12 +14,14 @@ import { LeadTimeline } from "./LeadTimeline";
 import { LeadInterestedProperties } from "./LeadInterestedProperties";
 import { OwnerBadge } from "./OwnerBadge";
 import { resolveLeadOwner } from "@/lib/kanban/owner";
+import type { CustomFieldDef } from "@/components/contacts/CustomFieldsEditor";
 
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   lead: Lead;
   pipelineId: string;
+  fieldDefs?: CustomFieldDef[];
   stageName: string;
   ownerNames?: Map<string, string | null>;
 }
@@ -52,9 +57,12 @@ export function LeadDossier({
   onOpenChange,
   lead,
   pipelineId,
+  fieldDefs = [],
   stageName,
   ownerNames,
 }: Props) {
+  const tagDoIdioma = useTagDeIdioma();
+  const t = useT();
   const campos = useRef<HTMLDivElement | null>(null);
   const timeline = useLeadTimeline(open ? lead.id : null, lead.contact_id);
   const owner = resolveLeadOwner(lead, ownerNames);
@@ -108,7 +116,7 @@ export function LeadDossier({
             onClick={() => campos.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
             className="ml-auto text-text-muted underline-offset-2 hover:text-text hover:underline"
           >
-            Editar campos
+            {t("Editar campos")}
           </button>
         </div>
 
@@ -118,7 +126,8 @@ export function LeadDossier({
             timeline concluiria que a timeline está incompleta. */}
         {score?.at && (
           <p className="pt-2 text-[11px] text-text-muted">
-            Probabilidade recalculada automaticamente · {new Date(score.at).toLocaleString("pt-BR")}
+            {t("Probabilidade recalculada automaticamente")} ·{" "}
+            {new Date(score.at).toLocaleString(tagDoIdioma)}
           </p>
         )}
 
@@ -127,7 +136,7 @@ export function LeadDossier({
         {/* ② timeline */}
         <section className="flex-1 py-3">
           <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">
-            Linha do tempo
+            {t("Linha do tempo")}
           </h3>
           <LeadTimeline
             itens={timeline.itens}
@@ -144,9 +153,9 @@ export function LeadDossier({
         {/* ③ campos, por último */}
         <div ref={campos} className="border-t border-border pt-3">
           <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">
-            Dados do negócio
+            {t("Dados do negócio")}
           </h3>
-          <LeadFieldsForm lead={lead} pipelineId={pipelineId} />
+          <LeadFieldsForm lead={lead} pipelineId={pipelineId} fieldDefs={fieldDefs} />
         </div>
       </SheetContent>
     </Sheet>

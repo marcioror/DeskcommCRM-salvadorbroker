@@ -4,6 +4,7 @@ import { Trash, Plus } from "@/lib/ui/icons";
 import { useUploadPropertyMedia, useDeletePropertyMedia } from "@/hooks/properties/usePropertyMedia";
 import { usePermission } from "@/hooks/auth/AuthProvider";
 import type { PropertyMedia } from "@/lib/types/properties";
+import { useT } from "@/hooks/i18n/useT";
 
 interface Props {
   propertyId: string;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function PropertyGallery({ propertyId, media }: Props) {
+  const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useUploadPropertyMedia(propertyId);
   const remove = useDeletePropertyMedia(propertyId);
@@ -26,7 +28,7 @@ export function PropertyGallery({ propertyId, media }: Props) {
           <div key={m.id} className="group relative aspect-square overflow-hidden rounded-md border border-border">
             <img
               src={`/api/v1/properties/${propertyId}/media/${m.id}`}
-              alt="Foto do imóvel"
+              alt={t("Foto do imóvel")}
               className="h-full w-full object-cover"
             />
             {canEdit && (

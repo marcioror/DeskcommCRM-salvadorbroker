@@ -199,6 +199,35 @@ beforeAll(() => {
             (organization_id, contact_id, campo, valor_proposto, expires_at)
             values (v_org, v_contact, 'email', 'rls-invariant@exemplo.test', now() + interval '7 days');
         end if;
+
+        if not exists (select 1 from public.catalog_products where organization_id = v_org) then
+          insert into public.catalog_products
+            (organization_id, codigo, nome, preco_cents)
+            values (v_org, 'RLS-' || v_org::text, 'Produto de invariante', 100);
+        end if;
+
+        -- crm_tasks (migration 0210): o que o time combinou fazer, com prazo.
+        -- Entra COM o vínculo de lead porque a tarefa presa a um negócio é o
+        -- caso que cruza duas tabelas tenant-aware — se a policy vazasse, o
+        -- vizinho leria o combinado E o ponteiro para o funil dele.
+        -- (sem crase nesta prosa: o bloco inteiro é um template literal de JS.)
+        if not exists (select 1 from public.crm_tasks where organization_id = v_org) then
+          insert into public.crm_tasks (organization_id, title, lead_id)
+            values (v_org, 'RLS invariant task',
+                    (select id from public.crm_leads where organization_id = v_org limit 1));
+        end if;
+
+        if not exists (select 1 from public.push_subscriptions where organization_id = v_org) then
+          insert into public.push_subscriptions
+            (organization_id, user_id, endpoint, p256dh, auth)
+            values (
+              v_org,
+              case when v_org = '${ORG_A}'::uuid then '${USER_A}'::uuid else '${USER_B}'::uuid end,
+              'https://push.example.test/rls-' || v_org::text,
+              'p256dh-rls',
+              'auth-rls'
+            );
+        end if;
       end loop;
     end
     $seed$;
@@ -217,7 +246,7 @@ beforeAll(() => {
  * checagens de catálogo e devolve a org inteira do vizinho. Medido — ver o
  * cabeçalho do caso de `contact_field_proposals` abaixo.
  */
-const TABLES = [
+export const TABLES = [
   "conversations",
   "messages",
   "contacts",
@@ -238,6 +267,18 @@ const TABLES = [
   // sabotada para `... or true` a suíte seguia 31/31 verde num banco em que o vizinho
   // lia e escrevia. É o modo de falha que o aviso acima descreve, encontrado vivo.
   "org_guardrail_layers",
+  "push_subscriptions",
+  // migration 0204 — o catálogo de produtos da loja. A leitura é org-scoped sem
+  // gate de papel (o `agent` semeado aqui precisa ler para atender), e a ESCRITA
+  // exige `manager` — esse segundo eixo é medido em
+  // `tests/invariants/catalogo-so-gestor-muda-preco.test.ts`, não aqui.
+  "catalog_products",
+  // migration 0210 — as tarefas do CRM. A leitura é org-scoped sem gate de papel
+  // (o `viewer` precisa ver o que o time combinou); a ESCRITA exige `agent`, e
+  // esse segundo eixo NÃO é medido aqui — o usuário semeado é `agent`, então o
+  // controle positivo passaria por acerto. Quem mede a escrita é a rota, em
+  // `tests/unit/tarefas-rota-nao-tem-porta-dos-fundos.test.ts`.
+  "crm_tasks",
   // ⚠️ `webhook_lead_captures` (migration 0174) NÃO entra nesta lista, e a
   // ausência é deliberada: a policy dela exige `manager`, e o usuário semeado
   // aqui é `agent` — o controle positivo falharia por ACERTO, e a "correção"

@@ -19,26 +19,35 @@ import { ReassignDialog } from "@/components/inbox/ReassignDialog";
 import { SnoozeButton } from "@/components/inbox/SnoozeButton";
 import type { ConversationWithContact } from "@/hooks/inbox/useConversationsRealtime";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
+import { phoneForDisplay } from "@/lib/channels/phone-variants";
 import { ContatoProtegido } from "@/components/contacts/ContatoProtegido";
 
 interface Props {
   conversation: ConversationWithContact;
 }
 
+/**
+ * O CHIP NOMEIA CICLO DE VIDA, NÃO COMANDO.
+ *
+ * Ele afirmava quem manda — "Automático atendendo", "Aguardando atendente" — a
+ * 20px de um selo que responde a MESMA pergunta por outra fonte, e as duas se
+ * contradiziam na tela: `conversations.status` não acompanha silêncio, trava de
+ * contato nem atribuição, e o motor nunca o lê. Medido em 2026-08-30 num print
+ * do dono: "Aguardando atendente" e "Automático" no mesmo cabeçalho.
+ *
+ * Quem responde "quem manda" é o `OwnerBadge`, que vem de `comandoDaConversa`.
+ * Aqui fica só o que o status realmente sabe: o episódio está aberto ou acabou.
+ *
+ * Cobre os SETE valores do CHECK de propósito — o call site é
+ * `t(STATUS_LABEL[status] ?? status)`, e um buraco imprime o token cru em inglês
+ * no rosto do atendente. Vigiado pelo invariante de espelho.
+ */
 const STATUS_LABEL: Record<string, string> = {
   open: "Aberta",
-  // É EXATAMENTE o estado em que a passagem para humano deixa a conversa
-  // (`performHumanHandoff`: 'ai_handling' → 'pending'), e o rótulo faltava — toda
-  // conversa escalada mostrava `pending` cru no rosto do atendente. O
-  // `conversationStatusSchema` não lista 'pending' porque valida ENTRADA da API;
-  // quem escreve este estado é o motor, e a tela precisa saber lê-lo.
-  pending: "Aguardando atendente",
-  claimed: "Em atendimento",
-  // "Automático", não "IA": com o selo de comando ao lado dizendo quem manda, o
-  // header mostrava DUAS palavras para o MESMO ator na mesma linha ("IA
-  // atendendo" + "Automático"). A palavra do estado já é contrato em quatro
-  // arquivos e no dicionário; a que sobrava era esta.
-  ai_handling: "Automático atendendo",
+  pending: "Aberta",
+  claimed: "Aberta",
+  ai_handling: "Aberta",
+  resolved: "Resolvida",
   closed: "Fechada",
   archived: "Arquivada",
 };
@@ -57,8 +66,8 @@ export function ConversationHeader({ conversation }: Props) {
   const [reassignOpen, setReassignOpen] = useState(false);
 
   const c = conversation.contacts ?? null;
-  const displayName = rotuloDoContato(c);
-  const phone = c?.phone_number ?? null;
+  const displayName = rotuloDoContato(c, t);
+  const phone = c?.phone_number ? phoneForDisplay(c.phone_number) : null;
   const status = conversation.status;
   const isMineAssigned = conversation.assigned_to_user_id === user.id;
   const isOpen = status === "open" || conversation.assigned_to_user_id == null;
@@ -80,6 +89,7 @@ export function ConversationHeader({ conversation }: Props) {
     assignee_kind: conversation.assignee_kind ?? null,
     bot_silenced_until: conversation.bot_silenced_until ?? null,
     force_human: c?.force_human ?? null,
+    is_blocked: conversation.contacts?.is_blocked ?? null,
     automaticoDaOrg: automaticoDaOrg.data,
   });
 
@@ -167,9 +177,9 @@ export function ConversationHeader({ conversation }: Props) {
             mesma tela. Cor não sobrevive ao daltonismo nem ao teste do metro. */}
         <div className="mt-1 flex items-center gap-2" data-testid="comando-da-conversa">
           {comando.quem === "humano" ? (
-            <OwnerBadge ownerKind="user" ownerName={comando.nome ?? "Atendente"} />
+            <OwnerBadge ownerKind="user" ownerName={comando.nome ?? t("Atendente")} />
           ) : comando.quem === "automatico" ? (
-            <OwnerBadge ownerKind="ai" ownerName="Automático" />
+            <OwnerBadge ownerKind="ai" ownerName={t("Automático")} />
           ) : (
             // `ninguem`, `aguardando` e `encerrada` sem dono caem aqui: o disco
             // TRACEJADO do OwnerBadge, que é como o funil já desenha "ninguém".
@@ -197,7 +207,7 @@ export function ConversationHeader({ conversation }: Props) {
             // dicionário de espanhol o citam). O que faltava era a consequência
             // dita: desde a 0173 assumir também para o atendimento automático, e
             // um botão que muda duas coisas precisa anunciar as duas.
-            title="Você passa a responder esta conversa e o atendimento automático para aqui."
+            title={t("Você passa a responder esta conversa e o atendimento automático para aqui.")}
             onClick={() =>
               claim.mutate({
                 conversation_id: conversation.id,
@@ -244,12 +254,12 @@ export function ConversationHeader({ conversation }: Props) {
             // que às vezes faz mais do que o nome promete precisa dizer quando.
             title={
               motivo === "contato_travado"
-                ? "Religa o atendimento automático para este cliente — vale para todas as conversas dele."
-                : "Devolve esta conversa ao atendimento automático."
+                ? t("Religa o atendimento automático para este cliente — vale para todas as conversas dele.")
+                : t("Devolve esta conversa ao atendimento automático.")
             }
             onClick={() => retomar.mutate({ conversation_id: conversation.id })}
           >
-            {retomar.isPending ? "Devolvendo..." : t("Devolver ao automático")}
+            {retomar.isPending ? t("Devolvendo...") : t("Devolver ao automático")}
           </Button>
         )}
         {podePausar && (
@@ -261,10 +271,10 @@ export function ConversationHeader({ conversation }: Props) {
             // `podePausar` já exige dono != null, então este botão NUNCA aparece
             // sem dono — prometer "você assume" aqui seria prometer o que a rota
             // não faz: com dono, ela só cala, nunca rouba a conversa de quem a tem.
-            title="O atendimento automático para nesta conversa. O dono não muda."
+            title={t("O atendimento automático para nesta conversa. O dono não muda.")}
             onClick={() => pausar.mutate({ conversation_id: conversation.id })}
           >
-            {pausar.isPending ? "Pausando..." : t("Pausar o automático")}
+            {pausar.isPending ? t("Pausando...") : t("Pausar o automático")}
           </Button>
         )}
         {status !== "closed" && status !== "archived" && (
@@ -284,7 +294,7 @@ export function ConversationHeader({ conversation }: Props) {
             variant="outline"
             disabled={close.isPending}
             onClick={() => {
-              if (confirm("Fechar esta conversa?")) {
+              if (confirm(t("Fechar esta conversa?"))) {
                 close.mutate({ conversation_id: conversation.id });
               }
             }}
@@ -306,7 +316,7 @@ export function ConversationHeader({ conversation }: Props) {
         {c?.id && (
           <Button asChild size="sm" variant="ghost" className="xl:hidden">
             <Link href={`/app/contacts/${c.id}`} className="flex items-center gap-1">
-              Ver contato
+              {t("Ver contato")}
               <ArrowRight size={12} weight="regular" aria-hidden />
             </Link>
           </Button>

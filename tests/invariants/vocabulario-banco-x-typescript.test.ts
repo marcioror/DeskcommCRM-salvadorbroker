@@ -208,6 +208,16 @@ const PARES: Array<{
     simbolo: "ModoDeOrcamento",
   },
   {
+    tabela: "followup_flow_pointers",
+    coluna: "surface",
+    // lib/followup/api-schemas.ts → FOLLOWUP_FLOW_SURFACES (tupla `as const`).
+    // O type alias `FollowupFlowSurface = (typeof …)[number]` não carrega
+    // literais no fonte — o extrator lê a const, que é a fonte em runtime
+    // (`z.enum` / UI) e a que o CHECK do banco precisa espelhar.
+    arquivo: "lib/followup/api-schemas.ts",
+    simbolo: "FOLLOWUP_FLOW_SURFACES",
+  },
+  {
     tabela: "webhook_lead_captures",
     coluna: "outcome",
     // lib/schemas/lead-captures.ts → DESFECHOS_DA_CAPTACAO.
@@ -234,6 +244,22 @@ const PARES: Array<{
     // a aba Atividade não mostrava NADA enquanto a regra aguardava a janela).
     arquivo: "hooks/webhooks/useAutomationRules.ts",
     simbolo: "AutomationRunStatus",
+  },
+  {
+    tabela: "crm_tasks",
+    coluna: "priority",
+    // lib/tarefas/tipos.ts → PRIORIDADES_DA_TAREFA. Nasce com o par no mesmo
+    // commit da migration 0210, que é a lição desta lista: todos os que
+    // divergiram divergiram por terem nascido sozinhos.
+    arquivo: "lib/tarefas/tipos.ts",
+    simbolo: "PRIORIDADES_DA_TAREFA",
+  },
+  {
+    tabela: "crm_tasks",
+    coluna: "status",
+    // lib/tarefas/tipos.ts → SITUACOES_DA_TAREFA.
+    arquivo: "lib/tarefas/tipos.ts",
+    simbolo: "SITUACOES_DA_TAREFA",
   },
 ];
 

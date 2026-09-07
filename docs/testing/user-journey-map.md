@@ -76,7 +76,7 @@ fonte só (`lib/onboarding/passos.ts`) — eram três listas que discordavam. Ga
 >
 > O que travava a virada era o editor novo exigir `credential_id`, enquanto instalação pelo kit funciona com a chave de plataforma do `.env` e não tem nenhuma linha em `ai_provider_credentials` — o dono cairia numa tela onde não consegue salvar nada. Resolvido nas duas pontas: `versionShapeSchema` aceita `credential_id: null` (= a chave da instalação), o seletor oferece essa opção, e a rota de versões **recusa** o nulo quando o ambiente não tem chave daquele provedor (falha fechada — senão publicaria um agente que morre em toda mensagem).
 >
-> MEDIDO na tela, num tenant fresco: o funcionário criado no wizard abre no editor atual, com "Chave de acesso: A chave desta instalação (anthropic)", "12 de 20 capacidades ligadas" e "Vender e mover o funil" ativo.
+> MEDIDO na tela, num tenant fresco: o funcionário criado no wizard abre no editor atual, com "Chave de acesso: A chave desta instalação (anthropic)", o pacote "Vender e mover o funil" ativo, e a contagem de capacidades que ele traz. (O número saiu daqui: já dizia 12 quando eram 16, e o teto foi de 20 para 25. Para o valor de hoje: `pnpm exec tsx -e 'import("@/lib/ai/agents/capacidades-padrao").then(m => console.log(m.capacidadesPadraoDoOnboarding().length))'`.)
 
 ## J2 — Conectar WhatsApp e Central de Conexões `[P0]`
 
@@ -106,9 +106,13 @@ fonte só (`lib/onboarding/passos.ts`) — eram três listas que discordavam. Ga
 | J3.10 | Escolher o que o agente pode fazer, por jornada de trabalho | 6 pacotes em português, com explicação e contagem — não uma lista de `crm_*` monoespaçado · **PASS** (`tests/e2e/capacidades-do-agente.spec.ts`) |
 | J3.11 | Ligar "Atender e responder" NÃO dá direito de mandar WhatsApp | a capacidade de risco crítico fica destacada, exigindo marcação individual; desligar a jornada leva ela junto · **PASS** |
 | J3.12 | Modo avançado: ficha por capacidade + nome técnico | o `name` técnico só aparece aqui; fora dele o leigo lê rótulo, o que toca e risco · **PASS** |
-| J3.13 | A escolha sobrevive ao salvar e recarregar | o servidor aceita a lista (mesmo teto de 20 da tela) e o estado volta igual · **PASS** |
+| J3.13 | A escolha sobrevive ao salvar e recarregar | o servidor aceita a lista (o mesmo teto da tela, `TETO_TOOLS_POR_AGENTE`, fonte única) e o estado volta igual · **PASS** |
 | J3.14 | Ver se o que está ligado está funcionando (aba Capacidades) | usos, falhas, quantos vieram de teste, última vez — e o que fazer com cada número · **PASS** (números escritos pelo emissor real de audit) |
-| J3.15 | Teto de 20 recusa a passagem, explicando em português | **NÃO EXERCITÁVEL HOJE**: com 16 capacidades no catálogo, ligar tudo não chega a 20. Coberto por teste unitário; vira exercitável quando as waves de capacidades entregarem |
+| J3.15 | O teto recusa a passagem, explicando em português | **PASS** — exercitável desde que o catálogo cresceu (57 capacidades). `capacidades-do-agente.spec.ts` liga "Atender" sobre as 8 do seed e prova a recusa por 1 vaga. A afirmação "não exercitável hoje, com 16 capacidades no catálogo" VENCEU |
+
+## Chaves de acesso à IA `[P0]`
+
+- `[P0]` Colar chave inválida e entender o motivo — `tests/e2e/credenciais-de-ia.spec.ts`. Achados corrigidos em 2026-09-02: lista de modelos colada por vírgula no card; "Validando…" eterno após restart; erro em código (`auth_failed_401`, no card e no toast); diálogo sem dizer quando usar cada provedor nem onde pegar a chave; contagem "em uso" divergente do DELETE. **PASS** — executada de verdade contra browser real (Supabase local pg17 + baseline + Chromium) em 2026-09-02, depois que o Docker da máquina (antes indisponível) voltou. A própria execução achou um SEXTO defeito que a leitura de código não tinha achado: `descreverErroDeValidacao` não classificava `TypeError` (o nome que o `fetch()` do Node usa para falha de rede/DNS) como erro de rede, e o card mostrava "Falha na validação (TypeError)." cru em vez da frase amigável — corrigido em `lib/ai/credenciais/erro-de-validacao.ts`, com caso de teste. Evidência em `.superpowers/evidence/credenciais-de-ia.png`.
 
 ## J4 — CRM e Pipelines `[P1]`
 
@@ -149,6 +153,7 @@ fonte só (`lib/onboarding/passos.ts`) — eram três listas que discordavam. Ga
 | J4.26 | **Salvar o e-mail de um contato pela tela** | fica salvo, aparece na ficha e sobrevive ao reload. Era **500** até 2026-08-06: o handler escrevia em `email_normalized`, coluna GERADA, e o Postgres abortava o UPDATE inteiro (`contato-salva-email.spec.ts`) |
 | J4.27 | Anonimizar um contato (LGPD) | mesma causa da J4.26 na rota `/api/v1/lgpd/anonymize` — **a anonimização não acontecia**. Corrigido; guardado pelo invariante de colunas geradas, ainda **sem prova de tela** |
 | J4.25 | ⚠️ O funil de entrada de uma org nova é de **e-commerce** | `fn_seed_default_pipeline_for_org` semeia "Pedidos" com *Carrinho abandonado · Pago · Em separação…*. Numa clínica ou imobiliária, o lead nasce em **"Carrinho abandonado"**. Achado em 2026-08-06 ao provar J4.22; conserto é decisão de produto (spec 17 passo 4) |
+| J4.36 | **Editar campos do funil pela barra da conversa** | só os customizados (`settings.fields`) aparecem como inputs; título/valor ficam no dossiê. Salvar grava `custom_fields` no mesmo PATCH do quadro e a seção relê · `tests/unit/inbox-campos-lead.test.tsx` |
 
 ## J5 — Time: convites e atuação de atendentes `[P0]` (convite) / `[P1]` (rotina)
 
@@ -230,8 +235,37 @@ Evidência: `.superpowers/evidence/ia-360-w3/`.
 | J8.7 | A **ida** aparece na linha do tempo | atividade "Passou para humano" também pelo caminho do harness/casos | FAIL(BUG-05) → PASS |
 | J8.8 | O agente retoma **sabendo** o que a pessoa fez | a abertura do turno (`ritualBlocks`) cita a decisão dela, sem apagar o acumulado anterior | PASS |
 | J8.9 | Status da conversa escalada em português | o cabeçalho mostrava `pending` cru | FAIL → PASS |
+| J8.10 | **O cliente é AVISADO antes de a IA sair de campo** | mensagem ao lead dizendo que uma pessoa vai assumir, ANTES do silêncio | FAIL(BUG-06) → PASS |
+| J8.11 | O aviso respeita o motivo | quem pediu para PARAR recebe confirmação da parada, não oferta de atendente | FAIL(BUG-06) → PASS |
+| J8.12 | O aviso respeita a equipe real | conta sem ninguém configurado não recebe promessa de contato | FAIL(BUG-06) → PASS |
+| J8.13 | A passagem por SENTIMENTO abre item na Central | `triggerHandoff` não abria nenhum — cliente sem resposta E time sem sinal | FAIL(BUG-07) → PASS |
 
-Bugs desta jornada estão detalhados em `HANDOFF-ia-360.md` (BUG-01 a BUG-05).
+Bugs desta jornada estão detalhados em `HANDOFF-ia-360.md` (BUG-01 a BUG-05) e em
+`HANDOFF-handoff-avisa-o-lead.md` (BUG-06, BUG-07).
+
+### BUG-06 — a passagem para humano era MUDA (2026-08-26)
+
+Achado pelo dono do produto, em duas conversas reais na mesma hora, e a medição
+no banco de produção mostrou que **são dois motores, não um**:
+
+```
+status  | bot_silenced_until | last_handoff_reason | force_human
+open    | infinity           | requested_human     | t     <- performHumanHandoff (motor, pg)
+pending | infinity           | low_sentiment       | f     <- triggerHandoff (CRM, supabase-js)
+```
+
+O pior caso não foi o pedido explícito: foi o do sentimento. Às 14:50:32 o agente
+PERGUNTOU o e-mail do cliente; às 14:51:01 o worker de sentimento disparou o
+handoff; às 14:51:27 o e-mail chegou e o turno foi pulado. Ele respondeu uma
+pergunta da própria IA para o vazio.
+
+**A ordem é obrigatória:** `performHumanHandoff` grava `force_human`, e o gate 1
+da cadeia de envio o relê a cada tentativa — avisar depois é avisar ninguém.
+Provado por sabotagem em `evidence/handoff-avisa-antes/sabotagem-ordem-invertida.txt`.
+
+Guardas: `tests/invariants/handoff-avisa-o-lead.test.ts` (turno real contra
+Postgres do baseline), `tests/unit/handoff-avisa-o-lead.test.ts` (varredura AST
+dos dois motores) e `tests/unit/aviso-ao-lead.test.ts` (o texto).
 
 ---
 
@@ -389,6 +423,415 @@ divide o servidor. Só aparece exercitando o produto pela tela.
 > restauração feita como `test` num `describe` serial — que é justamente o que
 > não roda quando um caso falha). Corrigidos antes da primeira execução; o
 > resultado real entra aqui quando o CI disser.
+
+## J12 — A tela diz o que ESTA instalação consegue fazer `[P0]`
+
+**Por que P0:** é primeira impressão pura. **Nenhuma instalação nasce com o par
+VAPID** — o `.env.hostgator.example` grava as duas linhas vazias e gerar o par é
+um passo opcional que ninguém é obrigado a dar. Ou seja, o estado testado aqui é
+o estado em que 100% das instalações começam, e a tela de Notificações tem porta
+na navegação (`lib/navigation/registry.ts:470`), então qualquer pessoa chega nela
+no primeiro dia.
+
+**O defeito era de tela, e o backend estava certo o tempo todo.**
+`GET /api/v1/notifications/push` já devolvia `enabled:false` sem as chaves, e o
+`PUT` já recusava com 503 «Web Push não configurado nesta instalação». Quem nunca
+perguntou foi `app/app/settings/notifications/page.tsx`, que afirmava «In-app
+(toast) e Push (Chrome) já funcionam para as cinco categorias» de forma
+incondicional. A sequência que a pessoa vivia:
+
+1. a tela promete Push;
+2. ela liga o interruptor e o navegador pede permissão — incômodo real, cobrado dela;
+3. ela concede, e `syncPushSubscription()` faz `return` em silêncio
+   (`if (!cfg?.data?.enabled || !publicKey) return`);
+4. o interruptor fica ligado prometendo o que a instalação não entrega, e **nada
+   no produto** conta que faltam duas variáveis no `.env`, nem como consegui-las.
+
+Informação que existe no servidor e não chega a quem decide é o mesmo que
+informação ausente.
+
+**O conserto exagerado, recusado de propósito:** desabilitar o interruptor sem
+VAPID. Sem as chaves o aviso na bandeja **ainda funciona com a aba aberta** —
+é `new Notification()` em `lib/notifications/emit.ts`, que não depende de
+inscrição nenhuma. Desabilitar trocaria prometer demais por entregar de menos, e
+o segundo não deixa rastro. **J12.5** existe para impedir esse conserto (era
+J12.3, no `e2e`, até a medição mostrar que ali ela não era observável — ver
+abaixo).
+
+Spec: `tests/e2e/notificacoes-diz-o-que-falta.spec.ts` (estado SEM as chaves —
+o do `.env.e2e` e o do primeiro deploy).
+Evidência: `.superpowers/evidence/notificacoes-sem-chaves/`.
+Os DOIS estados: `tests/unit/notificacoes-tela-diz-o-que-falta.test.tsx` — o
+servidor lê `vapidPronto()` uma vez por processo, então provar o estado COM as
+chaves pela tela exigiria um segundo `next start` só para trocar duas variáveis,
+num job que já leva meia hora.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J12.1 | Sem VAPID, a tela não fica muda | aviso `push-status-faltando-chaves` visível, e o de «pronto» ausente | PASS |
+| J12.2 | Ela diz o que FAZER, não só o que falta | o comando `npx web-push generate-vapid-keys` e as duas chaves, nominalmente | PASS |
+| J12.3 | O controle de Push não some, e a tela diz por que está travado | interruptor visível + «o navegador bloqueou as notificações» | PASS |
+| J12.5 | VAPID ausente NÃO desabilita o Push | com `granted` e sem chaves, nasce habilitado | PASS (unit) |
+| J12.4 | Com VAPID, anuncia a aba fechada | e para de mandar gerar o par que já existe | PASS (unit) |
+
+**Por que J12.5 não é `e2e`, medido e não suposto.** Ela nasceu como asserção
+`toBeEnabled()` na spec, e não podia viver lá. Medido no Chromium do Playwright,
+contra um servidor HTTP local:
+
+    baseline headless                              -> denied
+    grantPermissions(["notifications"]) sem origin -> denied
+    grant com origin explícito                     -> denied
+    headless:false + grant                         -> granted
+
+`Notification.permission` é **`denied` em headless, sempre**, e o CI roda
+headless. Como `_client.tsx` desabilita por `denied || unsupported`, o controle
+está travado ali por um motivo que nada tem a ver com VAPID — e nenhuma
+permissão concedida muda isso. A asserção passou uma vez só porque ganhava a
+corrida contra a hidratação; fechada a janela (`useSyncExternalStore` no hook),
+ela passaria a falhar sempre, e com razão.
+
+**NÃO COBERTO, declarado:** a notificação chegando na bandeja do sistema com a
+aba fechada. Depende do serviço de push do navegador (FCM), de rede externa e de
+um par VAPID real — não é reproduzível num runner, e fingir com mock seria pior
+que a ausência declarada. O que está provado é o contrato entre a TELA e o
+SERVIDOR. Continua aberto na issue #366.
+
+## J13 — A Agenda como o dono do produto a usou na VPS `[P0]`
+
+**Por que P0:** é a primeira impressão de um módulo que acabou de sair (v1.7.0).
+O dono instalou na VPS dele, usou como um cliente usaria, e achou **seis defeitos
+em quinze minutos**. Um sétimo aparecia no log de produção a cada cinco minutos e
+ninguém tinha visto; um oitavo saiu de varredura. Todo módulo novo tem uma janela
+em que ninguém o usou de verdade — esta jornada existe porque ela custou oito.
+
+**O que a suíte não conseguia enxergar, e por quê.** Toda spec até aqui roda com
+usuário de UMA organização. O defeito de escopo (D4) é invisível nesse cenário
+por construção: sem duas organizações, a RLS e o filtro explícito devolvem
+exatamente o mesmo conjunto. `scripts/seed-e2e-duas-organizacoes.ts` monta o
+cenário que faltava — o MESMO usuário em duas orgs, com um tipo exclusivo em cada
+uma, para a asserção poder ser sobre o CONJUNTO DE NOMES e não sobre a contagem.
+
+| # | Caso | Resultado |
+|---|---|---|
+| J13.1 | Membro de duas organizações abre a Agenda e vê só os tipos da org ativa; trocar de organização troca a lista | **PASS** — `agenda-escopo-da-organizacao.spec.ts`, contra o app real. Evidência: `evidence/calendario/d4-agenda-escopo-org-b.png` |
+| J13.2 | O aviso "você ainda não publicou seus horários" LEVA até onde se publica, e a aba de Atendimento se anuncia como o lugar dos horários | **PASS** — `agenda-caminho-ate-os-horarios.spec.ts`. Evidência: `evidence/calendario/d1-aba-atendimento.png` |
+| J13.3 | Endereço de aba desconhecido cai na aba padrão, não numa tela sem conteúdo | **PASS** — mesma spec |
+| J13.4 | O tipo de agendamento NASCE com responsável; quem escolhe "Definir depois" é avisado e o aviso ABRE o seletor | **PASS** — `agenda-tipos-de-agendamento.spec.ts`. Evidência: `evidence/calendario/d6-tipo-com-responsavel.png` |
+| J13.5 | O dia apagado diz POR QUÊ, e o rótulo genérico antigo não volta | **PASS** — `agenda-kit-visual.spec.ts` |
+| J13.6 | O teto de capacidades recusa a passagem explicando quantas vagas faltam | **PASS** — `capacidades-do-agente.spec.ts`, com o teto em 25 |
+| J13.7 | A ida ao Google seleciona os pendentes (o filtro antigo devolvia HTTP 400) | **PASS** — medido contra o PostgREST real do ambiente e2e: filtro antigo `400 / 22007`, filtro novo `200` com as linhas pendentes |
+| J13.8 | Sincronizar tira a linha da fila, e editar recoloca (o laço dos dois relógios) | **PASS** — medido no Postgres real: `true` → `false` com delta `00:00:00` → `true` |
+| J13.9 | A credencial do Google não é servida pelo PostgREST | **PASS** — `anon` recebe `42501 permission denied`; `service_role` recebe 200 (controle positivo) |
+| J13.10 | Cadastrar a credencial do Google pela tela do admin | **NÃO EXERCITADO** — a tela e a server action existem e o `next build` passa, mas o ambiente e2e não tem a chave mestra de cifra semeada (`fn_encrypt_oauth` levanta `NUVEMSHOP_OAUTH_ENCRYPTION_KEY ausente`), que é justamente o caminho em que a action RECUSA gravar. Falta o caso pela tela com a chave presente |
+
+**Registro honesto do que NÃO foi exercitado:** `pnpm test:db` não rodou nesta
+máquina — o daemon do Docker travou depois de o disco encher, e o harness de
+invariantes exige contêiner. Os dois invariantes novos
+(`agenda-ida-ao-google-termina`, `credencial-do-google-e-server-side`) estão
+escritos e a SUBSTÂNCIA deles foi medida à mão contra o Postgres real do
+ambiente e2e; falta a passada do harness no CI.
+
+---
+
+## J14 — Marcar um horário, na tela em que o dono marcou `[P0]`
+
+**Por que P0:** os dois defeitos aqui impedem a ação central do módulo — escolher
+um horário e chegar até ele. O dono achou os dois usando a v1.8.0 na VPS.
+
+**A crítica que originou esta jornada, e ela é justa:** havia 20 casos Playwright
+sobre esta tela (a J13) e nenhum pegou. Todos assertam PRESENÇA (`toBeVisible`,
+`toHaveCount`), e **elemento cortado continua presente** — está no DOM, tem
+tamanho, e o Playwright o considera visível. A borda que o corta é do PAI.
+Presença nunca vai medir isto; só geometria mede.
+
+| # | Caso | Resultado |
+|---|---|---|
+| J14.1 | A coluna de horários cabe no painel, e o painel no Sheet que o hospeda | **PASS** — `agenda-painel-cabe-na-tela.spec.ts`, por `boundingBox` em cinco larguras. Antes: painel de 982px num Sheet de 768, transbordando 239px |
+| J14.2 | A coluna de horários fica dentro da VIEWPORT | **PASS** — antes, só 42 dos 280px apareciam, em 1280, 1440 e 1920 |
+| J14.3 | Dá para CLICAR num horário | **PASS** — a geometria é o diagnóstico; a ação é o desfecho. Evidência: `evidence/calendario/d1-painel-cabe-1280.png` |
+| J14.4 | Abaixo de `lg` os horários empilham sob o calendário | **PASS** — caso de 900px |
+| J14.5 | O limiar de 1024px, onde as 3 colunas passam a valer com 44px de folga | **PASS** — é onde um ajuste de padding estoura primeiro |
+| J14.6 | "Ver na agenda" leva até o compromisso, inclusive em outra semana | **PASS** — `agenda-ver-na-agenda.spec.ts`. O botão não tinha `onClick` nenhum. Evidência: `evidence/calendario/d2-ver-na-agenda.png` |
+
+**Duas correções ao diagnóstico inicial, ambas medidas:**
+1. O defeito de largura **não sumia em tela grande** — em 1920 o transbordo era
+   idêntico, porque o Sheet é fixo em 768px e ancorado à direita.
+2. A primeira versão da asserção de geometria media "coluna contra painel" e
+   ficava vermelha — mas por medir no meio da transição de `width`. No estado
+   estável ela PASSA. Falso vermelho hoje é falso verde amanhã; a spec passou a
+   esperar a largura estabilizar, e a régua certa é o painel contra o Sheet.
+
+**Sobre um diagnóstico que a medição derrubou:** ao ver 4 falhas num run de 5
+specs juntas, atribuí ao `AUTH_RATE_LIMIT_LOGIN_IP` que o CI define e o ensaio
+local não. **Estava errado** — o run seguinte passou 30/30 sem essa variável, e o
+seguinte também. A diferença era tempo: 51s contra 11,2min, com um `next build`
+disputando CPU. A diferença de ambiente entre ensaio e CI é real e vale saber,
+mas não era a causa desta falha.
+
+## J15 — A grade da Agenda como agenda de verdade `[P0]`
+
+**Por que P0:** é a tela que quem atende deixa aberta o dia inteiro, e ela era
+**desenho**. Sete colunas, faixas de hora, cards — e nenhum gesto: clicar num
+espaço vazio não fazia nada, arrastar um compromisso não fazia nada. Marcar
+exigia sair da grade, abrir "Novo agendamento" e reescolher no mini-calendário a
+data que a pessoa acabara de apontar com o dedo. Nenhuma spec reprovava, porque
+nenhuma spec tentava: as irmãs entram pelo botão e pelo histórico, que são
+caminhos que já existiam.
+
+**O jeito errado de consertar, e o que o vigia.** Calcular o horário a partir do
+pixel clicado. A tela passaria a oferecer instantes que a disponibilidade
+publicada não tem — 422 `agenda_disponibilidade_invalida` na cara de quem
+clicou, e a agenda discordando do agente sobre o que está livre. A defesa é de
+construção: a grade **pergunta** a `GET /api/v1/agenda/horarios-livres` (a mesma
+rota do painel e do agente) e um bloco só é clicável quando existe horário
+publicado ali. Ela não tem de onde tirar um instante que a regra não deu.
+
+| # | Caso | Resultado |
+|---|---|---|
+| J15.1 | Clicar num bloco livre abre a marcação **naquele horário** — a asserção é o horário exibido, não que "algo abriu" | **PASS** — `agenda-grade-interativa.spec.ts`. Evidência: `evidence/calendario/grade-clique-abre-no-horario.png` |
+| J15.2 | Bloco fora da disponibilidade não é clicável **e diz por quê** (`disabled` + razão no `aria-label` e no `title`) | **PASS** — mesma spec. Evidência: `evidence/calendario/grade-bloco-recusado-diz-por-que.png` |
+| J15.3 | Arrastar um card remarca, e o horário novo é conferido **na API depois do reload** — não só na tela | **PASS** — mesma spec. Evidência: `evidence/calendario/grade-arraste-fantasma.png` e `evidence/calendario/grade-confirma-antes-de-remarcar.png` |
+| J15.4 | Arrastar para fora da disponibilidade é recusado com o motivo, **nenhum PATCH sai**, e o card volta ao lugar (medido por `boundingBox`) | **PASS** — mesma spec. Evidência: `evidence/calendario/grade-arraste-recusado.png` |
+| J15.5 | Geometria por ferramenta: o topo do card remarcado contra o topo da faixa daquela hora, tolerância de 2px | **PASS** — mesma spec |
+| J15.6 | Remarcar pelo **teclado** (`Alt+↑/↓` salta de vaga em vaga, `Enter` confirma, `Esc` desfaz) pelo mesmo mecanismo do arraste | **PASS** — `tests/unit/agenda-grade-aceita-clique.test.tsx` (jsdom — o arraste por ponteiro precisa de geometria real e fica no Playwright) |
+
+**As asserções foram provadas vermelhas antes**, e não só escritas depois:
+
+| Sabotagem | Previsão | Medido |
+|---|---|---|
+| A camada de blocos vazios volta a não existir (a grade de antes) | 4 vermelhas | **4 vermelhas**, todas em "nenhum bloco livre na semana desenhada" |
+| A recusa vira pergunta **e** o destino válido remarca sem confirmar | J15.3 e J15.4 vermelhos, J15.1 e J15.2 verdes | **exatamente isso** — "soltar remarcou sem perguntar" e `remarcacao-recusada` não encontrado |
+
+**Dois defeitos que só apareceram executando** (nenhum apareceria lendo o código):
+
+1. A grade oferecia a disponibilidade de `tiposIniciais[0]` — o primeiro tipo em
+   **ordem alfabética**, escolhido por ninguém e sem seletor fora do painel de
+   marcação. Numa organização com quatro tipos e jornada publicada em um só, a
+   grade inteira travava com "não consegui carregar os horários" **enquanto
+   havia vaga**. O tipo ganhou superfície na tela.
+2. Card de compromisso **cancelado** cobria o bloco vazio e comia o clique — e
+   cancelar é justamente o que devolve o horário (`cancelled` está em
+   `SITUACOES_QUE_LIBERAM`). Numa clínica com uma semana de cancelamentos, todo
+   horário reaberto ficaria inalcançável pela grade. O card perdeu o ponteiro e
+   manteve a presença: é registro, não ação.
+
+---
+
+## J16 — Conectar o Google, e conseguir enxergar que conectou `[P0]`
+
+**Por que P0:** o dono instalou a v1.9.0 e relatou quatro sintomas numa frase só
+— "conecto, ELE DESLOGA DA MINHA CONTA, quando logo de novo diz que conectou, mas
+nada funciona e o botão Conectar continua lá". Três defeitos independentes, e o
+mais humilhante é que **a conexão sempre funcionou**: ninguém conseguia ver.
+
+| # | Caso | Resultado |
+|---|---|---|
+| J16.1 | Voltar do consentimento não cai no `/login` | **PASS** — `agenda-google-volta-nao-desloga.spec.ts`. Sem o conserto, o usuário logado para em `/login?next=%2Fapp%2Fagenda%3Ferro%3D...`, medido em Chromium |
+| J16.2 | O CHECK do banco proíbe o valor que três consultas procuravam | **PASS** — invariante `agenda-conexao-do-google-e-encontrada`, contra Postgres real |
+| J16.3 | A conexão que o callback grava é encontrada pelo predicado do worker | **PASS** — mesmo invariante: 1 achada com o valor certo, 0 com o antigo |
+| J16.4 | Nenhuma consulta filtra por valor que a coluna proíbe | **PASS** — varredura `consulta-usa-o-vocabulario-do-banco`; previ 3 achados antes de rodar e vieram os 3 |
+| J16.5 | A lista de horários rola, e o último horário é clicável | **PASS** — `agenda-painel-cabe-na-tela.spec.ts`, viewport 1280×700. Evidência: `evidence/calendario/d4-lista-rola-1280x700.png` |
+
+**Três correções ao briefing, todas medidas:**
+1. A retenção do cookie no segundo salto era **dedução** marcada NÃO MEDIDA. Foi
+   observada em navegador: é real, em Chromium. (Firefox não foi medido.)
+2. A régua anti-regressão proposta (`body.scrollHeight - innerHeight <= 1`) vinha
+   com a nota "já passa hoje". **Não passa** — e o crescimento é idêntico com e
+   sem o conserto (1566px nos dois), portanto pré-existente. A régua passou a
+   medir o que queria proteger: que o Sheet continua `position: fixed`.
+3. A pré-condição de suficiência da lista comparava o conteúdo com a altura da
+   JANELA; a régua certa é o espaço abaixo do topo da lista. Da primeira forma
+   ela reprovou um cenário suficiente.
+
+**Dívida declarada, não consertada aqui:** com o painel aberto em 1280×700 o body
+vai a 1566px contra 700 de janela. É anterior a este PR e misturá-la esconderia
+as duas.
+
+---
+
+## J17 — Trocar de organização, incluindo a que não foi configurada `[P0]`
+
+**Por que P0:** o seletor de organização fica no topo de toda tela do produto e
+é uma das ações mais banais do cabeçalho — e ela podia terminar num beco sem
+saída. `app/app/layout.tsx:51` manda para `/onboarding` toda organização ativa
+sem `onboarded_at`; o layout de `/app` sai inteiro da árvore e leva o
+`TenantSwitcher` junto. Quem foi convidado para uma organização nova e trocou
+para ver o que era **perdia o caminho de volta**: no wizard sobravam "Termos de
+Uso", "Política de Privacidade" e um "Continuar" desabilitado — medido no
+snapshot de uma falha do CI (run 33164258175), não deduzido. A saída real era
+limpar os dados do site.
+
+**Como o defeito apareceu, e por que ele estava escondido:** ele não foi
+reportado por ninguém — saiu de uma `main` vermelha. Dois seeds
+(`seed-e2e-funis` e `seed-e2e-duas-organizacoes`) inseriam em `organizations`
+com o mesmo slug e colunas diferentes, e quem rodasse primeiro vencia. Com a org
+de teste chegando sem `onboarded_at`, `agenda-escopo-da-organizacao` reprovava
+com `element(s) not found` no seletor. O conserto do harness devolveu o CI ao
+verde; o defeito de produto que ele expôs sobrevive a esse conserto, e é o que
+esta jornada prende.
+
+| # | Caso | Resultado |
+|---|---|---|
+| J17.1 | Trocar para uma organização não configurada leva ao wizard — o destino está certo, a organização não foi configurada mesmo | **PASS** — `troca-de-organizacao-tem-volta.spec.ts` |
+| J17.2 | O seletor de organização **não** sobrevive ao redirect (é a razão de o wizard precisar de saída própria) | **PASS** — mesma spec, `toHaveCount(0)` |
+| J17.3 | O wizard oferece o caminho de volta, e voltar traz para a organização de ANTES (conferido pelo nome, não por "saiu de lá") | **PASS** — mesma spec. Evidência: `evidence/onboarding/troca-de-org-tem-volta.png` |
+| J17.4 | Sem outra organização, o controle não existe — prometer ação vazia é o controle decorativo | **PASS** — `tests/unit/onboarding-tem-saida.test.tsx` |
+| J17.5 | Trocar **navega**: `setActiveOrg` revalida `/app`, não `/onboarding`, e sem o `replace` o clique pareceria não fazer nada | **PASS** — mesma unit |
+| J17.6 | Dois seeds não criam a mesma organização (a classe, não a instância) | **PASS** — `tests/unit/seeds-nao-disputam-organizacao.test.ts`, com controle positivo contra a regex cegar |
+
+**As asserções foram provadas vermelhas antes:**
+
+| Sabotagem | Previsão | Medido |
+|---|---|---|
+| O layout volta a não montar a saída (o estado de antes) | J17.3 vermelho, `agenda-escopo` verde ao lado | **exatamente isso** — a cerca discrimina, não reage a qualquer estrago |
+| A saída nunca renderiza | 3 unit vermelhos | **3** |
+| Troca sem navegar | 1 unit vermelho | **1** |
+| O slug compartilhado volta ao seed | o gate de seeds reprova nomeando os dois arquivos | **reprovou**, com `e2e-segunda-org ← seed-e2e-duas-organizacoes.ts + seed-e2e-funis.ts` |
+| Seed antigo restaurado (`git show HEAD~1`) e re-semeado | `agenda-escopo` reprova como no CI | **reprovou** com `não terminou` + `element(s) not found`, literal |
+## J18 — O follow-up anda em hospedagem sem agendador `[P0]`
+
+**Por que P0:** para quem **não tem** o `scheduler` da VPS — o plano gratuito da
+Vercel é o caso comum, e é o cenário inteiro do runbook
+[`vercel-hobby-relogio.md`](../runbooks/vercel-hobby-relogio.md) — o relógio
+externo não é conveniência: é o **único** motor do follow-up. E a falha dele é
+silenciosa: os follow-ups não andam, ninguém recebe erro, e a instalação parece
+saudável.
+
+**O que existia media TEXTO.** `tests/unit/relogio-hobby-workflow.test.ts`
+confere que o `.yml` cita o caminho do tick, a variável e o `exit 1` — ancora o
+contrato do arquivo, não prova que uma batida faz alguma coisa. Nenhum teste, em
+lugar nenhum, chegava a bater na rota. Era o item 2 da issue #366.
+
+**O emissor é externo de propósito.** `execFileSync("curl", …)` — outro
+processo, sem contexto de browser, sem cookie: é literalmente o comando que
+`comandoCurlDoRelogio()` gera e que o runbook manda colar no cron-job.org.
+`page.request` compartilharia o contexto do teste e provaria menos, já que a
+rota está em `PUBLIC_PATHS` justamente porque quem a chama não tem sessão.
+
+Spec: `tests/e2e/relogio-http-cron-externo.spec.ts` (`SPECS_PARTE_1`).
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J18.1 | Segredo errado é recusado | 403 **e** o enrollment não se move | PASS |
+| J18.2 | 1ª batida executa o `wait` | agenda a espera para o futuro, `steps_taken` sobe | PASS |
+| J18.3 | 2ª batida, vencido o prazo, avança | `current_node_id` chega ao nó final | PASS |
+
+**Duas batidas, e não uma — medido.** A primeira versão do caso esperava avanço
+numa batida só, e o run devolveu `{claimed:1, advanced:0, scheduled:1}`: um
+enrollment vencido *parado* num nó `wait` significa "chegou a hora de EXECUTAR o
+wait", e executar um wait é **agendar** a espera. O avanço só vem na batida
+depois do prazo — que é exatamente o que um cron externo faz, batendo de poucos
+em poucos minutos. O relógio do fixture é adiantado entre as duas porque o
+mínimo do `wait` é 5 min por regra de produto (`graph-schema.ts` recusa
+`duration_ms` abaixo de `300000`; com `1` o tick devolve `failed: 1`).
+
+**Sabotado, com a previsão declarada antes de rodar:**
+
+    auth aceita qualquer segredo   -> caso 1 vermelho, casos 2/3 verdes
+    tick responde 200 e não acha
+      o que avançar (claim vazio)  -> caso 1 verde, casos 2/3 vermelhos
+    restaurado                     -> 2 de 2
+
+**NÃO COBERTO, declarado:** o `.github/workflows/relogio.yml` em si — ele nasce
+desligado (`RELOGIO_LIGADO`) e quem o exercitaria é o Actions de um fork, não
+este job. O que está provado é que **a batida faz efeito**; que o agendador do
+GitHub dispara no horário é do GitHub.
+
+---
+
+## J20 — A IA só atende quem tem origem elegível (gate opt-in por canal) `[P0]`
+
+**Por que P0:** achado pelo dono do produto num número que é também o WhatsApp
+pessoal/comercial dele — a IA respondeu automaticamente para cliente atual, dono
+de incorporadora, contato pessoal, fornecedor e conversa antiga. O
+DeskcommCRM responde `allow by default` (publicou agente para a sessão → atende
+todo inbound); num número compartilhado com gente isso é a IA assumindo conversa
+que não era dela.
+
+**Contexto do código:** gate OPT-IN por canal —
+`channel_sessions.metadata.ai_gate = 'allowlist'` (ausente / `'open'` =
+comportamento de hoje). Com o gate, a IA só responde quando
+`contacts.ai_authorized_at` está setado (por uma origem elegível) e dentro da
+janela `AI_ALLOWLIST_TTL_DAYS`. A decisão é `lib/ai/elegibilidade/gate.ts`
+(pura), consultada pelo drain (`lib/agent-engine/edge/crm/drain.ts`, decide
+enfileirar) e pelo turno (`lib/agent-engine/agent/inbound-turn.ts`, decide
+rodar). Origens que autorizam: webhook do Respondi
+(`app/api/v1/webhooks/in/[token]`), match de campanha na ingestão
+(`lib/channels/pos-entrada.ts` × `organizations.settings.campanhas_whatsapp`),
+ação `send_ai_message`, retomada manual (`lib/escalacao/retomada.ts`).
+
+| # | Caso | Expectativa | Cobertura |
+|---|---|---|---|
+| J20.1 | Cliente atual manda "boa noite" (gate allowlist, contato não autorizado) | IA NÃO responde; conversa fica humana | **UNIT** — `gate.test.ts` "teste 1/3/4/9", `drain.test.ts` "gate allowlist + contato NÃO autorizado" |
+| J20.2 | Cliente atual com conversa aberta, não autorizado | IA NÃO responde (estado da conversa não pesa) | **UNIT** — `gate.test.ts` "teste 2" |
+| J20.3 | Contato pessoal manda mensagem | IA NÃO responde | **UNIT** — coberto por J20.1 (mesma regra) |
+| J20.4 | Fornecedor manda proposta comercial | IA NÃO responde automaticamente | **UNIT** — coberto por J20.1 |
+| J20.5 | Conversa antiga de 3 dias; publicar agente | publicar NÃO dispara nada (`ai_agent.published` não tem consumidor) + o drain pula evento superado por inbound mais recente | **UNIT** — `drain.test.ts` "evento superado por inbound mais recente"; **CÓDIGO** — grep: zero consumidor de `ai_agent.published` |
+| J20.6 | Nova submissão Respondi → o contato fica elegível | IA pode responder o retorno do lead | **UNIT** — webhook seta `ai_authorized_reason='respondi:<form>:<sub>'`; **E2E** — `tests/e2e/j20-elegibilidade-respondi.spec.ts` (submissão real na URL da fonte → `ai_authorized_at` carimbado → o retorno pelo WhatsApp gera `job_queue` `inbound_turn`; CONTROLE: número sem Respondi no mesmo canal → evento `done` sem job) |
+| J20.7 | Segundo turno do Respondi (dias depois, conversa viva) | IA continua atendendo (keep-alive renova o carimbo) | **UNIT** — `gate.test.ts` "teste 6/7"; keep-alive em `inbound-turn.ts` |
+| J20.8 | Nova mensagem de campanha com identificador autorizado | IA pode assumir | **UNIT** — `campanha.test.ts` "teste 8" |
+| J20.9 | Nova mensagem genérica "oi" | IA NÃO responde | **UNIT** — `campanha.test.ts` "teste 9" + `gate.test.ts` |
+| J20.10 | Conversa marcada human_only (`force_human`) | IA nunca responde até reativação explícita | **UNIT** — `gate.test.ts` "teste 10", `drain.test.ts` "force_human" |
+| J20.11 | Follow-up em lead Respondi elegível | funciona | **CÓDIGO** — silence-sweep só barra quem o gate barra |
+| J20.12 | Follow-up em cliente atual (não autorizado, gate allowlist) | NÃO enrola | **CÓDIGO** — `silence-sweep.ts` `loadSilentContactIds` consulta a regra compartilhada e pula `!permitidoPeloGate`; **E2E** — `tests/e2e/j20-elegibilidade-followup.spec.ts` (fluxo de silêncio publicado pela API + cron real: silencioso autorizado → nasce `followup_enrollments`; silencioso NÃO autorizado, mesmo canal → nenhum enrollment) |
+| J20.13 | Reinício do worker com backlog de eventos pending | zero disparos: cada evento cujo inbound já foi superado vira `done` sem job | **UNIT** — `drain.test.ts` "evento superado por inbound mais recente" |
+| J20.14 | Submissão antiga (fora do TTL) | NÃO reativa a IA sozinha | **UNIT** — `gate.test.ts` "submissão antiga (fora da janela)", `drain.test.ts` "autorização EXPIRADA" |
+| J20.15 | Org SEM versão de agente publicada (caminho legado `ai-response-worker`), gate allowlist, contato não autorizado | IA NÃO responde por este caminho tampouco | **UNIT** — `ai-response-worker-elegibilidade.test.ts` (skip `nao_elegivel_para_ia` antes de ler mensagem/agente; fail-closed em erro de leitura) |
+| J20.16 | Follow-up de TEXTO FIXO drenado inline (`enviarTextoFixoPendente`, sem worker), contato não autorizado | NÃO envia; job vira `done` | **UNIT** — `enviar-texto-fixo.test.ts` "conversa NÃO elegível" (+ fail-closed volta pra `pending`) |
+| J20.17 | Cliente antigo irritado (gate allowlist, não autorizado) → worker de sentimento dispara `low_sentiment` | `triggerHandoff` NÃO dispara: sem "um humano vai te atender", sem mexer no estado da conversa | **UNIT** — `handoff-orchestrator-elegibilidade.test.ts` (`bloqueioPorAllowlist` e `conversa_silenciada` barram; fail-closed em erro) |
+| J20.18 | Eu respondo o cliente à mão pelo meu WhatsApp numa conversa autorizada | IA para naquela conversa por um PRAZO (`PRAZO_DO_SILENCIO_MS`, 60 min) renovado a cada nova fala humana, SEM apagar `ai_authorized_at`; volta sozinha quando o prazo vence, ou antes por "devolver ao automático" | **UNIT** — `atendimento-manual.test.ts` (as duas pontas do prazo medidas pelo motor real `decidirElegibilidade`, renovação, e o que NUNCA encurta: `'infinity'` do handoff formal e janela mais longa) + `waha-ingest-atendimento-manual.test.ts` (via `dispatchWahaEvent` real; eco do próprio envio NÃO pausa) + guarda de fonte no Zernio + fiação em `handoff-fernando-fiacao.test.ts`; **E2E** — `tests/e2e/j20-elegibilidade-atendimento-manual.spec.ts` (webhook `fromMe` genuíno → `bot_silenced_until` finito e futuro, nunca `'infinity'`, + rastro; `ai_authorized_at` intacto; 2ª mensagem RENOVA o prazo; tela mostra o selo; "devolver ao automático" solta a trava e a autorização continua) |
+| J20.19 | Worker parado acorda com backlog; dois inbound antigos com o MESMO `sent_at` | a "última inbound" é a mais RECENTE (por `created_at`), nunca a de maior uuid — o evento antigo é pulado | **INVARIANTE** — `tests/invariants/drain-recencia-inbound.test.ts` (Postgres real) + `drain.test.ts` guarda a cláusula `coalesce(sent_at, created_at)` |
+
+**Sabotagem que confirma:** removendo o veto `sem_autorizacao` de
+`decidirElegibilidade`, `gate.test.ts` e `drain.test.ts` reprovam; restaurado,
+verde. Para J20.19: `order by id desc` sozinho elege a mensagem ANTIGA — o
+próprio invariante prova isso na asserção de sanidade.
+
+**Cobertura de caminhos de envio (R1 — nenhum atalho):** o gate
+(`lib/ai/elegibilidade/gate.ts`, regra pura) é consultado por TODOS os produtores
+de resposta automática: drain + turno do agent-engine (`consulta-pg.ts`),
+`ai-response-worker` legado, `enviarTextoFixoPendente`, `runAgent` legado
+(`lib/ai/runtime/agent.ts`), `triggerHandoff` e o worker de sentimento
+(`consulta-supabase.ts`). `send_ai_message` é origem elegível (autoriza e então
+envia). Todos fail-closed: erro de leitura da elegibilidade → não responde.
+
+**E2E (ambiente fresco estilo VPS):** J20.6, J20.12 e J20.18 têm spec própria
+(`tests/e2e/j20-elegibilidade-*.spec.ts`), rodando no job `e2e` do CI. Seed
+compartilhado `scripts/seed-e2e-elegibilidade.ts` (canal com `ai_gate='allowlist'`
++ credencial validada + fonte de captação); helpers de SQL cru
+`scripts/e2e-elegibilidade-helpers.ts` (roda 1 tick do `drainTick` real — a suíte
+não sobe worker —, lê `job_queue`/`event_log`/`followup_enrollments`, semeia os
+dois estados de partida do gate). A submissão do Respondi e as mensagens do WAHA
+entram pelas rotas REAIS do app (`/api/v1/webhooks/in/:token`,
+`/api/v1/webhooks/waha/:token`). O agente publicado é SETUP via helper porque
+`POST /api/v1/ai/agents` exige role `admin`/MFA e o agente não é o que está sob
+teste.
+
+**Modo de teste do canal (issue #573):** Conexões › Configurar acesso da IA
+agora expõe pré-go-live por lista de telefones e abertura ao público com
+confirmação. Novos canais nascem em teste com lista vazia; os anteriores
+preservam o gate. O pré-go-live NÃO aceita autorizações por origem como
+substitutas da lista. Contrato em [pre-go-live-whatsapp](../specs/pre-go-live-whatsapp.md).
+
+| # | Caso | Expectativa | Cobertura |
+|---|---|---|---|
+| J20.20 | Cadastrar testadores antes do primeiro contato | Só o telefone listado é elegível, mesmo que outro contato tenha autorização por origem | `tests/invariants/pre-go-live-canal.test.ts`, `gate.test.ts`, `consulta-supabase.test.ts`, `drain.test.ts` |
+| J20.21 | Administrador salva, recarrega, remove, abre e volta ao teste | Lista persistente por canal, lista vazia bloqueia todos, abrir exige confirmação | `tests/e2e/pre-go-live-whatsapp.spec.ts`, auth e banco reais, desktop e móvel |
+| J20.22 | Fechar o canal durante geração da resposta | Sink não envia automaticamente; resposta humana continua permitida | `tests/unit/messages-handler-desfechos.test.ts` |
+| J20.23 | Remover testador com resposta pendente de reenvio | Watchdog relê a lista e falha a mensagem sem alcançar o transporte; erro de leitura também não envia | `tests/invariants/agent-watchdog.test.ts` com banco e receiver HTTP reais; `session-reconciler.test.ts` |
+
+**Dívida restante:** o editor de `campanhas_whatsapp` e a ativação do allowlist
+POR ORIGEM continuam por script/SQL (`scripts/ativar-gate-elegibilidade-ia.ts`).
+O painel não converte silenciosamente esse modo legado em teste ou aberto.
+
+**Dívida no `campanhas_whatsapp`:** o campo `agent_id` de uma campanha é aceito
+no schema mas **NÃO é roteado** — o match só torna o contato elegível
+(`ai_authorized_reason = campanha:<id>`); quem assume o turno é sempre o
+roteador / agente publicado da sessão. Encaminhar por campanha exige levar
+`agent_id` no payload de `ai_agent.dispatch_requested` e o `resolve-turn-agent`
+respeitá-lo. `label`/`segmento` são display-only (dependem da tela).
+
+---
 
 ## J7 — Exploração completa `[P2]`
 
@@ -603,6 +1046,49 @@ espaço e acento, que era o gatilho do defeito #6.
 | 28 | 🟠 **CI vermelho por lentidão, não por defeito.** O teste que abre processo filho (`npx tsx`) leva ~5s e o timeout padrão do vitest é 5s — derrubou a `main` num PR que só mexia em documentação | corrigido — timeout explícito de 60s; 3 rodadas seguidas verdes. O controle positivo continua provando o aparato |
 
 **Nota de ambiente:** o `.env` da VPS foi apontado para `ghcr.io/...:latest` durante o QA, porque o fluxo de release novo fixa a imagem numa tag (`1.1.0`) e as correções desta sessão estão à frente dela. Para voltar ao comportamento de release, basta repor `APP_IMAGE` com a tag desejada.
+
+## Acervo de conhecimento — o acervo é da organização (2026-08-26)
+
+> **O que o CI NÃO prova aqui.** `tests/e2e/acervo-de-conhecimento.spec.ts` tem 6
+> casos, e **4 deles pulam no CI** por falta de `OPENAI_API_KEY_E2E` — chave paga,
+> que não vai para segredo de repositório público. Medido, não suposto: a parte 2
+> do `e2e` era `73 passed / 0 skipped` na main sem a spec e virou `75 passed /
+> 4 skipped` com ela. O CI prova que a tela DIZ que falta chave e que o material
+> sem chave fica esperando; **que o material vira trecho buscável — o produto — só
+> é provado rodando a spec com a chave**, e essa rodada está em
+> `evidence/acervo-de-conhecimento/`. Mesmo formato do aviso que a doutrina já dá
+> sobre `vps-fresh-onboarding`: um `skip` silencioso é indistinguível de um `pass`
+> no placar agregado.
+
+**A afirmação de 2026-07-30 abaixo ("implementado e provado") era verdadeira para
+UM caminho e falsa para o produto.** O que estava provado era: FAQ colada, pelo
+agente padrão, numa organização com a chave no `.env`. Fora disso, medido agora:
+
+| # | Achado | O que a pessoa via |
+|---|---|---|
+| 1 | 🔴 **O indexador resolvia o agente pela ORGANIZAÇÃO** (`resolveAgent(organizationId)` → `is_default desc, created_at asc, limit 1`) e ignorava o `agent_id` que os três emissores mandavam no payload | com dois assistentes, o material do segundo nunca virava trecho. Sem erro, sem estado, sem nada na tela |
+| 2 | 🔴 **A tela de conhecimento era presa a `is_default = true`** — e todo agente criado pela interface nasce `is_default: false` | o acervo de qualquer assistente que você criasse era inalcançável |
+| 3 | 🔴 **Cadastrar a chave da OpenAI pela tela não habilitava nada.** `lib/ai/embed.ts` lia só `process.env`, enquanto `lib/ai/pontos/provedores.ts` promete na tela que a OpenAI é "necessária para indexar o seu material" | a pessoa cadastrava a chave em IA › Credenciais e o material continuava parado |
+| 4 | 🔴 **Sem chave, o evento era consumido para sempre.** O worker devolvia `skipped`, e `drain.ts` conta `skipped` como sucesso | cadastrar a chave depois não recuperava o que ficou para trás |
+| 5 | 🔴 **Upload de arquivo extraía o texto e DESCARTAVA** (`ingestPolicyFile` devolvia `{ chunkCount }` sem persistir), e a rota não tinha chamador nenhum na interface | o PDF subia e o agente nunca sabia o que estava nele |
+| 6 | 🔴 **Preparar um material derrubava o outro**: a ingestão de conversas e a de FAQ competiam pelo único `active_kb_version_id` do agente | quem indexasse por último apagava o acervo do outro |
+| 7 | 🔴 **Debounce sem timeout travava o evento para SEMPRE.** Com o Redis configurado e inalcançável — VPS com o contêiner caído —, `redis.set()` não voltava; `drainEventLog` marca `processing` ANTES do handler e **nada devolvia a linha** (o `job_queue` tem reaper, o `event_log` não tinha) | material cadastrado, nada acontece, e nem tentar de novo resolve |
+| 8 | 🟠 **Arquivar não liberava o espaço** — nenhuma linha do repo jamais escreveu `is_active = false` | não dava para criar outro material do mesmo tipo, nunca mais |
+| 9 | 🟠 **O limiar do código (0.72) vencia o calibrado (0.40)** em três sítios | paráfrase descartada: "posso trocar se não servir?" não achava a resposta escrita |
+| 10 | 🟠 **Duplicar assistente perdia `pipeline_ids`**, e três INSERTs aceitavam `operator_*`/`pipeline_ids` no corpo e os descartavam | a cópia nascia sem escopo, com 201 dizendo que deu certo |
+| 11 | 🔴 **Segurança**: as 4 tabelas do acervo aceitavam escrita de `viewer` pelo PostgREST | qualquer membro apagava a base de conhecimento da organização |
+| 12 | 🟠 **O diálogo de cadastro não cabia na tela** — o botão "Adicionar ao acervo" ficava fora da viewport em 720px | o formulário existia e não se enviava (achado pela prova de tela) |
+
+**Prova**: `tests/e2e/acervo-de-conhecimento.spec.ts` (6 casos, jornada inteira
+pela tela) + `tests/invariants/rag-acervo-da-organizacao.test.ts` (recorte da
+busca, versões legadas, imutabilidade do escopo, RBAC das 4 tabelas) +
+`tests/unit/dreno-nao-perde-evento.test.ts`.
+
+**NÃO MEDIDO**: o comportamento com acervo grande (milhares de trechos). O índice
+vetorial `ivfflat` existe e o planner não o escolhe com o recorte de tenant — a
+busca é exata e linear, correta e sem teto de recall. Vira issue.
+
+---
 
 ## RAG do tenant — implementado e provado (2026-07-30)
 
@@ -888,3 +1374,467 @@ Toda spec que usa o helper sobe o teto (240 s em quatro delas, 90 s em uma) —
 isso não está escrito em lugar nenhum, e quem adota o helper sem subir o teto vê
 dois testes alheios estourarem sem call log de locator. Se você for adotar o
 helper numa spec nova: `test.describe.configure({ timeout: 120_000 })`.
+
+## O menu inteiro cabe na dobra de um notebook? (2026-09-04)
+
+Origem: PR #546 pôs a tela de **Tarefas** no grupo CRM e o menu passou a rolar.
+Medido pela tela, 1280×900, logado como admin: `nav.scrollHeight` **776** contra
+**763** de altura útil — **13px** de excesso, 19 links, 5 grupos. Nenhum título
+de grupo caía fora da dobra; o que quebrava era o `rola`.
+
+A resposta NÃO foi raspar densidade: o comentário de `components/shell/Sidebar.tsx`
+já dizia, desde a vez em que Produtos estourou a dobra por uma linha, que "quando
+o quinto destino de CRM aparecer, é hub que se cria, não mais 4px que se raspa".
+Tarefas foi o quinto. Criou-se `/app/crm` — o mesmo mecanismo (`group.hub`) que o
+grupo IA já usava.
+
+| caso | prioridade | estado |
+|---|---|---|
+| Em 1280×900 o menu inteiro cabe sem rolar | `[P1]` | **PASS**, medido por ferramenta em `tests/e2e/navegacao.spec.ts`: `scrollHeight` **763** = altura **763**, excesso **0**, 18 links. A folga real — distância entre o fim do último grupo e o fim da caixa de conteúdo da `<nav>`, que o `scrollHeight` grampeado NÃO revela — é **19px** |
+| Etapas do funil continua alcançável pelo CRM, não por Configurações | `[P1]` | **PASS**, e o caminho é percorrido inteiro: sidebar → "Ver tudo em CRM" → `/app/crm` → card → `settings/tenant/pipelines`. Evidência em `.superpowers/evidence/nav-hub-crm.png` |
+| Produtos, que saiu do menu, continua tendo porta (DoD 14) | `[P1]` | **PASS**, caso próprio na mesma spec: o link não existe no sidebar (`toHaveCount(0)`) e existe no hub |
+| A folga de 19px é real | — | **PROVADO POR SABOTAGEM.** Um sexto destino de CRM com `sidebar: true` devolve o excesso a exatamente **+13px** e reprova o mesmo caso — previsto antes de rodar, e batido |
+| 19px é menos de uma linha (28px + 4px de intervalo = 32px) | — | **ACEITO, com a saída declarada.** O próximo item de sidebar volta a estourar. Só que CRM, IA e Organização têm hub: tela nova em qualquer um dos três não pressiona mais o menu. Quem ainda pressiona é grupo SEM hub — Atendimento (4), Canais (3), Análise (3) —, e para eles a resposta escrita é a mesma: cria-se o hub |
+
+**O que a medição do `scrollHeight` NÃO responde:** quando o conteúdo cabe, ele é
+grampeado no `clientHeight`, então "excesso 0" e "sobra 200px" dão o MESMO número.
+Quem quiser saber quanta folga restou tem de medir o `bottom` do último filho
+contra a caixa de conteúdo da `<nav>` — foi assim que os 19px saíram.
+
+## O inbox em tempo real — o defeito que veio de fora (2026-08-24)
+
+**Sintoma relatado pelo dono:** *"Recebemos mensagem e só reflete no inbox (na
+UI) se atualizarmos a página."*
+
+**Causa raiz, medida no socket — não estava em nenhuma linha nossa.** O cookie
+de sessão é httpOnly, então o supabase-js do browser não enxerga a sessão. Nesse
+caso a callback `accessToken` PADRÃO do `SupabaseClient` termina em
+`?? this.supabaseKey`: **o socket do Realtime assinava com a anon key**. Canal
+anônimo responde `SUBSCRIBED`, a RLS filtra do outro lado, e ele nunca entrega
+nada — em silêncio, com todo sinal disponível dizendo "saudável".
+
+O repo já corrigia isto chamando `supabase.realtime.setAuth(token)`. **Aquilo
+parou de funcionar num bump de dependência**, sem uma linha nossa mudar: a
+partir do realtime-js 2.112.x a callback vence o token manual, o que a própria
+biblioteca documenta em `setAuth` — *"the callback is the source of truth (…)
+even after a bootstrap/override `setAuth(token)` call"*.
+
+**Como foi medido** (ligando o `logger` do realtime-js e instrumentando
+`setAuth`, com dois canais no mesmo socket — que é o que o inbox faz, lista +
+conversa aberta):
+
+| Sonda | O que assinou | Entregas |
+|---|---|---|
+| tabela de controle sozinha, policy `using(true)` | 1 canal | **entregou** |
+| `conversations` sozinha | 1 canal | **entregou** |
+| controle **+** `conversations` no mesmo socket | 2 canais | 1º entregou, **2º zero** |
+
+O `phx_join` do 1º levava `{"iss":"…/auth/v1"}` (JWT do usuário); o do 2º levava
+`{"iss":"supabase-demo","role":"anon"}`. Instrumentando `setAuth`: o token do
+usuário durava ~2ms antes de `_setAuthSafely` o trocar, e o heartbeat (~30s)
+refazia a troca para sempre.
+
+**O que a tabela de controle provou, e por que ela importa.** Sem ela, "zero
+entregas" seria indistinguível de instrumento quebrado — que devolve zero do
+mesmo jeito. Ela é o controle positivo que valida a sonda.
+
+**Conserto:** fonte ÚNICA de token, na callback `realtime.accessToken` de
+`lib/supabase/browser.ts`. Ela é melhor que o `setAuth` por uma razão que
+independe do bug: o socket a chama de novo a cada heartbeat e em cada reconexão,
+então o token de 1h deixa de ser bomba-relógio para quem fica com o inbox
+aberto. Sai do `useRealtimeChannel` toda a dança de auth — mantê-la seria manter
+duas fontes, que era o defeito.
+
+**Segundo achado, do mesmo puxão:** o inbox era **a única tela viva sem rede de
+segurança**. Board (`useBoard`) e linha do tempo (`useLeadTimeline`) já usavam
+`useRefetchDeSeguranca`; o inbox tinha só `refetchOnWindowFocus`, que exige
+TROCAR DE ABA. E o inbox é a tela em que se fica parado olhando: com o canal
+morto e a aba em foco, a lista ficava congelada indefinidamente num passado que
+parece presente. Agora as duas pontas (lista e conversa) têm a rede.
+
+**Por que os testes estavam verdes o tempo todo** — a lição que vale além deste
+bug: eles exercitavam `authenticateRealtime` contra um cliente FAKE
+(`{ realtime: { setAuth: vi.fn() } }`) e afirmavam que `setAuth` fora CHAMADO. O
+que quebrou foi o EFEITO de chamá-lo. **Teste que guarda a chamada em vez do
+comportamento não vermelhece quando o comportamento morre.**
+
+| # | Caso | Prova |
+|---|------|-------|
+| JR.1 | Mensagem chega na conversa ABERTA, sem reload | `tests/e2e/inbox-tempo-real.spec.ts` (dirige a tela; nenhum `reload()` depois de abrir o inbox) |
+| JR.2 | A LISTA reage à mesma mensagem | mesmo spec — é o 2º canal do socket, o que ficava anônimo |
+| JR.3 | A callback é a fonte do token, e nunca a anon key | `tests/unit/realtime-token-do-socket.test.ts` |
+| JR.4 | O hook não autentica por conta própria (fonte única) | idem |
+| JR.5 | Token perto de vencer é renovado; token válido vem do cache | idem |
+| JR.6 | As duas pontas do inbox têm rede de segurança | `tests/unit/realtime-reconecta.test.ts` |
+
+**Sabotagens que confirmam que os testes vigiam** (rodadas em 2026-08-24, com o
+conserto já commitado):
+
+| Sabotagem | Reprovações |
+|---|---|
+| remover a callback de `browser.ts` | 6 de 7 |
+| a callback devolve a anon key (o que a PADRÃO fazia) | 3, incluindo *"devolve o token da sessão — NUNCA a anon key"* |
+| tirar a rede de segurança da lista de conversas | 1, apontando a lista |
+
+**A prova que fecha o caso — o mesmo teste dos dois lados** (2026-08-24, build de
+produção contra o Supabase local, banco semeado pelos scripts do repo):
+
+| Código sob teste | Resultado |
+|---|---|
+| com o conserto | `1 passed` — a mensagem apareceu na tela sem reload |
+| revertido ao da `main` (`git checkout main -- lib/supabase/browser.ts hooks/realtime/useRealtimeChannel.ts`) | `1 failed` — *element(s) not found*, 25 s |
+
+Reverter **só o fonte**, mantendo o teste, é o que separa "o teste vigia" de "o
+teste passa". Um verde sozinho não distingue as duas coisas.
+
+⚠️ **Achado de ambiente, não do repo:** o build morria com
+`'node_modules/node_modules' is a symlink causes that causes an infinite loop!` —
+um symlink auto-referente de 2026-08-13, resíduo de sessão anterior (nenhum
+script do repo o cria). E o primeiro build parecia ter passado porque
+`pnpm e2e:build 2>&1 | tail -20` devolve o exit do `tail`, não o do build
+([[feedback-pipe-tail-mascara-exit]]). Confira `.next/BUILD_ID`, nunca o exit de
+um pipe.
+
+### Vai escrever uma spec que depende de tempo real? Leia isto primeiro
+
+**No CI, o Realtime sobe ANTES de as tabelas entrarem na publication.** O `e2e.yml` faz
+`supabase start` (que sobe o Realtime) e só depois aplica o `baseline.sql`, que é quem
+adiciona `messages`, `conversations`, `crm_leads` e as demais à publication
+`supabase_realtime`. O Realtime já subiu sem elas e não as reconhece depois: **assina,
+responde `SUBSCRIBED` e nunca entrega**.
+
+Custou três rodadas de CI de 15 minutos para achar, porque o sintoma é idêntico ao do canal
+anônimo — os dois respondem `SUBSCRIBED` e calam. O que separou os dois foi cruzar o log do
+script (`[e2e-chega-mensagem] entregue em 6f5fd1f2…`) com o snapshot da página no mesmo
+instante (`"Nenhuma mensagem nesta conversa."`): gravado no banco, nunca entregue à tela.
+
+Há um passo no `e2e.yml` que reinicia o Realtime depois do baseline e resolve isso. **Ele
+existe desde o PR #327 — confira que continua lá antes de culpar o seu código:**
+
+```bash
+grep -c "Reiniciar o Realtime" .github/workflows/e2e.yml   # 1 = está lá
+```
+
+Na VPS o problema não existe: o `install.sh` aplica o baseline e só então o compose sobe os
+serviços. É o CI que inverte a ordem.
+
+⚠️ **Uma spec que navega com `page.goto()` antes de cada asserção NÃO exercita o canal** —
+ela refaz o fetch e passaria mesmo com o tempo real morto. `inbox-quem-manda.spec.ts` é assim
+(medido: `goto` nas linhas 174 e 272, asserções depois), e por isso ela não foi afetada pelo
+defeito acima. Se a sua spec existe para provar tempo real, ela não pode recarregar depois de
+abrir a tela — e vale afirmar `data-realtime-status="subscribed"` **antes** de provocar o
+evento, senão um canal que suba tarde passa igual.
+
+**A `degradacao-silenciosa.spec.ts` provavelmente está reprovando em silêncio hoje — e é
+uma PREDIÇÃO, não uma medição.** Achado do QA nesta revisão, verificado por mim na fonte:
+
+- Ela mata o socket de propósito (`routeWebSocket`, linha 113) e tem uma **pré-condição**
+  antes da asserção que interessa (linhas 156-164): `expect(engolidos).toBeGreaterThan(0)`,
+  cuja razão escrita é "se nenhum quadro de dados foi engolido, a entrega não foi morta e o
+  teste não mediu degradação nenhuma".
+- Mas ela é `test.fail()`, e o próprio arquivo avisa (linhas 89-92) que isso **esconde QUAL
+  asserção falhou**: "uma cerca que falha na PRÉ-CONDIÇÃO parece idêntica a uma que falha no
+  ponto certo". O escape é `CERCA_CRUA=1`.
+
+Junte as duas com o defeito da publication: se o canal já não entrega nada, não há quadro de
+entrega para engolir → `engolidos` fica 0 → a pré-condição reprova → e o `test.fail()` diz
+"falhou como esperado". **A cerca estaria quebrada sem sinal.**
+
+**O mecanismo foi FECHADO por leitura (QA, 2026-08-25) — cada elo é uma linha, nenhum é
+inferência.** Verificado na fonte por mim:
+
+```
+ehEntrega()                        → só true se q[3] === "postgres_changes"
+if (ehEntrega(...)) { engolidos++ }  ← é o ÚNICO lugar que incrementa
+expect(engolidos).toBeGreaterThan(0) ← a pré-condição, antes da asserção que interessa
+```
+
+⚠️ **Sem número de linha, de propósito.** A primeira versão deste bloco citava `:105`, `:149`
+e `:159` — e estava certa na branch onde foi escrita e errada na `main`, porque o próprio
+cabeçalho que documenta isto empurrou o arquivo 31 linhas. O registro mudou o objeto que ele
+descreve. Ache por `grep -n "function ehEntrega" tests/e2e/degradacao-silenciosa.spec.ts`.
+
+Com a publication sem as tabelas, o servidor **nunca emite** quadro `postgres_changes` — emite
+`join`, `phx_reply` e `heartbeat`, que são justamente os que o proxy deixa passar de propósito.
+Logo `ehEntrega` nunca devolve true, `engolidos` fica 0, a pré-condição reprova, e o
+`test.fail()` mostra "falhou como esperado".
+
+**E a consequência é mais interessante que o bug** (formulação do QA): se a predição se
+confirmar, aquela cerca esteve quebrada desde que o defeito da publication existe, e ninguém
+podia ver — não por descuido, mas porque **o mecanismo que a protege de virar teatro (o
+`test.fail()`) é o mesmo que escondeu que ela virou**. É uma cerca cujo desenho de segurança
+criou o próprio ponto cego.
+
+Como confirmar (ninguém mediu ainda): rodar `CERCA_CRUA=1 pnpm exec playwright test
+degradacao-silenciosa.spec.ts` no CI antes e depois do passo de restart. Se antes ela falha na
+pré-condição e depois no ponto certo, a predição se confirma — e o conserto do CI terá tirado
+essa spec de um estado em que ela não provava nada.
+
+**O que continua faltando nela, e não é o mesmo que a pré-condição:** não há controle
+positivo estrito — nenhum caso com o canal VIVO afirmando que a tela **não** mostra o aviso.
+A pré-condição garante que a sabotagem funcionou; ela não garante que o aviso é consequência
+da sabotagem. Se o aviso fosse incondicional, a spec passaria idêntica. O QA estimou cinco
+linhas para fechar isso, e a dívida é dele por escrito — não foi feita aqui porque a spec não
+é deste PR.
+
+**Registro de dívida, apontado pelo QA na revisão desta entrega:** enquanto o passo do
+restart estiver só na branch do #327 e não na `main`, toda spec nova de tempo real nasce
+quebrada no CI pelo motivo acima — e quem a escrever vai perder as mesmas horas.
+
+**Evidência visual:** `evidence/inbox-tempo-real/mensagem-sem-reload.png` — a
+conversa aberta com as mensagens das rodadas, cada uma entregue sem recarregar.
+
+## O gate de CHANGELOG que falta — desenho combinado (2026-08-25)
+
+**Nada no repo cobra que mudança de comportamento tenha entrada no CHANGELOG.** Esquecer é de
+graça, e aconteceu duas vezes num dia: o PR #326 entrou na `main` sem linha nenhuma (a
+normalização do Respondi altera dado do cliente em silêncio — telefone sem DDI vira
+brasileiro), e o conserto do tempo real do inbox só não saiu pelo mesmo buraco porque o dono
+mandou reconciliar com o time.
+
+O QA (`Assistente e Testes`) vai escrever o gate. Desenho combinado numa revisão cruzada, com
+as armadilhas já medidas — está aqui porque a conversa bateu no teto anti-loop do Espaço antes
+do último ponto ser entregue.
+
+**A armadilha que matou o primeiro desenho:** um teste em `tests/unit` que faça
+`git diff origin/main...HEAD` **nasce cego**. O `actions/checkout` do `ci.yml` não tem
+`fetch-depth`, então o clone traz UM commit e não há `origin/main` contra o que comparar — o
+gate passaria vazio, verde sempre. *Gate que nasce cego é pior que gate ausente, porque
+ninguém procura o que já tem cerca.*
+
+**Forma acordada:**
+
+| peça | o quê |
+|---|---|
+| `scripts/gate-changelog.ts` | a lógica; recebe a lista de arquivos tocados como argumento |
+| `pnpm gate:changelog` | uso local, alimentado por `git diff --name-only origin/main...HEAD` (local TEM o histórico) |
+| passo no workflow | alimentado por `github.event.pull_request.base.sha`, que o Actions dá de graça |
+| o que cobra | **entrada em `[Não lançado]`**, nunca "o arquivo foi tocado" — um cobra o efeito, o outro o gesto |
+| allowlist | **nomeada e travada por `toEqual([...])`**, como `tests/unit/branding.test.ts` — travar por contagem deixa trocar uma dívida por outra em silêncio |
+
+**O ponto que ficou sem resposta, e a proposta:** como separar "mudou comportamento" de
+"refactor puro" sem virar imposto. A ideia de cobrar só de quem toca `app/api` ou `app/app`
+**falha no primeiro caso real** — medido: o PR #327 não toca nenhum dos dois (mexe em `lib/`,
+`hooks/inbox`, `components/inbox`) e é a mudança mais visível ao usuário daquele dia. Falso
+negativo silencioso.
+
+Proposta alternativa: **inverter o ônus em vez de adivinhar**. Todo PR que toca código de
+produto exige entrada; quem acha que não precisa **declara** (uma linha no corpo do PR ou no
+commit, com o motivo) e o gate lê a declaração. Três ganhos: não há falso negativo silencioso
+(não ter entrada passa a exigir ato consciente); a decisão fica **escrita e auditável**; e não
+vira imposto, porque uma linha de declaração custa menos que uma linha vazia de changelog —
+que é o risco real, já que ela polui a tela de produto do operador. Não é convenção nova: o
+`tests/unit/navegacao-completude.test.ts` já aceita exceção **com justificativa escrita**.
+
+## J19 — Quem instala em espanhol usa o sistema em espanhol? `[P0]` (2026-08-27)
+
+Primeira impressão de quem instala fora do Brasil, que é o público do
+espanhol: a pessoa escolhe o idioma na instalação e abre o produto. Se a tela
+vier em português, ela conclui que a opção não funciona — e ela teria razão,
+porque até este passe o seletor da organização era gravado no banco e **não era
+lido por ninguém**.
+
+**Como foi provado.** Supabase local pg17 com o `baseline.sql` (o que o
+`install.sh` aplica, não a cadeia de migrations, que não sobe do zero), `next
+build` + `next start` de produção, login com conta de teste real, cinco telas
+percorridas pelo browser. Spec: `tests/e2e/i18n-espanhol-na-tela.spec.ts`.
+Evidência: `evidence/i18n-es/01-inbox-em-espanhol.png` e
+`evidence/i18n-es/02-inbox-de-volta-em-portugues.png`.
+
+**Achados, todos consertados neste mesmo passe:**
+
+1. **A troca se desfazia sozinha na primeira navegação.** O `revalidatePath`
+   invalida o cache do servidor; o Router Cache do cliente guarda o layout de
+   `/app`, que é quem monta o provider de idioma. Logo após o clique a tela
+   mostrava o idioma novo, ao navegar voltava ao antigo, e só um reload
+   acertava. `router.refresh()` melhora e não resolve — medido: a primeira
+   navegação ainda vinha antiga, só a segunda vinha certa.
+2. **Os rótulos do Índice de Atrito** (`lib/metrics/atrito.ts`) chegavam à tela
+   sem passar por `t()`. São montados em lógica pura, e o guarda estático não
+   os alcança porque `{par.titulo}` é expressão, não literal.
+3. **"Atendente" e "Funil" crus** em `/app/metrics` — o guarda estático não os
+   viu porque a régua dele é ortográfica (ç, ã, õ, lh/nh) e nenhuma das duas
+   palavras tem acento. É o falso negativo assumido dele, e é a razão de os
+   dois guardas existirem: o estático alcança todo arquivo, o e2e alcança o que
+   a régua do estático não distingue.
+
+**A data, que a primeira versão desta jornada declarava como não coberta,
+passou a ser medida aqui.** Existe `lib/i18n/datas.ts`, e a spec reprova se
+achar mês ou dia da semana em português com a interface em espanhol.
+
+⚠️ Essa asserção nasceu VACUOSA, e o registro do porquê vale mais que ela: as
+telas percorridas não imprimiam data por extenso naquele banco, então a régua
+não tinha o que achar — sabotei a camada de idioma e o teste passou VERDE.
+Hoje ela tem um **controle positivo** (exige achar data em português no retrato
+inicial, senão falha dizendo que o problema é o teste) e uma **fixture** que
+garante o dado: `ContactsTable` só escreve a data por extenso quando é de hoje
+ou ontem, e fora disso imprime `dd/MM/yyyy` — idêntico nos dois idiomas.
+
+**O que segue fora:** e-mail e o PDF de LGPD, com o motivo escrito em
+`tests/unit/i18n-a-data-segue-o-idioma.test.ts`.
+
+## A migração para o Tailwind 4 mudou 252 classes que ninguém sabia estarem mortas (2026-08-26)
+
+Origem: subir `tailwindcss` de 3.4 para 4, com o config saindo do
+`tailwind.config.ts` (deletado) para um `@theme inline` em `app/globals.css`.
+
+**O achado que a migração destapou.** No v3, um modificador de opacidade sobre
+cor declarada como `var(--…)` sem o marcador `<alpha-value>` fazia o Tailwind
+**não emitir a regra** — a classe simplesmente não existia no CSS, em silêncio.
+Todo token deste produto é `var(--color-*)`, então **62 classes distintas em 252
+usos** eram letra morta: `bg-destructive/10` num aviso de erro não pintava fundo
+nenhum, `border-destructive/30` caía na cor neutra da regra global de borda,
+`text-muted-foreground/60` herdava a cor do pai. O v4 resolve opacidade por
+`color-mix()`, que funciona com qualquer cor — então **as 252 passaram a pintar
+o que quem escreveu queria desde o começo**.
+
+Medido com o v3 real, e não deduzido: um `tailwindcss@3.4.19` de descarte,
+alimentado com 7 classes, emitiu **4** — nenhuma das 3 com barra.
+
+| caso | prioridade | estado |
+|---|---|---|
+| Tokens resolvem em claro e escuro depois do `@theme inline` | `[P0]` | **PASS**, medido por `getComputedStyle` em `tests/sonda-tailwind-4.ts`: `--color-bg` = `#faf9f6` claro / `#161510` escuro, e `body` acompanha |
+| A auto-referência do `@theme inline` (`--color-bg: var(--color-bg)`) não vence o `:root` autoral | `[P0]` | **PASS.** A teoria é de cascata (sem layer vence layer); a medida é a linha acima. Congelado em `tests/unit/tailwind-tokens.test.ts`, que reprova se alguém embrulhar `:root` num `@layer` |
+| `class="border"` sem cor continua na cor de borda do produto, e não em `currentColor` | `[P0]` | **PASS**: `rgb(231,227,218)` (claro) e `rgb(51,49,42)` (escuro) — os dois são o `--color-border` do tema |
+| As classes de opacidade revividas pintam de verdade | `[P1]` | **PASS parcial**: `bg-muted/40` medido em elemento real do onboarding, com alfa `0.4` nos dois temas. O antes/depois confirma 25 bordas e 8 fundos que passaram de cor chapada / transparente para cor com alfa. As demais estão no CSS construído, mas **não foram medidas uma a uma na tela** |
+| Onboarding completo (6 passos) em claro e escuro, instalação fresca | `[P0]` | **PASS**, 0 erro de console. Capturas em `evidence/tailwind-4/` |
+| **ANTES/DEPOIS**: as duas versões contra o MESMO banco, comparadas elemento a elemento | `[P0]` | **PASS**. `tests/sonda-tailwind-4-antes-depois.ts` sobe v3 em `:3002` e v4 em `:3001`, casa cada elemento pelo **caminho estrutural no DOM** (não pelo `className`, que a migração renomeou) e reporta todo estilo computado que divergiu, mais o diff de pixel. Pares em `evidence/tailwind-4/{antes,depois}/`, números em `antes-depois.json` |
+| Telas internas (`/app`, kanban, inbox, contatos) | — | **NÃO COBERTO.** Numa instalação fresca todas redirecionam para `/onboarding/welcome`; alcançá-las pede concluir o onboarding, o que pede WAHA e chave de IA. A sonda registra o redirecionamento em vez de fingir cobertura |
+| O efeito visual das 252 revividas foi *revisto por um designer* | — | **NÃO MEDIDO.** A migração provou que passaram a pintar; não provou que cada uma pinta o que a tela precisa. Onde a intenção original estava errada, o erro agora está visível |
+
+### O defeito que só o antes/depois encontrou: o rótulo colado no campo
+
+O `space-*` inverteu o lado da margem — e isso não é cosmético:
+
+```
+v3:  .space-y-2 > :not([hidden]) ~ :not([hidden])   { margin-top }      ← filho SEGUINTE
+v4:  :where(.space-y-2 > :not(:last-child))         { margin-block-end } ← filho ANTERIOR
+```
+
+Num grupo `<Label>` + campo, o filho anterior é o **rótulo**. E `<label>` nasce
+`display: inline`, que **ignora margem vertical** — a margem do grupo evaporava.
+Medido: todo grupo de formulário perdia exatamente um `--space-N`, e a tela de
+boas-vindas ficava 24px mais curta, com rótulo colado no campo. Zero erro, zero
+teste vermelho, no meio de 91 arquivos alterados.
+
+Conserto em `components/ui/label.tsx`: `inline-block` na classe base. Não é
+`block` porque medi os dois — `inline-block` preserva a largura shrink-to-fit que
+o `inline` dava e fica a **4px** do que o v3 rendia, contra 10px do `block`.
+
+| caso | prioridade | estado |
+|---|---|---|
+| O respiro entre rótulo e campo sobrevive à migração | `[P0]` | **PASS**, medido: 8px nos dois lados |
+| Rótulo inline não volta | `[P0]` | **PASS**, `tests/unit/tailwind-tokens.test.ts` — e provado por sabotagem: revertendo a classe, o teste reprova |
+| O `<label>` CRU tem o mesmo defeito, e o componente consertado não o alcança | `[P0]` | **PASS.** A sonda achou 1 na tela; a varredura estática achou **10** em 3 arquivos (`app/app/audit`, `webhooks/CapturasTab`, `onboarding/funil`), todos primeiro filho de `space-y-*`. Corrigidos, e a varredura virou teste — também provado por sabotagem. Confirmado depois na tela: **zero** filhos inline em container `space-*` nas 7 telas provadas |
+| Diferença residual de 4px por grupo | — | **CONHECIDA e não fechada.** É o `leading-none` da própria classe do rótulo finalmente valendo — enquanto ele era `inline`, quem mandava na altura da linha era o strut do pai. Fechar exige tirar o `leading-none`: decisão de design, não de migração |
+| `<option>` de `<select>` nativo perde 2px de `padding-left` e o fundo branco do popup | — | **MEDIDO, impacto visual NÃO PROVADO.** O preflight do v4 zera `padding` em `*` (o v3 não zerava). São 10 `<select>` no produto; o popup é desenhado pelo SO, então o Playwright não o captura |
+| `outline-none` → `outline-hidden` muda `outlineStyle` de `solid` para `none` em 2 campos | — | **ESPERADO, não é regressão.** O v3 punha contorno transparente SEMPRE; o v4 só sob `forced-colors`. O indicador de foco visível sempre foi o `ring`, e a regra `forced-colors` do `globals.css` cobre o resto |
+| Paleta default (amber, emerald) muda de sRGB para oklch | — | **NÃO MEDIDO** se o desvio é perceptível. São ~20 elementos, todos de aviso/estado |
+| Telas internas (`/app`, kanban, inbox, contatos) | — | **NÃO COBERTO**, mesmo motivo de antes: instalação fresca redireciona para o onboarding |
+
+### O risco que o dono do projeto nomeou antes da migração, medido
+
+Na issue #239 o mantenedor deixou um aviso específico: uma varredura de "tokens
+sem consumidor" apontaria `duration-fast/base/slow` como mortos, e deletar o
+bloco `transitionDuration` **apagaria a transição de todo botão, input, textarea
+e badge do produto** — em silêncio, com `typecheck`, `lint`, `test:unit`,
+`invariants` e `build-and-size` verdes, porque `grep -rn toHaveScreenshot tests/`
+devolve zero.
+
+No Tailwind 4 o risco é maior que no 3, e por um motivo novo: **não existe espaço
+de tema `--duration-*`**. Um `@theme inline` não tem onde declará-los, e a
+tradução ingênua do config os perderia sem erro nenhum. Aqui eles viraram
+`@utility` explícito em `app/globals.css`.
+
+| caso | prioridade | estado |
+|---|---|---|
+| Botão e campo mantêm a duração de transição | `[P0]` | **PASS**, medido em elemento real nas duas versões ao mesmo tempo: `transitionDuration` = `0.12s` no `<button type="submit">` e no `<input type="email">` do login, idêntico em v3 e v4 |
+| `duration-base` / `duration-slow` não aparecem no CSS construído | — | **ESPERADO, não é regressão.** Nenhum arquivo os usa, e o Tailwind só emite classe usada — no v3 era igual. O `--duration-slow` que o `.card-pulse` consome é a **variável**, não a classe, e continua no `:root` |
+
+### As provas versionadas
+
+Só os quatro pares que sustentam uma afirmação — o resto das capturas é artefato
+de execução e não entra no repositório (a regra é de
+`tests/unit/evidencia-citada.test.ts`, e ela reprovou esta entrega antes de eu
+podar). Para regerar todas: suba as duas versões e rode
+`tests/sonda-tailwind-4-antes-depois.ts`.
+
+| par | o que ele prova |
+|---|---|
+| `tailwind-4/antes/02-onboarding-welcome-claro.png` → `tailwind-4/depois/02-onboarding-welcome-claro.png` | O respiro entre rótulo e campo. É aqui que o defeito do `<label>` inline aparecia: a página inteira 24px mais curta, três grupos colados |
+| `tailwind-4/antes/02-onboarding-welcome-escuro.png` → `tailwind-4/depois/02-onboarding-welcome-escuro.png` | O tema escuro sobrevive à troca do `@theme inline` — mesma tela, tokens escuros resolvendo |
+| `tailwind-4/antes/05-onboarding-ia-escuro.png` → `tailwind-4/depois/05-onboarding-ia-escuro.png` | O cartão de aviso âmbar, que concentra as classes de opacidade revividas e a paleta default que passou a oklch |
+| `tailwind-4/antes/01-login-claro.png` → `tailwind-4/depois/01-login-claro.png` | A tela mais simples do produto, com borda, foco e anel — o controle: se algo básico tivesse quebrado, quebraria aqui |
+
+**Armadilha que custou duas medições falsas.** Sonda que injeta `<div
+class="p-7">` por JavaScript não mede nada: a classe nunca esteve na fonte, o
+scanner nunca a viu, e o zero medido é artefato da sonda. Pelo mesmo motivo, o
+primeiro elemento com `class="border"` da tela de login é o `<input>`
+autofocado — ele casa `focus-visible:border-accent-500` e devolve a cor do
+foco. A sonda só mede elemento real, e pula elemento em foco e elemento que já
+traga classe de cor própria.
+
+---
+
+## O campo que oferecia hoje e o servidor recusava (2026-09-03)
+
+Achado de varredura adversarial contra o PR #496, no SHA `f700f3e1`. Mesma tela
+do #496 — **Conexões › Proteção de envio** —, campo ao lado do que ele acabara
+de consertar, e o mesmo desfecho para quem opera: a ficha inteira deixa de
+salvar.
+
+`<input type="date">` fala em dia LOCAL; `AntiBanSheet` encaixa o dia escolhido
+às 12h UTC (meia-noite viraria o dia anterior a oeste); e a guarda do schema
+comparava esse encaixe com `Date.now()` — um DIA contra um RELÓGIO.
+
+| régua | recusa começa | recusa para | quem sente |
+|---|---|---|---|
+| dia que a tela mostra (`America/Sao_Paulo`, UTC−3) | 03:00 UTC | 12:00 UTC | 00:00 às 09:00 no relógio de quem opera |
+| dia UTC (o que o `max` do campo oferecia, vindo de `toISOString()`) | 00:00 UTC | 12:00 UTC | as primeiras 12 horas UTC do dia |
+
+Medido varrendo as 48 meias-horas do dia com relógio falso, chamando o schema
+real com a carga exata que a tela monta — não pela tela: **NÃO MEDIDO** pelo
+browser num ambiente fresco estilo VPS. O que a varredura de horas prova é a
+fronteira; o que ela não prova é o que o operador vê quando ela dispara.
+
+**A lição, e ela não é sobre fusos.** O produto oferece o dia num campo e o
+recusa no servidor: a mesma classe do controle decorativo, ao contrário — não é
+o controle que não faz nada, é o limite do campo que promete o que a outra ponta
+nega. Toda validação de data merece a pergunta *"as duas pontas falam do mesmo
+dia, ou uma delas fala de instante?"*.
+
+**Onde mais essa pergunta cabe** (levantado, **não medido**, e fora do escopo do
+conserto): `lib/kanban/filters.ts` e `lib/automation/throttle.ts` derivam "hoje"
+de `toISOString().slice(0, 10)`, que é o dia UTC. Se algum deles compara com dia
+local, é a mesma classe.
+## J21 — Uma loja no México escolhe sua moeda `[P0]` (2026-09-04)
+
+Migration 0208 dá a `organizations` uma coluna `currency`; o resto do frente
+(seletor, herança no catálogo, formatação) não valia nada sem provar pela tela
+que a escolha sobrevive e que o preço sai do jeito certo — a mesma armadilha
+que o seletor de idioma do perfil já teve antes desta feature: campo que
+aceita clique e não muda nada.
+
+Banco: `supabase/baseline.sql` reaplicado no Supabase local (idempotente —
+`add column if not exists`, confirmado sem perda de dado na única organização
+que já existia). `pnpm e2e:build && pnpm test:e2e -- moeda-da-organizacao`,
+Chromium real, login com MFA real.
+
+| Caso | Prioridade | Resultado |
+|---|---|---|
+| Trocar para peso mexicano em Configurações › Organização e RECARREGAR a página | `[P0]` | **PASS.** `#currency` mostra `MXN` depois do `page.reload()` — não só depois de salvar. Evidência: `evidence/moeda-da-organizacao/moeda-01-antes.png`, `evidence/moeda-da-organizacao/moeda-02-mxn-salvo.png`, `evidence/moeda-da-organizacao/moeda-03-mxn-apos-reload.png` |
+| Produto cadastrado com a organização em MXN mostra o preço na convenção mexicana | `[P0]` | **PASS.** `$249.90` — ponto decimal, cifrão na frente. **Não** `MXN 249,90`, que era o que `comoMoeda()` (removida neste PR) mostrava: a asserção nega esse texto explicitamente, porque uma spec que só checasse "o preço apareceu" teria passado verde com o defeito antigo. Evidência: `evidence/moeda-da-organizacao/moeda-04-produto-mxn.png` |
+
+**Achado de infraestrutura, não desta feature:** `pnpm e2e:build` falhou na
+primeira tentativa com `Cannot find module '@tailwindcss/postcss'` — o merge de
+`upstream/main` trouxe a migração para Tailwind 4 (`package.json` já
+declarava a dependência), mas `pnpm install` não tinha rodado depois. `pnpm
+install` + `pnpm build` (exit 0) resolveram antes de tentar o e2e de novo.
+
+**Achado de doutrina, não desta feature:** o piso de Postgres mudou de pg17
+para pg15 no mesmo merge (PR #422, `tests/unit/baseline-no-piso-do-postgres.test.ts`
+novo). Conferido: a migration 0208 não usa nada exclusivo de pg17 (só `ADD
+COLUMN`, `UPDATE`, `ALTER COLUMN`, um bloco `DO` com `pg_constraint`), e
+`scripts/test-db.sh` já sobe `pgvector/pgvector:pg15` — os `pnpm test:db`
+anteriores desta sessão já corriam contra o piso certo, mesmo antes deste
+achado.

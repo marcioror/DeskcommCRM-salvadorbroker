@@ -478,3 +478,119 @@ describe("send_whatsapp_message — contato bloqueado (Task 11)", () => {
     expect(after).toBe(before);
   });
 });
+
+/**
+ * Gate fixo de RECUSA de consentimento — código, não `conditions` declarativas.
+ *
+ * O que ele bloqueia é a recusa REGISTRADA (`consent.marketing.declined_at`,
+ * gravada pela ingestão do Respondi), e não a simples ausência de concessão.
+ * A razão está medida no cabeçalho de `lib/automation/guarda-do-contato.ts`: o
+ * DEFAULT da coluna `contacts.consent` já é `granted_at: null`, então todo
+ * contato do produto nasce indistinguível de uma recusa — e nenhuma tela deste
+ * produto concede consentimento. Um gate por ausência desligaria a automação de
+ * WhatsApp de toda instalação que não usa o formulário do Respondi.
+ */
+describe("send_whatsapp_message — gate de recusa de consentimento (achado 2026-08-25)", () => {
+  it("6. sem objeto consent (o contato nascido do default): PASSA do gate", async () => {
+    vi.setSystemTime(new Date("2026-07-17T10:00:00"));
+    const executor = getAction("send_whatsapp_message")!;
+    const ctx = baseCtx({
+      context: {
+        contact: { id: CONTACT_ID, is_blocked: false, phone_number: "+5511999990001", name: "Ana" },
+      },
+    });
+    const result = await executor.execute(ctx, {
+      channel_session_id: SESSION_ID,
+      template: "Oi {{contact.name}}",
+    });
+
+    // "Passa do gate" não é "entregou": este harness roda SEM WAHA de propósito
+    // (caso 2 acima), e todo envio termina `postponed`/`waha_not_configured`.
+    expect(result.status).not.toBe("skipped");
+    expect(result.status).toBe("postponed");
+    expect(result.detail?.reason).toBe("waha_not_configured");
+  });
+
+  it("6b. granted_at null explícito, SEM declined_at: PASSA — é o default da coluna", async () => {
+    vi.setSystemTime(new Date("2026-07-17T10:00:00"));
+    const executor = getAction("send_whatsapp_message")!;
+    const ctx = baseCtx({
+      context: {
+        contact: {
+          id: CONTACT_ID,
+          is_blocked: false,
+          phone_number: "+5511999990001",
+          name: "Ana",
+          consent: { marketing: { granted_at: null, source: null, version: null } },
+        },
+      },
+    });
+    const result = await executor.execute(ctx, {
+      channel_session_id: SESSION_ID,
+      template: "Oi {{contact.name}}",
+    });
+
+    expect(result.status).toBe("postponed");
+    expect(result.detail?.reason).toBe("waha_not_configured");
+  });
+
+  it("7. recusa registrada (declined_at): skipped consent_declined, zero mensagens", async () => {
+    vi.setSystemTime(new Date("2026-07-17T10:00:00"));
+    const before = rows(`select id from public.messages where contact_id = '${CONTACT_ID}'`).length;
+    const executor = getAction("send_whatsapp_message")!;
+    const ctx = baseCtx({
+      context: {
+        contact: {
+          id: CONTACT_ID,
+          is_blocked: false,
+          phone_number: "+5511999990001",
+          name: "Ana",
+          consent: {
+            marketing: {
+              granted_at: null,
+              declined_at: "2026-07-10T00:00:00Z",
+              source: "webhook:respondi",
+              version: null,
+            },
+          },
+        },
+      },
+    });
+    const result = await executor.execute(ctx, {
+      channel_session_id: SESSION_ID,
+      template: "Oi {{contact.name}}",
+    });
+
+    expect(result.status).toBe("skipped");
+    expect(result.detail?.reason).toBe("consent_declined");
+    const after = rows(`select id from public.messages where contact_id = '${CONTACT_ID}'`).length;
+    expect(after).toBe(before);
+  });
+
+  it("8. consentimento concedido: passa do gate", async () => {
+    vi.setSystemTime(new Date("2026-07-17T10:00:00"));
+    const executor = getAction("send_whatsapp_message")!;
+    const ctx = baseCtx({
+      context: {
+        contact: {
+          id: CONTACT_ID,
+          is_blocked: false,
+          phone_number: "+5511999990001",
+          name: "Ana",
+          consent: { marketing: { granted_at: "2026-08-01T00:00:00Z", source: "webhook:respondi", version: "9FiY9mrO" } },
+        },
+      },
+    });
+    const result = await executor.execute(ctx, {
+      channel_session_id: SESSION_ID,
+      template: "Oi {{contact.name}}",
+    });
+
+    // Este caso não prova entrega — prova só que o gate deixou passar. Escrito
+    // como `toBe("success")` antes de o arquivo ter rodado contra banco real:
+    // a asserção nunca foi exercitada e congelava um desfecho impossível neste
+    // harness.
+    expect(result.status).toBe("postponed");
+    expect(result.detail?.reason).toBe("waha_not_configured");
+  });
+});

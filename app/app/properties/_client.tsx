@@ -9,8 +9,10 @@ import { usePropertyList } from "@/hooks/properties/usePropertyList";
 import { PropertyCard } from "@/components/properties/PropertyCard";
 import { NewPropertyDialog } from "@/components/properties/NewPropertyDialog";
 import { usePermission } from "@/hooks/auth/AuthProvider";
+import { useT } from "@/hooks/i18n/useT";
 
 export function PropertiesListClient() {
+  const t = useT();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -33,13 +35,13 @@ export function PropertiesListClient() {
     <div className="space-y-4 p-6">
       <header className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Imóveis</h1>
-          <p className="text-sm text-muted-foreground">Cadastro de imóveis para venda e locação.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("Imóveis")}</h1>
+          <p className="text-sm text-muted-foreground">{t("Cadastro de imóveis para venda e locação.")}</p>
         </div>
         {canCreate && (
           <Button onClick={() => setCreateOpen(true)}>
             <Plus size={16} weight="bold" aria-hidden />
-            <span>Novo imóvel</span>
+            <span>{t("Novo imóvel")}</span>
           </Button>
         )}
       </header>
@@ -53,7 +55,7 @@ export function PropertiesListClient() {
           />
           <Input
             type="search"
-            placeholder="Buscar por título..."
+            placeholder={t("Buscar por título...")}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="h-9 pl-8"
@@ -69,16 +71,16 @@ export function PropertiesListClient() {
         </div>
       ) : q.isError ? (
         <Card className="p-6 text-center">
-          <p className="text-sm text-error-fg">Não foi possível carregar os imóveis.</p>
+          <p className="text-sm text-error-fg">{t("Não foi possível carregar os imóveis.")}</p>
           <Button size="sm" variant="outline" className="mt-2" onClick={() => q.refetch()}>
-            Tentar novamente
+            {t("Tentar novamente")}
           </Button>
         </Card>
       ) : allProperties.length === 0 ? (
         <Card className="p-10 text-center text-sm text-muted-foreground">
           {search
-            ? "Nenhum imóvel encontrado para essa busca."
-            : 'Nenhum imóvel cadastrado ainda. Clique em "Novo imóvel" para começar.'}
+            ? t("Nenhum imóvel encontrado para essa busca.")
+            : t('Nenhum imóvel cadastrado ainda. Clique em "Novo imóvel" para começar.')}
         </Card>
       ) : (
         <>
@@ -95,7 +97,7 @@ export function PropertiesListClient() {
                 onClick={() => q.fetchNextPage()}
                 disabled={q.isFetchingNextPage}
               >
-                {q.isFetchingNextPage ? "Carregando…" : "Carregar mais"}
+                {q.isFetchingNextPage ? t("Carregando…") : t("Carregar mais")}
               </Button>
             </div>
           )}

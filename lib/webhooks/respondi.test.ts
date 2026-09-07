@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildContactConsentGrant,
+  buildContactConsentDenial,
   isRespondiPayload,
   mapRespondiPayload,
   respondiLeadTitle,
@@ -191,5 +192,40 @@ describe("buildContactConsentGrant", () => {
     expect(grant.marketing.granted_at).toBeTruthy();
     expect(grant.transactional).toEqual({ granted_at: null, source: null, version: null });
     expect(grant.profiling).toEqual({ granted_at: null, source: null, version: null });
+  });
+});
+
+describe("buildContactConsentDenial", () => {
+  it("carimba declined_at e mantém granted_at null", () => {
+    const recusa = buildContactConsentDenial("form-123");
+    expect(recusa.marketing.declined_at).toBeTruthy();
+    expect(recusa.marketing.granted_at).toBeNull();
+    expect(recusa.marketing.source).toBe("webhook:respondi");
+    expect(recusa.marketing.version).toBe("form-123");
+    expect(recusa.transactional).toEqual({ granted_at: null, source: null, version: null });
+    expect(recusa.profiling).toEqual({ granted_at: null, source: null, version: null });
+  });
+
+  /**
+   * A razão de a chave existir, escrita como asserção e não como comentário: o
+   * DEFAULT de `contacts.consent` no baseline é `{marketing: {granted_at: null,
+   * source: null, version: null}, …}`. Sem `declined_at`, a recusa fica com a
+   * MESMA forma do contato que nunca respondeu nada — e a guarda de automação
+   * não teria como separar os dois.
+   */
+  it("difere do DEFAULT da coluna — que é onde mora o contato que nunca respondeu", () => {
+    const defaultDaColuna = {
+      marketing: { granted_at: null, source: null, version: null },
+      transactional: { granted_at: null, source: null, version: null },
+      profiling: { granted_at: null, source: null, version: null },
+    };
+    const recusa = buildContactConsentDenial(null);
+    expect(recusa).not.toEqual(defaultDaColuna);
+    // e a diferença é EXATAMENTE a chave nova, não um efeito colateral
+    const { declined_at, ...marketingSemCarimbo } = recusa.marketing;
+    expect(declined_at).toBeTruthy();
+    expect({ ...recusa, marketing: { ...marketingSemCarimbo, source: null, version: null } }).toEqual(
+      defaultDaColuna,
+    );
   });
 });

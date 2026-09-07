@@ -145,6 +145,7 @@ export async function runAutomationForEvent(
 
   const expectedKind = EXPECTED_ENTITY_KIND[row.event_type];
   if (expectedKind && row.entity_kind !== expectedKind) {
+  
     return { consumer_key: AUTOMATION_CONSUMER_KEY, status: "skipped", detail: "entity_kind_mismatch" };
   }
 
@@ -228,14 +229,30 @@ export async function runAutomationForEvent(
     // termina em `queued` com `queued_reason`. É exatamente o estado congelado
     // em `tests/invariants/automation-send-whatsapp.test.ts` caso 2.
     //
-    // A ordem importa: falha vence adiamento. Uma regra em que uma ação falhou
-    // e outra ficou esperando é `partial` — quem lê precisa saber que algo
-    // quebrou, não que está tudo a caminho.
-    const failed = results.filter((r) => r.status === "failed").length;
+    // A MESMA mentira reapareceu de novo, um degrau abaixo: `status ===
+    // "skipped"` (guarda-do-contato.ts — sem contato, bloqueado, sem telefone,
+    // OU sem consentimento) também não era `failed` nem `postponed`, então caía
+    // no `else` e virava "Sucesso" — pra uma mensagem que nunca foi NEM
+    // TENTADA. Achado pelo e2e `tests/e2e/automacao-diz-a-verdade.spec.ts`: um
+    // lead de webhook genérico (sem Respondi, sem pergunta de consentimento)
+    // nunca tem `consent.marketing.granted_at`, então TODO envio automático
+    // pra um lead assim batia no gate de consentimento — e a tela dizia
+    // "Sucesso" pra um envio que nem chegou a discar o WhatsApp. Pior que o
+    // defeito original: aquele pelo menos tinha TENTADO.
+    //
+    // `skipped` entra junto de `failed` na contagem: as duas significam "não
+    // saiu, e não é a fila que vai resolver sozinha" — a diferença entre elas
+    // (uma tentou e não conseguiu, a outra nem tentou) é o `reason`/`error` que
+    // a ação já registra, não o status agregado.
+    //
+    // A ordem importa: falha (+ skip) vence adiamento. Uma regra em que uma
+    // ação falhou/pulou e outra ficou esperando é `partial` — quem lê precisa
+    // saber que algo quebrou, não que está tudo a caminho.
+    const naoEnviadas = results.filter((r) => r.status === "failed" || r.status === "skipped").length;
     const adiados = results.filter((r) => r.status === "postponed").length;
     const status =
-      failed > 0
-        ? failed === results.length
+      naoEnviadas > 0
+        ? naoEnviadas === results.length
           ? "failed"
           : "partial"
         : adiados > 0

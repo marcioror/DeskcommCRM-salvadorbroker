@@ -29,8 +29,68 @@ permissions:
   contents: read
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # O APP DE RELEASE ESTÁ CONFIGURADO NESTE REPOSITÓRIO?
+  #
+  # ⚠️ ESTE JOB É DESTE FORK, e ele conserta um buraco que atinge QUALQUER fork
+  # do produto — inclusive os dos clientes self-host.
+  #
+  # Os dois jobs abaixo começam com `actions/create-github-app-token`, lendo
+  # `secrets.RELEASE_APP_ID`. Num repositório que não tem esse segredo — ou
+  # seja, em todo fork que não seja o do autor — a action falha na hora:
+  #
+  #   Error: The 'client-id' (or deprecated 'app-id') input must be set to a
+  #   non-empty string.
+  #
+  # E `cortar-tag` dispara em TODO push de `main`. O resultado é um e-mail de
+  # falha a cada merge, para sempre, por um workflow que nem tinha trabalho a
+  # fazer: o primeiro passo dele depois do token é justamente perguntar "este
+  # push foi um corte de release?", e a resposta é quase sempre não.
+  #
+  # Vermelho recorrente que não significa nada é pior do que não ter aviso: ele
+  # treina quem recebe a ignorar o vermelho, e o dia em que algo quebrar de
+  # verdade o e-mail vai parecer com todos os outros.
+  #
+  # O REMÉDIO É O DO PRÓPRIO REPOSITÓRIO. `relogio.yml` já resolve exatamente
+  # este problema, e o cabeçalho dele diz o porquê com todas as letras: "NASCE
+  # DESLIGADO, e isto não é cautela decorativa: este arquivo vai para a `main`
+  # de um produto self-host, e o fork de cada pessoa herda o agendamento". A
+  # mesma frase vale aqui, e o cuidado não foi aplicado. Aqui o gatilho não é
+  # uma variável a ligar, e sim o segredo que o próprio workflow já exige.
+  #
+  # ⚠️ POR QUE UM JOB, E NÃO UM `if` NOS QUE JÁ EXISTEM: o contexto `secrets`
+  # não está disponível em `jobs.<id>.if`. Ele está em `env:` de um passo — daí
+  # ler o segredo para dentro de `env` e devolver a resposta como output.
+  #
+  # O segredo NÃO é impresso: só o resultado do teste de vazio sai daqui.
+  #
+  # Para LIGAR o corte de release neste fork, basta cadastrar `RELEASE_APP_ID` e
+  # `RELEASE_APP_PRIVATE_KEY` — nada aqui precisa mudar.
+  # ─────────────────────────────────────────────────────────────────────────
+  ha-app-de-release:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      configurado: ${{ steps.checar.outputs.configurado }}
+    steps:
+      - id: checar
+        env:
+          APP_ID: ${{ secrets.RELEASE_APP_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APP_ID:-}" ]; then
+            echo "configurado=sim" >> "$GITHUB_OUTPUT"
+            echo "App de release configurado — o corte segue."
+          else
+            echo "configurado=nao" >> "$GITHUB_OUTPUT"
+            echo "::notice::RELEASE_APP_ID ausente: este repositório não corta release." \
+                 "Os jobs de release serão PULADOS (skipped), não reprovados." \
+                 "Para ligar, cadastre RELEASE_APP_ID e RELEASE_APP_PRIVATE_KEY."
+          fi
+
   abrir-pr-de-release:
-    if: github.event_name == 'workflow_dispatch'
+    needs: ha-app-de-release
+    if: github.event_name == 'workflow_dispatch' && needs.ha-app-de-release.outputs.configurado == 'sim'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -87,7 +147,8 @@ jobs:
             --title "Release ${VERSAO}" --body-file /tmp/corpo.md
 
   cortar-tag:
-    if: github.event_name == 'push'
+    needs: ha-app-de-release
+    if: github.event_name == 'push' && needs.ha-app-de-release.outputs.configurado == 'sim'
     runs-on: ubuntu-latest
     permissions:
       contents: read

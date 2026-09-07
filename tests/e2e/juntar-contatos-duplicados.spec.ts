@@ -546,12 +546,43 @@ test.describe("Contatos duplicados — juntar pela tela", () => {
     await page.waitForLoadState("networkidle");
     const busca = page.getByPlaceholder(/buscar|pesquisar|search/i).first();
     await busca.fill(`Duplicado`);
-    await page.waitForTimeout(1200);
+
+    // ⚠️ ESPERA PELA CONDIÇÃO, NÃO PELO RELÓGIO.
+    //
+    // Aqui havia `await page.waitForTimeout(1200)`, e 1,2 s tinha de cobrir a
+    // soma de três coisas: o debounce de 250 ms da busca, a ida ao servidor e a
+    // renderização da lista. Quando não cobria, `body.innerText()` era lido com
+    // a lista ainda vazia — e a asserção falhava com a mensagem "quem ficou
+    // continua na lista" mostrando SÓ o texto do menu lateral, que se lê como
+    // "a fusão apagou o contato errado". O defeito estava no instrumento.
+    //
+    // Medido em 2026-09-07, na sincronização com a v1.16.1: 3 reprovações em 5
+    // execuções, em branches SEM RELAÇÃO entre si (uma delas só mexia em YAML de
+    // workflow, outra era do Dependabot). Espera fixa não falha quando o produto
+    // quebra; falha quando o runner está lento — e o vermelho aponta para o
+    // lugar errado.
+    //
+    // O gatilho de agora foi uma mudança legítima deste fork: a tela de contatos
+    // virou componente de SERVIDOR (resolve o papel para esconder o botão
+    // "Duplicados" de quem não é gerente, como `app/app/kanban/page.tsx` já
+    // fazia). Isso acrescentou uma consulta de auth ao carregamento e comeu a
+    // folga. A conta não fecha para nenhum número fixo: quem escolher 2.000 ms
+    // hoje paga de novo na próxima coisa que custar 100 ms.
+    //
+    // `expect.poll` no ABSORVIDO, e não `toBeVisible` no principal, porque
+    // esperar o vencedor aparecer pode ser satisfeito pela lista VELHA — ela já
+    // continha os dois antes da busca. O que só é verdade depois de a lista
+    // certa chegar é o perdedor ter SUMIDO. Confirmado isso, a presença do
+    // vencedor volta a ser asserção de verdade, e não espera disfarçada.
+    await expect
+      .poll(async () => (await page.locator("body").innerText()).toLowerCase(), {
+        timeout: 20_000,
+        message: "o absorvido sai da lista de contatos",
+      })
+      .not.toContain(NOME_ABSORVIDO.toLowerCase());
+
     const corpo = (await page.locator("body").innerText()).toLowerCase();
     expect(corpo, "quem ficou continua na lista").toContain(NOME_PRINCIPAL.toLowerCase());
-    expect(corpo, "o absorvido sai da lista de contatos").not.toContain(
-      NOME_ABSORVIDO.toLowerCase(),
-    );
     await captura(page, "05-lista-depois-da-fusao");
 
     // ── E o grupo de duplicados esvazia: o trabalho ficou feito ────────────

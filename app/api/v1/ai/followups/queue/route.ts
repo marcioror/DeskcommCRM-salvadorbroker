@@ -29,9 +29,8 @@ import type { Actor } from "@/lib/api/handlers/types";
 import { requireRole } from "@/lib/auth/require-role";
 import { situacaoDoRetorno } from "@/lib/followup/retorno";
 import { createClient } from "@/lib/supabase/server";
-import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { traduzir } from "@/lib/i18n/dicionario";
-import { podeVerContatoSensivel } from "@/lib/contacts/visibility";
+import { rotuloDoContatoProtegido } from "@/lib/contacts/visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -73,18 +72,20 @@ interface ContactRow {
 }
 
 /**
- * I1 (revisão final): `rotuloDoContato` cai pro telefone de propósito quando
- * não há nome — mas essa queda não sabe nada de proteção de contato. Pra um
- * lead sem nome que o ator NÃO cadastrou, a fila virava o único lugar da
- * feature que ainda escrevia o telefone puro num título — a mesma
- * informação que /api/v1/contacts já nula na resposta. `podeVerContatoSensivel`
- * decide; quem não pode ver recebe o contato com `phone_number: null`, e o
- * rótulo degrada pra SEM_NOME (nunca pro dado protegido).
+ * A regra que estava AQUI mudou de casa: virou `rotuloDoContatoProtegido`, em
+ * `lib/contacts/visibility.ts`.
+ *
+ * O achado I1 da revisão final do módulo nasceu neste arquivo e foi consertado
+ * só neste arquivo. A rota IRMÃ — `followups/enrollments/[id]`, o dossiê do
+ * mesmo follow-up — nunca recebeu o conserto, e um corretor lia ali o telefone
+ * que esta fila já escondia. Uma cópia local de uma regra transversal é o
+ * defeito que o cabeçalho de `rotulo-do-contato.ts` descreve, e ele se repetiu.
+ *
+ * Este alias fica porque `enrollmentToQueueRow` é exportada e usada em teste com
+ * este nome; o que sumiu é a segunda implementação da regra.
  */
 function resolveContactName(c: ContactRow | null, actor: Actor): string {
-  if (!c) return "Contato removido";
-  const podeVer = podeVerContatoSensivel(actor, c.created_by_user_id);
-  return rotuloDoContato(podeVer ? c : { ...c, phone_number: null });
+  return rotuloDoContatoProtegido(c, actor);
 }
 
 function embedded<T>(v: T | T[] | null): T | null {
@@ -153,7 +154,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
   const { org: activeOrg, user } = authz;
   // I1 (revisão final): threadeado pra `resolveContactName`/`enrollmentToQueueRow`
-  // decidirem, via podeVerContatoSensivel, se o telefone pode aparecer no
+  // decidirem, via rotuloDoContatoProtegido, se o telefone pode aparecer no
   // rótulo de um lead sem nome — mesmo padrão do resto da branch (actor.role
   // vem do resultado de requireRole, nunca do body).
   const actor: Actor = { type: "user", id: user.id, role: activeOrg.role };

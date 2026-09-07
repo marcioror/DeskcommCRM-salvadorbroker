@@ -7801,6 +7801,7 @@ export const DICIONARIO: Traducoes = {
   //
   // Vocabulário: "lead" vira `oportunidad` em espanhol (é como o resto do
   // dicionário já trata o termo), e "imóvel" vira `inmueble`.
+  "Contato removido": { es: "Contacto eliminado" },
   "Imóveis de interesse": { es: "Inmuebles de interés" },
   "Cadastro de imóveis para venda e locação.": { es: "Registro de inmuebles en venta y alquiler." },
   "Novo imóvel": { es: "Nuevo inmueble" },

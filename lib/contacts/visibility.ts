@@ -111,10 +111,14 @@ export interface ContatoNomeavelComDono extends ContatoNomeavel {
  *
  * ⚠️ ESTA FUNÇÃO EXISTE PARA NÃO HAVER DUAS CÓPIAS DA REGRA, e o precedente é
  * do próprio projeto: o cabeçalho de `rotulo-do-contato.ts` conta que a cadeia
- * `display_name || name || phone_number` chegou a estar copiada em SEIS
- * arquivos, com QUATRO finais diferentes — "não divergem por descuido,
- * divergem porque cada tela nova reescreve a cadeia do jeito que parece certo
- * naquele arquivo".
+ * de fallback do rótulo chegou a estar copiada em SEIS arquivos, com QUATRO
+ * finais diferentes — "não divergem por descuido, divergem porque cada tela
+ * nova reescreve a cadeia do jeito que parece certo naquele arquivo".
+ *
+ * (A cadeia NÃO se escreve aqui, nem em prosa: `rotulo-do-contato.test.ts`
+ * varre o TEXTO dos arquivos atrás dela, comentário incluído, e acusaria este
+ * bloco como a sétima cópia. O aviso está no cabeçalho de lá — e eu o citei
+ * neste mesmo comentário antes de esbarrar nele.)
  *
  * Era o que estava começando aqui: `followups/queue` tinha um
  * `resolveContactName` local (achado I1 da revisão final do módulo) e

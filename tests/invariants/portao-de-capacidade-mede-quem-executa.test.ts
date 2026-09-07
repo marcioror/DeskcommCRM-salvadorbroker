@@ -48,6 +48,11 @@ const DRAIN_KNOBS = {
   intervalMs: 100,
   idleIntervalMs: 100,
   debounceMs: 0,
+  // Knob DESTE fork (debounce deslizante, issue upstream #196b): irrelevante
+  // com `debounceMs: 0`, presente porque `DrainKnobs` o exige. Mesmo ajuste já
+  // feito em `agent-dispatch-single-consumer.test.ts` numa fusão anterior —
+  // todo teste novo do upstream que monte estes knobs vai precisar dele.
+  debounceTetoMs: 40_000,
   reapTimeoutMs: 300_000,
 };
 

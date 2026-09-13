@@ -8,6 +8,23 @@
 {$DOMAIN} {
 	encode gzip
 
+	# Access log — POR QUE EXISTE: em 2026-09-05 o site entrou em loop de
+	# redirecionamento onze vezes, entre 11:45 e 15:25 UTC, e tres dias depois
+	# foi impossivel dizer QUAL rota redirecionava para qual — porque não havia
+	# registro de requisição nenhuma. O Caddy não logava acesso, e o app não
+	# escreveu uma linha sequer naquela janela. A causa morreu com o incidente.
+	#
+	# Vai para o stdout de propósito: o Docker já rotaciona este contêiner em
+	# 10 MB × 3 (`logging: *default-logging` no compose). Um log de acesso em
+	# arquivo, sem teto, é o jeito clássico de encher o disco de uma VPS.
+	#
+	# O Caddy já omite `Cookie` e `Authorization` do log por padrão, então isto
+	# não passa a gravar sessão de ninguém.
+	log {
+		output stdout
+		format json
+	}
+
 	# `route` é obrigatório aqui: fora dele o Caddy reordena as diretivas pela
 	# ordem padrão dele, na qual `respond` vem DEPOIS de `reverse_proxy` — o
 	# catch-all atendia primeiro e o 403 abaixo nunca era alcançado (medido: o

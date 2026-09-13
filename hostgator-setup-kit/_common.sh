@@ -433,10 +433,53 @@ psql_run() { docker run --rm -i postgres:17-alpine psql "$(url_do_schema)" -v ON
 # `docker-compose.prod.yml`, `.env.hostgator.example` e a matriz de
 # `publish-image.yml` digam o mesmo. Se você é um fork, é lá que está a lista do
 # que trocar junto.
-IMG_NS="ghcr.io/melgarafael"
+IMG_NS="ghcr.io/marcioror"
 IMG_APP="${IMG_NS}/deskcommcrm"
 IMG_WORKER="${IMG_NS}/deskcomm-worker"
 IMG_SCHEDULER="${IMG_NS}/deskcomm-scheduler"
+
+# A etiqueta `v*` mais alta que pertence à história DESTA instalação.
+#
+# ⚠️ POR QUE O `--merged`, e por que ele não é preciosismo de fork: `git tag -l
+# 'v*' --sort=-v:refname | head -1` escolhe a mais alta de TODAS as tags que o
+# clone guarda — e um clone guarda as do upstream também, porque um dia alguém
+# rodou `git fetch --tags` nele. Medido aqui em 2026-09-13: a `main` desta
+# instalação estava em v1.16.1 e o clone guardava a v1.20.0 do upstream, então
+# esta função devolvia `v1.20.0`. O `git checkout "$TARGET_TAG"` do `update.sh`
+# logo abaixo trocaria o produto INTEIRO pelo código do outro repositório, em
+# silêncio — e o rollback do `agent.sh` não cobre, porque ele volta a imagem e
+# não o checkout.
+#
+# `--merged origin/main` é a regra certa nos DOIS lados, não um remendo: ela diz
+# "instale uma versão que está na linha de código desta instalação". No
+# repositório de origem isso não muda nada (as tags dele estão na main dele);
+# num fork, torna a tag alheia IMPOSSÍVEL de escolher — e a garantia é do grafo
+# de commits, não de configuração que alguém pode desfazer sem perceber.
+#
+# Sem `origin/main` alcançável (clone raso do install.sh, remote com outro nome),
+# cai no comportamento antigo: melhor a régua velha do que não achar nada e a
+# tela nunca mais oferecer atualização.
+etiqueta_mais_alta_da_casa() {
+  local ref saida
+  # A referência é o ramo remoto que a `main` DESTA instalação rastreia, e não
+  # `origin/main` cravado. A diferença importa: num fork o remote do próprio
+  # dono costuma NÃO se chamar `origin` (aqui era `github-marcio`), e cravar
+  # `origin` faria a função filtrar pela história do upstream — devolvendo
+  # exatamente a tag alheia que ela existe para excluir. Perguntar ao git quem a
+  # `main` rastreia funciona antes e depois de qualquer renomeação de remote.
+  ref="$(git rev-parse --abbrev-ref --symbolic-full-name 'main@{upstream}' 2>/dev/null || true)"
+  if [ -z "$ref" ] && git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+    ref="origin/main"
+  fi
+  if [ -n "$ref" ]; then
+    saida="$(git tag -l 'v*' --merged "$ref" --sort=-v:refname 2>/dev/null || true)"
+  else
+    saida="$(git tag -l 'v*' --sort=-v:refname 2>/dev/null || true)"
+  fi
+  # `head` fecha o pipe cedo e, com `pipefail`, derrubaria o `git tag`. Por isso
+  # a lista é capturada antes, e só depois cortada.
+  printf '%s\n' "$saida" | head -1
+}
 
 # A última versão publicada (ex.: "1.2.1"), ou vazio se não deu para saber.
 #

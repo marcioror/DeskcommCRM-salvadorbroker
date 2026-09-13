@@ -92,10 +92,58 @@ DESTINO="${CRONTAB_PATH:-/etc/crontabs/root}"
 
 umask 077
 : > "$DESTINO"
+# ── POR QUE CADA CRON GANHA UM ATRASO ──────────────────────────────────────
+#
+# O cron do busybox dispara TODA linha elegível no segundo :00 do minuto. Como
+# cinco rotas rodam `* * * * *` e outras seis rodam `*/5`, isso significava 5
+# requisições simultâneas por minuto e ONZE a cada cinco — todas competindo pelo
+# mesmo pool do PostgREST, que na conta gratuita é pequeno.
+#
+# MEDIDO na instalação real em 2026-09-13, pelos logs do próprio Supabase:
+#
+#   6.905 requisições em 14h → 248 com HTTP 504 (3,6%)
+#   tempo médio das que davam certo: 1.017 ms (pico de 15.922 ms)
+#   as mesmas consultas pela conexão DIRETA: 7 ms
+#   uma requisição isolada ao PostgREST, sem concorrência: 70 ms
+#
+# E a assinatura que nomeia a causa: TODAS as rotas ficavam entre 1,6 e 2,4 s,
+# uniformemente — inclusive `contacts`, que tinha ZERO linhas, e `system_version`,
+# que tinha UMA. Consulta em tabela vazia não custa dois segundos; isso é fila.
+# O banco inteiro tem 35 MB e a instalação não tinha um único usuário.
+#
+# Confirmado no relógio: rajadas de 6 a 7 requisições no segundo :00 de cada
+# minuto, e minutos ociosos (6-10 req) reprovando enquanto minutos movimentados
+# (20-25 req) passavam limpos — o oposto de sobrecarga, e a marca de disputa
+# instantânea em vez de volume.
+#
+# O atraso escalonado não muda a FREQUÊNCIA de nada: cada rota roda exatamente
+# quando rodava, só não larga no mesmo instante que as irmãs.
+#
+# `(i * 2) % 42` dá 0,2,4…40 — vinte e uma posições distintas, uma por rota, e
+# nenhuma colisão no minuto em que TODAS as cadências coincidem (o minuto 0 de
+# uma hora divisível por 30, quando `*/5`, `*/10`, `*/15` e `*/30` caem juntas).
+# Um passo de 5s parecia mais folgado e era pior: com ciclo de 9, a décima rota
+# voltava ao zero e reintroduzia a simultaneidade justamente no pior minuto.
+#
+# Teto de 40s de propósito — acima disso uma rota de cadência de 1 minuto começaria
+# a invadir o tique seguinte. Se um dia houver mais de 21 rotas, o resto do módulo
+# volta a repetir posições: continua muito melhor que todas em zero, mas é o
+# momento de rever o passo em vez de deixar crescer calado.
+i=0
 echo "$CRONS" | while IFS='|' read -r quando timeout rota; do
   [ -n "$rota" ] || continue
-  printf '%s curl -fsS -m%s -H '"'"'Authorization: Bearer %s'"'"' "%s/%s" >/dev/null 2>&1\n' \
-    "$quando" "$timeout" "$SEGREDO_SEGURO" "$APP_ORIGIN" "$rota" >> "$DESTINO"
+  atraso=$(( (i * 2) % 42 ))
+  i=$(( i + 1 ))
+  # `sleep 0` seria inofensivo, mas a primeira linha sem prefixo nenhum deixa
+  # óbvio, para quem lê o crontab dentro do contêiner, que o atraso é acréscimo
+  # e não parte do contrato.
+  if [ "$atraso" -eq 0 ]; then
+    printf '%s curl -fsS -m%s -H '"'"'Authorization: Bearer %s'"'"' "%s/%s" >/dev/null 2>&1\n' \
+      "$quando" "$timeout" "$SEGREDO_SEGURO" "$APP_ORIGIN" "$rota" >> "$DESTINO"
+  else
+    printf '%s sleep %s; curl -fsS -m%s -H '"'"'Authorization: Bearer %s'"'"' "%s/%s" >/dev/null 2>&1\n' \
+      "$quando" "$atraso" "$timeout" "$SEGREDO_SEGURO" "$APP_ORIGIN" "$rota" >> "$DESTINO"
+  fi
 done
 
 exec crond -f -l 2

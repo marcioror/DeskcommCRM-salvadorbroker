@@ -100,12 +100,21 @@ begin
   end loop;
 end $$;
 
--- Extensão do target_kind de crm_lead_links pra suportar vínculo lead↔imóvel.
-alter table crm_lead_links
-  drop constraint if exists crm_lead_links_target_kind_enum;
-alter table crm_lead_links
-  add constraint crm_lead_links_target_kind_enum
-  check (target_kind in ('order','conversation','message','appointment','contact','lead','external','property'));
+-- ⚠️ A EXTENSÃO DO `target_kind` DE `crm_lead_links` NÃO MORA MAIS AQUI.
+--
+-- Ela redefine um CHECK de uma tabela DO UPSTREAM, e a cadeia de migrations é
+-- comparada com o `baseline.sql` dele por `check-do-baseline-nao-diverge-da-
+-- cadeia.test.ts`: enquanto o `alter` vivia nesta migration, a mesma constraint
+-- aceitava valores diferentes conforme o caminho (cadeia × baseline), e o gate
+-- reprovava — com razão, porque é exatamente o defeito que ele existe para
+-- pegar.
+--
+-- Agora o `alter` vive em `supabase/local/imoveis.sql`, aplicado depois do
+-- baseline pelo install.sh, pelo update.sh e pelos rigs de teste. Esta migration
+-- ficou com o que é só nosso: as tabelas novas.
+--
+-- REGRA QUE SAI DAQUI: migration `9xxx` cria objeto NOSSO. Objeto do upstream
+-- que precise de ajuste é ajustado em `supabase/local/`, nunca na cadeia.
 
 -- Bucket privado de fotos de imóvel — mesmo padrão de whatsapp-media (0055):
 -- acesso só via service role (upload) + URL assinada (leitura), sem policies

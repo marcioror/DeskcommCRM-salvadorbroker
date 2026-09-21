@@ -184,6 +184,19 @@ psql_install() {
 # lê recebeu, em vez de confiar na posição das linhas deste script.
 aplicar_baseline() {
   psql_install < "$BASELINE"
+  # ⚠️ PONTO DE CONTATO DO FORK (ver docs/fork/pontos-de-contato.md).
+  #
+  # A instalação desta casa é baseline + `supabase/local/*.sql`, aplicado logo
+  # atrás pelo install.sh e pelo update.sh. Sem esta linha, o banco-molde do
+  # teste não teria `properties`, e os invariantes do módulo de imóveis
+  # reprovariam por tabela ausente — um vermelho que fala do rig, não do código.
+  #
+  # Se uma fusão com o upstream apagar isto, quem denuncia é
+  # `tests/unit/pontos-de-contato-do-fork.test.ts`.
+  for local_sql in "$ROOT"/supabase/local/*.sql; do
+    [ -e "$local_sql" ] || break
+    psql_install < "$local_sql"
+  done
   psql_install <<'SQL'
 set client_min_messages = warning;
 create schema if not exists test_db;

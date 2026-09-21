@@ -1309,6 +1309,24 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -q -f supabase/baseline.sql
 
+      # ⚠️ PONTO DE CONTATO DO FORK (ver docs/fork/pontos-de-contato.md).
+      #
+      # O passo acima diz, com razão, que o e2e aplica o que o self-hoster
+      # aplica. Nesta casa o self-hoster aplica DUAS coisas: o baseline e, logo
+      # atrás, `supabase/local/*.sql` (install.sh e update.sh chamam
+      # `aplicar_sql_local`). Sem este passo o banco do e2e fica sem
+      # `properties`, e `properties.spec.ts` reprova por tabela ausente — um
+      # vermelho que fala do rig, não do código.
+      #
+      # Se uma fusão com o upstream apagar este passo, quem denuncia é
+      # `tests/unit/pontos-de-contato-do-fork.test.ts`.
+      - name: Aplicar o supabase/local (o que o install.sh desta casa aplica em seguida)
+        run: |
+          for arquivo in supabase/local/*.sql; do
+            [ -e "$arquivo" ] || break
+            psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres"               -v ON_ERROR_STOP=1 -q -f "$arquivo"
+          done
+
       # A chave de cifra dos segredos, como o install.sh semeia em TODA instalação
       # (`ensure_encryption_key`, em hostgator-setup-kit/_common.sh). Sem ela,
       # `fn_encrypt_oauth` levanta "NUVEMSHOP_OAUTH_ENCRYPTION_KEY ausente" e

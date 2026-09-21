@@ -29,7 +29,7 @@ namespace errado. A fusão que causou já está a dez commits de distância.
 | `lib/navigation/catalogo.ts` | o import de `catalogo-local` e o spread `[...NAV_CATALOG_BASE, ...NAV_CATALOG_LOCAL]` | Imóveis some da navegação inteira, inclusive do ⌘K, e a tela continua respondendo por URL |
 | `components/kanban/LeadDossier.tsx` | import e `<LeadInterestedProperties leadId={lead.id} />` | o vínculo lead↔imóvel continua no banco e some da tela |
 | `lib/schemas/index.ts` | `export * from "./properties";` | o build da imagem quebra em `propertyCreateSchema doesn't exist` (o typecheck passa, quem reclama é o bundler) |
-| `scripts/test-db.sh` | o laço que aplica `supabase/local/*.sql` em `aplicar_baseline()` | os invariantes do módulo reprovam por tabela ausente |
+| `scripts/test-db.sh` | o `source` de `scripts/local-no-molde.sh` e a chamada de `aplicar_sql_local_no_molde` dentro de `aplicar_baseline()` | os invariantes do módulo reprovam por tabela ausente |
 | `.github/workflows/e2e.yml` | o passo `Aplicar o supabase/local` | o e2e do módulo reprova por tabela ausente |
 | `.github/workflows/e2e.yml` | `properties.spec.ts` na lista da parte 1 | a spec deixa de rodar; quem pega é o `e2e-cobertura-completa`, apontando para a lista e não para a fusão |
 | `hostgator-setup-kit/_common.sh` | `IMG_NS="ghcr.io/marcioror"` | a VPS passa a puxar a imagem do upstream: sobe igual, sem imóveis e sem proteção de contato, e o log não diz nada |

@@ -63,6 +63,33 @@ check "as $ROTAS_CODIGO rotas do código estão no crontab (achei $ROTAS_CRONTAB
 check "uma linha por cron, nenhuma vazia" \
   test "$(grep -c . "$TMP/crontab")" -eq "$(wc -l < "$TMP/crontab" | tr -d ' ')"
 
+# ── O escalonamento não pode voltar a zero ──────────────────────────────────
+#
+# O busybox crond dispara toda linha elegível no segundo :00. Sem atraso, as
+# cinco rotas `* * * * *` mais as seis `*/5` largavam JUNTAS e disputavam o pool
+# do PostgREST: medido em produção (2026-09-13, logs do Supabase), 3,6% de todas
+# as requisições morriam em HTTP 504 e as que passavam levavam 1.017 ms de média
+# — contra 7 ms pela conexão direta e 70 ms sem concorrência. Tabela de ZERO
+# linhas levava 2,2 s: fila, não consulta lenta.
+#
+# Este caso mede o PIOR MINUTO — o minuto 0 de uma hora divisível por 30, quando
+# `*/5`, `*/10`, `*/15` e `*/30` coincidem — e cobra que nenhuma dupla parta no
+# mesmo segundo. Uma asserção que só olhasse "existe algum sleep" passaria com o
+# escalonamento quebrado: a primeira versão desta mudança usava passo de 5s com
+# ciclo de 9 e reintroduzia a colisão exatamente aqui, com sleeps em toda linha.
+PIOR="$(awk '
+  { linha = $0
+    sched = $1 " " $2 " " $3 " " $4 " " $5
+    atraso = (match(linha, /sleep [0-9]+;/)) ? substr(linha, RSTART+6, RLENGTH-7) : 0
+    mm = $1
+    roda = (mm == "*") ? 1 : ((mm ~ /^\*\//) ? ((0 % substr(mm,3)) == 0) : 0)
+    if (roda) contagem[atraso]++
+  }
+  END { pior = 0; for (a in contagem) if (contagem[a] > pior) pior = contagem[a]; print pior }
+' "$TMP/crontab")"
+check "no pior minuto, no maximo 1 rota parte por segundo (achei $PIOR)" \
+  test "$PIOR" -le 1
+
 echo "scheduler: o segredo atravessa o sh do crond intacto"
 # Os três caracteres que quebram interpolação ingênua, de uma vez só.
 HOSTIL='seg`whoami`redo$HOME-com'\''aspa-e-"aspas"'

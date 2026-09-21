@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { ok, fail } from "@/lib/api/wrappers";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 export async function GET(req: Request) {
@@ -14,12 +13,7 @@ export async function GET(req: Request) {
     .safeParse(Object.fromEntries(new URL(req.url).searchParams));
   if (!input.success) return fail("validation_failed", "Confira o contato.", 422, { requestId });
   const db = await createClient();
-  // ⚠️ LEITURA PELO SERVIDOR, e não pelo cliente da sessão: `contacts` deixou de
-  // dar `phone_number`/`email` ao papel `authenticated` (supabase/local/contato-
-  // protegido.sql), porque a Data API responde na internet e um corretor com o
-  // próprio JWT lia a carteira inteira por fora da rota. A consulta abaixo já
-  // filtra `organization_id` explicitamente, que é o que a RLS fazia por ela.
-  let contacts = createAdminClient()
+  let contacts = db
     .from("contacts")
     .select("id,name,display_name,phone_number")
     .eq("organization_id", auth.org.orgId)

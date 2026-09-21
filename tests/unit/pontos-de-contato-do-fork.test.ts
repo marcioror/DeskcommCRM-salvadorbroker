@@ -212,41 +212,6 @@ const CONTATOS: Contato[] = [
     seSumir:
       "reponha `&& bash tests/shell/etiqueta-da-casa.test.sh && bash hostgator-setup-kit/test-validators.sh` no fim da cadeia.",
   },
-  {
-    arquivo: "app/api/v1/pipelines/[id]/board/route.ts",
-    marca: "createAdminClient",
-    oQueE: "o card do funil lê contato pelo servidor, porque a barreira do banco fechou as colunas sensíveis para o papel do usuário",
-    seSumir:
-      "volte a ler/escrever por `createAdminClient()` nesta rota. Com o cliente da sessão, `contacts` responde `permission denied` desde `supabase/local/contato-protegido.sql` — e o sintoma aparece como erro de consulta, não como vazamento.",
-  },
-  {
-    arquivo: "app/api/v1/voice/calls/route.ts",
-    marca: "createAdminClient",
-    oQueE: "a discagem lê o número pelo servidor, porque a barreira do banco fechou as colunas sensíveis para o papel do usuário",
-    seSumir:
-      "volte a ler/escrever por `createAdminClient()` nesta rota. Com o cliente da sessão, `contacts` responde `permission denied` desde `supabase/local/contato-protegido.sql` — e o sintoma aparece como erro de consulta, não como vazamento.",
-  },
-  {
-    arquivo: "app/api/v1/agenda/vinculos/route.ts",
-    marca: "createAdminClient",
-    oQueE: "o seletor de contato da agenda lê pelo servidor, porque a barreira do banco fechou as colunas sensíveis para o papel do usuário",
-    seSumir:
-      "volte a ler/escrever por `createAdminClient()` nesta rota. Com o cliente da sessão, `contacts` responde `permission denied` desde `supabase/local/contato-protegido.sql` — e o sintoma aparece como erro de consulta, não como vazamento.",
-  },
-  {
-    arquivo: "app/api/v1/contacts/import/route.ts",
-    marca: "createAdminClient",
-    oQueE: "a importação de contatos lê e escreve pelo servidor, porque a barreira do banco fechou as colunas sensíveis para o papel do usuário",
-    seSumir:
-      "volte a ler/escrever por `createAdminClient()` nesta rota. Com o cliente da sessão, `contacts` responde `permission denied` desde `supabase/local/contato-protegido.sql` — e o sintoma aparece como erro de consulta, não como vazamento.",
-  },
-  {
-    arquivo: "app/api/v1/leads/import/route.ts",
-    marca: "createAdminClient",
-    oQueE: "a importação de leads lê e escreve pelo servidor, porque a barreira do banco fechou as colunas sensíveis para o papel do usuário",
-    seSumir:
-      "volte a ler/escrever por `createAdminClient()` nesta rota. Com o cliente da sessão, `contacts` responde `permission denied` desde `supabase/local/contato-protegido.sql` — e o sintoma aparece como erro de consulta, não como vazamento.",
-  },
 ];
 
 describe("pontos de contato do fork com o upstream", () => {

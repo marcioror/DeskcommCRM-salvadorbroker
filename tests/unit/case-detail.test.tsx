@@ -141,6 +141,7 @@ describe("CaseDetail", () => {
     expect(campos[1]).toHaveAttribute("placeholder", "Pergunte à IA sobre este caso…");
 
     expect(screen.getAllByRole("button", { name: "Enviar" })).toHaveLength(1);
+  });
 
   // C2 (revisão final): a rota já devolve contact_phone nulo + contact_protected
   // pra quem não cadastrou o lead — este teste prova que a TELA respeita isso e

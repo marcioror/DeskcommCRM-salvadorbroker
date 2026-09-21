@@ -36,7 +36,6 @@ import { traduzir } from "@/lib/i18n/dicionario";
 import { lerPlanilhaDeLeads, type ErroDaLinha } from "@/lib/leads/planilha";
 import { createLeadHandler } from "@/app/api/v1/leads/_handler";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -196,10 +195,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (linha.telefone) {
         contactId = contatoPorTelefone.get(linha.telefone) ?? null;
         if (!contactId) {
-              // ⚠️ PELO SERVIDOR: a deduplicação lê telefone e e-mail, colunas que o papel
-    // `authenticated` não alcança mais (supabase/local/contato-protegido.sql).
-    // A consulta filtra `organization_id`, que é o que a RLS fazia por ela.
-    const { data: existente } = await createAdminClient()
+          const { data: existente } = await supabase
             .from("contacts")
             .select("id")
             .eq("organization_id", orgId)
@@ -210,12 +206,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           if (existente) {
             contactId = (existente as { id: string }).id;
           } else {
-            // ⚠️ ESCRITA PELO SERVIDOR, pela mesma razão da leitura logo acima: este insert
-    // devolve o contato criado, e o retorno passa por `phone_number` — coluna que
-    // o papel `authenticated` não lê mais. A escrita em si continua permitida a
-    // ele (a barreira recorta só o SELECT, para não trocar o dono da recusa que
-    // o upstream testa em `I36`), mas ler de volta o que acabou de gravar, não.
-    const { data: criado, error: erroContato } = await createAdminClient()
+            const { data: criado, error: erroContato } = await supabase
               .from("contacts")
               .insert({
                 organization_id: orgId,

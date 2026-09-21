@@ -87,3 +87,32 @@ menu que só apareça com o módulo ligado; quando ela entrar, o destino de Imó
 passa a se registrar pelo mecanismo dele, o spread em `catalogo.ts` some, e esta
 tabela perde uma linha. Vale conferir o estado dela a cada sincronização grande,
 porque a direção certa é esta tabela encolher.
+
+## A dívida que ficou aberta, e por quê
+
+A proteção de contato vale na ROTA, não no banco. `protegerContato` nula
+telefone e e-mail antes de a API responder, mas o baseline dá `GRANT ALL ON
+TABLE public.contacts TO authenticated` e a única regra da tabela isola por
+organização. Postgres não filtra coluna por RLS, e a Data API do Supabase
+responde na internet: um atendente com as próprias credenciais alcança a tabela
+por fora do aplicativo.
+
+A barreira foi escrita e medida em 21/09/2026, com `revoke select` na tabela e
+`grant select` coluna a coluna derivado do catálogo. Ela funciona, e foi
+retirada por duas colisões que o CI mostrou:
+
+1. **dez funções do banco leem `contacts` sem `security definer`**, ou seja, com
+   o privilégio de quem chama. `fn_activity_report` devolve `contact_phone` e é
+   chamada pelo papel do usuário: com a coluna revogada, o relatório morre em
+   "permission denied";
+2. **os invariantes de isolamento do próprio upstream leem `contacts` e
+   `contact_field_proposals` como usuário** para provar o recorte por
+   organização. É o produto declarando que aquele papel lê aquelas tabelas.
+
+Fechar isso é conserto do produto, não divergência de fork: ou as funções viram
+`security definer` com recorte próprio, ou o dado sensível sai da tabela para
+um lugar com ACL própria. Carregar a barreira só aqui significaria brigar com
+cada função nova do upstream, para sempre.
+
+O sentinela é `tests/invariants/contato-protegido-no-banco.test.ts`: ele afirma
+o estado de hoje e fica vermelho no dia em que a porta fechar do outro lado.

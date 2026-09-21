@@ -38,7 +38,6 @@ import { contactCreateSchemaDoPais } from "@/lib/schemas";
 import { perfilDaOrganizacao } from "@/lib/legal/perfil-do-pais";
 import { phoneLookupVariants } from "@/lib/channels/phone-variants";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -196,10 +195,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const existentes = new Set<string>();
   if (phones.length > 0) {
     const lookup = [...new Set(phones.flatMap((p) => phoneLookupVariants(p)))];
-        // ⚠️ PELO SERVIDOR: a deduplicação lê telefone e e-mail, colunas que o papel
-    // `authenticated` não alcança mais (supabase/local/contato-protegido.sql).
-    // A consulta filtra `organization_id`, que é o que a RLS fazia por ela.
-    const { data } = await createAdminClient()
+    const { data } = await supabase
       .from("contacts")
       .select("phone_number")
       .eq("organization_id", orgId)
@@ -212,10 +208,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
   }
   if (emails.length > 0) {
-        // ⚠️ PELO SERVIDOR: a deduplicação lê telefone e e-mail, colunas que o papel
-    // `authenticated` não alcança mais (supabase/local/contato-protegido.sql).
-    // A consulta filtra `organization_id`, que é o que a RLS fazia por ela.
-    const { data } = await createAdminClient()
+    const { data } = await supabase
       .from("contacts")
       .select("email_normalized")
       .eq("organization_id", orgId)
@@ -262,12 +255,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (enc) insertRow.cpf_encrypted = enc;
     }
 
-    // ⚠️ ESCRITA PELO SERVIDOR, pela mesma razão da leitura logo acima: este insert
-    // devolve o contato criado, e o retorno passa por `phone_number` — coluna que
-    // o papel `authenticated` não lê mais. A escrita em si continua permitida a
-    // ele (a barreira recorta só o SELECT, para não trocar o dono da recusa que
-    // o upstream testa em `I36`), mas ler de volta o que acabou de gravar, não.
-    const { data: criado, error: insErr } = await createAdminClient()
+    const { data: criado, error: insErr } = await supabase
       .from("contacts")
       .insert(insertRow)
       .select("id, display_name, phone_number")

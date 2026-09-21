@@ -36,6 +36,7 @@ import { traduzir } from "@/lib/i18n/dicionario";
 import { lerPlanilhaDeLeads, type ErroDaLinha } from "@/lib/leads/planilha";
 import { createLeadHandler } from "@/app/api/v1/leads/_handler";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -195,7 +196,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (linha.telefone) {
         contactId = contatoPorTelefone.get(linha.telefone) ?? null;
         if (!contactId) {
-          const { data: existente } = await supabase
+              // ⚠️ PELO SERVIDOR: a deduplicação lê telefone e e-mail, colunas que o papel
+    // `authenticated` não alcança mais (supabase/local/contato-protegido.sql).
+    // A consulta filtra `organization_id`, que é o que a RLS fazia por ela.
+    const { data: existente } = await createAdminClient()
             .from("contacts")
             .select("id")
             .eq("organization_id", orgId)
@@ -206,7 +210,11 @@ export async function POST(req: NextRequest): Promise<Response> {
           if (existente) {
             contactId = (existente as { id: string }).id;
           } else {
-            const { data: criado, error: erroContato } = await supabase
+            // ⚠️ ESCRITA PELO SERVIDOR: `contacts` deixou de aceitar insert/update do papel
+    // `authenticated` — não por capricho, mas porque `update … returning
+    // phone_number` lê a coluna pelo caminho da escrita e tornaria a barreira de
+    // leitura contornável numa linha. O papel do usuário já foi conferido acima.
+    const { data: criado, error: erroContato } = await createAdminClient()
               .from("contacts")
               .insert({
                 organization_id: orgId,

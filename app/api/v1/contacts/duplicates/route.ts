@@ -39,6 +39,7 @@ import {
   type ContatoParaDeduplicar,
 } from "@/lib/contacts/duplicados";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +62,12 @@ export async function GET(): Promise<Response> {
   const { org } = authz;
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  // ⚠️ LEITURA PELO SERVIDOR, e não pelo cliente da sessão: `contacts` deixou de
+  // dar `phone_number`/`email` ao papel `authenticated` (supabase/local/contato-
+  // protegido.sql), porque a Data API responde na internet e um corretor com o
+  // próprio JWT lia a carteira inteira por fora da rota. A consulta abaixo já
+  // filtra `organization_id` explicitamente, que é o que a RLS fazia por ela.
+  const { data, error } = await createAdminClient()
     .from("contacts")
     .select(
       "id, name, display_name, email, email_normalized, phone_number, is_merged_into, is_anonymized, source_metadata, created_at, last_activity_at",

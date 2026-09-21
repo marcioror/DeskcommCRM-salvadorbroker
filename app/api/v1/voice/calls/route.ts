@@ -18,6 +18,7 @@ import { exigirVozLigada } from "@/lib/voice/guarda";
 import { resolverNumeroDiscavel } from "@/lib/voice/numero-discavel";
 import { getWacallsClient, wacallsFriendlyError, wacallsSemConexao } from "@/lib/wacalls/client";
 import { resolveWacallsSession } from "@/lib/wacalls/session";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,12 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const { data: contactRaw } = await supabase
+  // ⚠️ LEITURA PELO SERVIDOR, e não pelo cliente da sessão: `contacts` deixou de
+  // dar `phone_number`/`email` ao papel `authenticated` (supabase/local/contato-
+  // protegido.sql), porque a Data API responde na internet e um corretor com o
+  // próprio JWT lia a carteira inteira por fora da rota. A consulta abaixo já
+  // filtra `organization_id` explicitamente, que é o que a RLS fazia por ela.
+  const { data: contactRaw } = await createAdminClient()
     .from("contacts")
     .select("id, phone_number, name, is_blocked, is_anonymized")
     .eq("organization_id", activeOrg.orgId)

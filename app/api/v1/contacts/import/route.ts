@@ -38,6 +38,7 @@ import { contactCreateSchemaDoPais } from "@/lib/schemas";
 import { perfilDaOrganizacao } from "@/lib/legal/perfil-do-pais";
 import { phoneLookupVariants } from "@/lib/channels/phone-variants";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -195,7 +196,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   const existentes = new Set<string>();
   if (phones.length > 0) {
     const lookup = [...new Set(phones.flatMap((p) => phoneLookupVariants(p)))];
-    const { data } = await supabase
+        // ⚠️ PELO SERVIDOR: a deduplicação lê telefone e e-mail, colunas que o papel
+    // `authenticated` não alcança mais (supabase/local/contato-protegido.sql).
+    // A consulta filtra `organization_id`, que é o que a RLS fazia por ela.
+    const { data } = await createAdminClient()
       .from("contacts")
       .select("phone_number")
       .eq("organization_id", orgId)
@@ -208,7 +212,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
   }
   if (emails.length > 0) {
-    const { data } = await supabase
+        // ⚠️ PELO SERVIDOR: a deduplicação lê telefone e e-mail, colunas que o papel
+    // `authenticated` não alcança mais (supabase/local/contato-protegido.sql).
+    // A consulta filtra `organization_id`, que é o que a RLS fazia por ela.
+    const { data } = await createAdminClient()
       .from("contacts")
       .select("email_normalized")
       .eq("organization_id", orgId)
@@ -255,7 +262,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (enc) insertRow.cpf_encrypted = enc;
     }
 
-    const { data: criado, error: insErr } = await supabase
+    // ⚠️ ESCRITA PELO SERVIDOR: `contacts` deixou de aceitar insert/update do papel
+    // `authenticated` — não por capricho, mas porque `update … returning
+    // phone_number` lê a coluna pelo caminho da escrita e tornaria a barreira de
+    // leitura contornável numa linha. O papel do usuário já foi conferido acima.
+    const { data: criado, error: insErr } = await createAdminClient()
       .from("contacts")
       .insert(insertRow)
       .select("id, display_name, phone_number")

@@ -28,6 +28,7 @@ import { anexarDadosDoContato, type LinhaDoContatoNoQuadro } from "@/lib/kanban/
 import { createClient } from "@/lib/supabase/server";
 import type { BoardData, Pipeline, Stage } from "@/lib/kanban/types";
 import type { Lead } from "@/lib/types/leads";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -337,7 +338,12 @@ async function withMarcadoresDoContato(
   ];
   if (contactIds.length === 0) return { leads: leadsDoQuadro, error: null };
 
-  const { data, error } = await supabase
+  // ⚠️ LEITURA PELO SERVIDOR, e não pelo cliente da sessão: `contacts` deixou de
+  // dar `phone_number`/`email` ao papel `authenticated` (supabase/local/contato-
+  // protegido.sql), porque a Data API responde na internet e um corretor com o
+  // próprio JWT lia a carteira inteira por fora da rota. A consulta abaixo já
+  // filtra `organization_id` explicitamente, que é o que a RLS fazia por ela.
+  const { data, error } = await createAdminClient()
     .from("contacts")
     .select("id, tags, phone_number, email, custom_fields, is_anonymized")
     .eq("organization_id", organizationId)

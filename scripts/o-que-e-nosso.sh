@@ -232,6 +232,11 @@ contato "components/contacts/ContactsTable.tsx" "ContatoProtegido" "o cadeado no
 contato "app/api/v1/contacts/route.ts" "role: authz.org.role" "o papel no ator, que é o que a regra lê"
 contato "lib/agent-engine/edge/crm/drain.ts" "debounceTetoMs" "a janela deslizante com teto na coalescência da rajada"
 contato "package.json" "etiqueta-da-casa" "os testes de shell desta casa na cadeia do `test:shell`"
+contato "app/api/v1/pipelines/[id]/board/route.ts" "createAdminClient" "o card do funil lê contato pelo servidor"
+contato "app/api/v1/voice/calls/route.ts" "createAdminClient" "a discagem lê o número pelo servidor"
+contato "app/api/v1/agenda/vinculos/route.ts" "createAdminClient" "o seletor de contato da agenda lê pelo servidor"
+contato "app/api/v1/contacts/import/route.ts" "createAdminClient" "a importação de contatos lê e escreve pelo servidor"
+contato "app/api/v1/leads/import/route.ts" "createAdminClient" "a importação de leads lê e escreve pelo servidor"
 if [ "$FALTOU" = 1 ]; then
   printf '\n    ⚠ Algum ponto de contato sumiu — quase sempre é fusão que comeu a linha.\n'
   printf '      O que repor, caso a caso: pnpm vitest run tests/unit/pontos-de-contato-do-fork.test.ts\n'

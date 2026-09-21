@@ -262,10 +262,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (enc) insertRow.cpf_encrypted = enc;
     }
 
-    // ⚠️ ESCRITA PELO SERVIDOR: `contacts` deixou de aceitar insert/update do papel
-    // `authenticated` — não por capricho, mas porque `update … returning
-    // phone_number` lê a coluna pelo caminho da escrita e tornaria a barreira de
-    // leitura contornável numa linha. O papel do usuário já foi conferido acima.
+    // ⚠️ ESCRITA PELO SERVIDOR, pela mesma razão da leitura logo acima: este insert
+    // devolve o contato criado, e o retorno passa por `phone_number` — coluna que
+    // o papel `authenticated` não lê mais. A escrita em si continua permitida a
+    // ele (a barreira recorta só o SELECT, para não trocar o dono da recusa que
+    // o upstream testa em `I36`), mas ler de volta o que acabou de gravar, não.
     const { data: criado, error: insErr } = await createAdminClient()
       .from("contacts")
       .insert(insertRow)

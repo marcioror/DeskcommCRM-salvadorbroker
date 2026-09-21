@@ -86,9 +86,9 @@ describe("proteção de contato: a barreira existe no banco, não só na rota", 
     );
     expect(
       r.ok,
-      "`update … returning phone_number` leu a coluna pelo caminho da escrita. Barreira de leitura " +
-        "sem revogar a escrita é contornável numa linha — é por isso que o `revoke all` vem antes " +
-        "do `grant select (colunas)`.",
+      "`update … returning phone_number` leu a coluna pelo caminho da escrita. No Postgres o RETURNING " +
+        "exige SELECT na coluna devolvida, então a barreira de leitura já fecha este caminho — se ele " +
+        "abriu, o grant por coluna não está valendo.",
     ).toBe(false);
   });
 
@@ -117,13 +117,4 @@ describe("proteção de contato: a barreira existe no banco, não só na rota", 
     ).toBeGreaterThan(0);
   });
 
-  it("a fila de sugestões da IA não devolve o dado pela janela", () => {
-    const r = comoUsuario(GOV_AGENT_A, `select 1 from public.contact_field_proposals limit 1;`);
-    expect(
-      r.ok,
-      "`contact_field_proposals` guarda telefone e e-mail PROPOSTOS num campo genérico, então não dá " +
-        "para recortar coluna: o papel perde a leitura direta, e quem serve essa fila é a rota, que " +
-        "já filtra por `filtrarPropostasVisiveis`.",
-    ).toBe(false);
-  });
 });

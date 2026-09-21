@@ -82,10 +82,24 @@ begin
     raise exception 'contacts sem coluna livre: a barreira deixaria o produto sem leitura nenhuma';
   end if;
 
-  -- Revoke ANTES do grant, e da tabela inteira: `revoke select (coluna)` não
-  -- subtrai de um `grant select` dado na tabela, e o baseline dá `GRANT ALL`.
-  execute 'revoke all on table public.contacts from authenticated';
-  execute 'revoke all on table public.contacts from anon';
+  -- ⚠️ SÓ O `SELECT` SAI, e a escrita fica onde estava. A primeira versão deste
+  -- arquivo revogava tudo, e o CI mostrou por que isso é errado aqui: o upstream
+  -- trata a ACL padrão do Supabase como CONTRATO e testa em cima dela. O caso
+  -- `I36` de `cliente-nasce-do-agendamento` afirma, com o motivo escrito, que
+  -- `authenticated` TEM update em `contacts` e que quem recusa a escrita forjada
+  -- é o BEFORE UPDATE, não a falta de privilégio. Revogar a escrita trocava o
+  -- dono da recusa e quebrava a prova.
+  --
+  -- E revogar a escrita era desnecessário para fechar o `update … returning
+  -- phone_number`: no Postgres o RETURNING exige privilégio de SELECT na coluna
+  -- devolvida. Tirado o SELECT, o caminho da escrita não lê mais nada — que é o
+  -- que `contato-protegido-no-banco.test.ts` mede.
+  --
+  -- O revoke é da TABELA e não da coluna porque `revoke select (coluna)` não
+  -- subtrai de um `grant select` dado na tabela inteira, e o baseline dá `GRANT
+  -- ALL`. Por isso: tira o select de tudo, devolve coluna a coluna.
+  execute 'revoke select on table public.contacts from authenticated';
+  execute 'revoke select on table public.contacts from anon';
   execute format('grant select (%s) on table public.contacts to authenticated', colunas_livres);
 
   -- service_role é quem o servidor usa; continua com tudo, e é lá que a
@@ -93,18 +107,18 @@ begin
   execute 'grant all on table public.contacts to service_role';
 end $$;
 
--- A mesma conta para `contact_field_proposals`: a fila de sugestões da IA
--- carrega telefone e e-mail propostos em `valor`, e entregá-la crua devolveria
--- pela janela o que a porta fechou. Aqui não dá para recortar coluna (o dado
--- mora num campo genérico), então o papel perde a leitura direta inteira: quem
--- serve essa fila é a rota, que já filtra proposta sensível por
--- `filtrarPropostasVisiveis`.
-do $$
-begin
-  if to_regclass('public.contact_field_proposals') is null then
-    return;
-  end if;
-  execute 'revoke all on table public.contact_field_proposals from authenticated';
-  execute 'revoke all on table public.contact_field_proposals from anon';
-  execute 'grant all on table public.contact_field_proposals to service_role';
-end $$;
+-- ⚠️ `contact_field_proposals` FICOU DE FORA, e a razão foi medida.
+--
+-- A primeira versão deste arquivo revogava a leitura da fila de sugestões
+-- inteira, com o argumento de que ela carrega telefone e e-mail PROPOSTOS num
+-- campo genérico, onde não dá para recortar coluna. O CI mostrou o custo: os
+-- invariantes de isolamento do upstream leem essa tabela COMO USUÁRIO para
+-- provar o recorte por organização, e o revoke derrubou até o controle positivo
+-- deles ("user of org A still reads their own org rows"). Não é um teste frouxo:
+-- é o produto declarando que o papel `authenticated` lê aquela tabela.
+--
+-- Quem protege essa fila continua sendo a rota, com `filtrarPropostasVisiveis`,
+-- e o caminho direto pela Data API devolve as propostas da própria organização,
+-- como já devolvia antes desta barreira existir. Fechar isso exige mudar o
+-- contrato da tabela no upstream, não um revoke local — e vale como proposta
+-- para lá, não como divergência daqui.

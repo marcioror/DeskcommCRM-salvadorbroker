@@ -51,6 +51,12 @@ espelho="$SANDBOX/espelho.git"
 # compartilhado, e ela assinou 829 commits antes de alguém notar. O gate
 # `testes-de-shell-nao-vazam-identidade.test.ts` nasceu daí e reprova a forma
 # antiga, com razão.
+# E o ambiente herdado é zerado antes de qualquer operação: `GIT_DIR`,
+# `GIT_WORK_TREE` e companhia vindos de um hook ou de um `rebase --exec` mandam
+# por cima do `-C` e fazem o `git init` daqui escrever no repositório de quem
+# roda a suíte. Segunda regra do mesmo gate.
+unset $(git rev-parse --local-env-vars)
+
 export GIT_AUTHOR_NAME="Teste" GIT_AUTHOR_EMAIL="teste@exemplo.invalid"
 export GIT_COMMITTER_NAME="Teste" GIT_COMMITTER_EMAIL="teste@exemplo.invalid"
 

@@ -654,6 +654,7 @@ jobs:
         # reprova), mas o sintoma aponta para a lista, não para a fusão.
         # Entra na parte 1 porque não depende de WAHA, Redis nem Resend.
         properties.spec.ts
+        casca-no-celular.spec.ts
       # ⚠️ A ORDEM DESTA LISTA NÃO DECIDE A ORDEM DE EXECUÇÃO. O Playwright
       # ordena os arquivos por CAMINHO, não pela ordem em que são passados na
       # linha de comando. Medido no run 31838253496: `marca-logo.spec.ts` estava

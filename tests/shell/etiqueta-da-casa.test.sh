@@ -43,9 +43,18 @@ trap 'rm -rf "$SANDBOX"' EXIT
 casa="$SANDBOX/casa"
 espelho="$SANDBOX/espelho.git"
 
+# ⚠️ IDENTIDADE POR AMBIENTE, nunca por `git config user.*`.
+#
+# `git -C "$dir" config user.name` grava onde o git RESOLVER o repositório, e não
+# necessariamente em "$dir": um `GIT_DIR` herdado manda por cima do `-C`. No
+# upstream isso deixou a identidade de mentira destes testes no checkout
+# compartilhado, e ela assinou 829 commits antes de alguém notar. O gate
+# `testes-de-shell-nao-vazam-identidade.test.ts` nasceu daí e reprova a forma
+# antiga, com razão.
+export GIT_AUTHOR_NAME="Teste" GIT_AUTHOR_EMAIL="teste@exemplo.invalid"
+export GIT_COMMITTER_NAME="Teste" GIT_COMMITTER_EMAIL="teste@exemplo.invalid"
+
 git init --quiet --initial-branch=main "$casa"
-git -C "$casa" config user.email teste@exemplo.invalido
-git -C "$casa" config user.name  Teste
 
 echo base > "$casa/a.txt"
 git -C "$casa" add a.txt
@@ -107,8 +116,6 @@ igual "quando a nossa linha ganha versão, é ela que passa a ser escolhida" \
 # que erra. O contrato é cair no comportamento antigo.
 solto="$SANDBOX/solto"
 git init --quiet --initial-branch=main "$solto"
-git -C "$solto" config user.email teste@exemplo.invalido
-git -C "$solto" config user.name  Teste
 echo x > "$solto/a.txt"
 git -C "$solto" add a.txt
 git -C "$solto" commit --quiet -m "sozinho"

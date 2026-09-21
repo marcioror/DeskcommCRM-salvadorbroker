@@ -176,14 +176,13 @@ describe("hubSections", () => {
       "/app/kanban",
       "/app/contacts",
       "/app/tasks",
-      // ⚠️ DESTA CASA: o módulo de imóveis entra no hub do CRM e NÃO no sidebar
-      // (o menu lateral está no limite medido, e o próprio catálogo do upstream
-      // já deixou Prospecção de fora pela mesma razão). A lista aqui é EXATA de
-      // propósito, então o destino desta casa precisa estar declarado — some
-      // numa fusão, e é `pontos-de-contato-do-fork` que denuncia.
-      "/app/properties",
       "/app/calls",
       "/app/comandas",
+      // ⚠️ DESTA CASA: Imóveis entra no hub do CRM e NÃO no sidebar (o menu lateral
+      // está no limite medido, e o catálogo do upstream já deixou Prospecção de fora
+      // pela mesma razão). A posição não é escolha: `catalogo-local` é concatenado no
+      // FIM do catálogo, então o destino fecha a seção "O dia a dia da venda".
+      "/app/properties",
       "/app/products",
       "/app/settings/tenant/pipelines",
     ]);

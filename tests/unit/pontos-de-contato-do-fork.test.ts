@@ -61,10 +61,10 @@ const CONTATOS: Contato[] = [
   },
   {
     arquivo: "scripts/test-db.sh",
-    marca: "supabase/local",
-    oQueE: "a aplicação do SQL desta casa no banco-molde dos invariantes",
+    marca: "aplicar_sql_local_no_molde",
+    oQueE: "a chamada que põe o SQL desta casa no banco-molde dos invariantes",
     seSumir:
-      "reponha o laço que aplica `supabase/local/*.sql` dentro de `aplicar_baseline()`. Sem ele os invariantes do módulo reprovam por tabela ausente, com um vermelho que fala do rig e não do código.",
+      "reponha o `source` de `scripts/local-no-molde.sh` no topo e a chamada de `aplicar_sql_local_no_molde` dentro de `aplicar_baseline()`. A aplicação mora no arquivo separado de propósito: `test-db-aplica-o-baseline-num-lugar-so.test.ts` exige que a única linha deste script que alimenta o psql com arquivo seja a do baseline.",
   },
   {
     arquivo: ".github/workflows/e2e.yml",

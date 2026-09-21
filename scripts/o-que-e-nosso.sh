@@ -210,7 +210,7 @@ FALTOU=0
 contato "lib/navigation/catalogo.ts"                  "NAV_CATALOG_LOCAL"        "destinos desta casa no catálogo"
 contato "components/kanban/LeadDossier.tsx"           "LeadInterestedProperties" "imóveis de interesse no dossiê"
 contato "lib/schemas/index.ts"                        "./properties"             "re-export dos schemas de imóveis"
-contato "scripts/test-db.sh"                          "supabase/local"           "SQL desta casa no molde dos invariantes"
+contato "scripts/test-db.sh"                          "aplicar_sql_local_no_molde" "SQL desta casa no molde dos invariantes"
 contato ".github/workflows/e2e.yml"                   "supabase/local"           "SQL desta casa no banco do e2e"
 contato ".github/workflows/e2e.yml"                   "properties.spec.ts"       "spec do módulo na parte 1"
 contato "hostgator-setup-kit/_common.sh"              "ghcr.io/marcioror"        "namespace das nossas imagens"

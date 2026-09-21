@@ -13,6 +13,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# SQL desta casa (fork): ver scripts/local-no-molde.sh
+. "$ROOT/scripts/local-no-molde.sh"
 
 # ⛔ O `vitest` TEM DE EXISTIR, e a conferência vem ANTES de subir o container.
 #
@@ -187,16 +189,18 @@ aplicar_baseline() {
   # ⚠️ PONTO DE CONTATO DO FORK (ver docs/fork/pontos-de-contato.md).
   #
   # A instalação desta casa é baseline + `supabase/local/*.sql`, aplicado logo
-  # atrás pelo install.sh e pelo update.sh. Sem esta linha, o banco-molde do
-  # teste não teria `properties`, e os invariantes do módulo de imóveis
-  # reprovariam por tabela ausente — um vermelho que fala do rig, não do código.
+  # atrás pelo install.sh e pelo update.sh. Sem esta chamada o banco-molde não
+  # teria `properties`, e os invariantes do módulo reprovariam por tabela
+  # ausente — um vermelho que fala do rig, não do código.
+  #
+  # A aplicação em si mora em `scripts/local-no-molde.sh`, e não aqui, porque
+  # `test-db-aplica-o-baseline-num-lugar-so.test.ts` exige que a única linha
+  # DESTE arquivo que alimenta o psql com arquivo seja a do baseline: é ela que
+  # grava a contagem que um invariante lê.
   #
   # Se uma fusão com o upstream apagar isto, quem denuncia é
   # `tests/unit/pontos-de-contato-do-fork.test.ts`.
-  for local_sql in "$ROOT"/supabase/local/*.sql; do
-    [ -e "$local_sql" ] || break
-    psql_install < "$local_sql"
-  done
+  aplicar_sql_local_no_molde
   psql_install <<'SQL'
 set client_min_messages = warning;
 create schema if not exists test_db;

@@ -187,3 +187,42 @@ if [ -n "$ARQUIVOS" ]; then
     | comm -23 - <(printf '%s\n' "$so_nossos" | sort) | sed 's/^/    /'
   printf '\n'
 fi
+
+# ── PONTOS DE CONTATO: as linhas nossas que moram em arquivo DELES ───────────
+#
+# Estas não somem com conflito, que seria o caso fácil. Somem em silêncio, numa
+# fusão que reescreve o arquivo inteiro. Aqui é a conferência de trinta
+# segundos, sem node e sem banco; a versão completa, com o que repor em cada
+# caso, é `tests/unit/pontos-de-contato-do-fork.test.ts`, e o porquê de cada
+# escolha está em `docs/fork/pontos-de-contato.md`.
+printf '\n'
+b "═══ PONTOS DE CONTATO (linha nossa dentro de arquivo deles) ═══"
+contato() {
+  local arquivo="$1" marca="$2" descricao="$3"
+  if [ -f "$arquivo" ] && grep -qF -- "$marca" "$arquivo" 2>/dev/null; then
+    printf '    ok     %-46s %s\n' "$arquivo" "$descricao"
+  else
+    printf '    FALTA  %-46s %s\n' "$arquivo" "$descricao"
+    FALTOU=1
+  fi
+}
+FALTOU=0
+contato "lib/navigation/catalogo.ts"                  "NAV_CATALOG_LOCAL"        "destinos desta casa no catálogo"
+contato "components/kanban/LeadDossier.tsx"           "LeadInterestedProperties" "imóveis de interesse no dossiê"
+contato "lib/schemas/index.ts"                        "./properties"             "re-export dos schemas de imóveis"
+contato "scripts/test-db.sh"                          "aplicar_sql_local_no_molde" "SQL desta casa no molde dos invariantes"
+contato ".github/workflows/e2e.yml"                   "supabase/local"           "SQL desta casa no banco do e2e"
+contato ".github/workflows/e2e.yml"                   "properties.spec.ts"       "spec do módulo na parte 1"
+contato "hostgator-setup-kit/_common.sh"              "ghcr.io/marcioror"        "namespace das nossas imagens"
+contato "hostgator-setup-kit/_common.sh"              "aplicar_sql_local"        "função que aplica supabase/local"
+contato "hostgator-setup-kit/install.sh"              "aplicar_sql_local"        "chamada na instalação"
+contato "hostgator-setup-kit/update.sh"               "aplicar_sql_local"        "chamada na atualização"
+contato "lib/audit/actions.ts"                        "property.created"         "verbos de auditoria do módulo"
+contato "lib/leads/activity-vocabulary.ts"            "property_linked"          "rótulos de vínculo de imóvel"
+contato ".github/workflows/release.yml"               "ha-app-de-release"        "release não quebra sem App"
+contato "tests/unit/gatilho-dos-jobs-de-entrega.test.ts" "configurado == 'sim'"  "mapa de gatilhos desta casa"
+if [ "$FALTOU" = 1 ]; then
+  printf '\n    ⚠ Algum ponto de contato sumiu — quase sempre é fusão que comeu a linha.\n'
+  printf '      O que repor, caso a caso: pnpm vitest run tests/unit/pontos-de-contato-do-fork.test.ts\n'
+fi
+printf '\n'

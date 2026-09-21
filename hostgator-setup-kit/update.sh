@@ -265,6 +265,12 @@ if [ -f supabase/baseline.sql ]; then
     else
       c_grn "✓ banco atualizado (e conversas reorganizadas, se havia bagunça)."
     fi
+    if aplicar_sql_local "$PROJECT_DIR/.deskcomm-banco-local.log"; then
+      c_grn "✓ schema local em dia (supabase/local)."
+    else
+      c_ylw "⚠ O schema local teve erro inesperado (log: $PROJECT_DIR/.deskcomm-banco-local.log):"
+      listar_erros_do_banco "$BASELINE_INESPERADO" 20
+    fi
   else
     BANCO_INCOMPLETO="$BASELINE_INESPERADO"
     BANCO_RESTANTE="$(printf '%s\n' "$BANCO_INCOMPLETO" | grep -viE "$BASELINE_ERROS_DE_DISPUTA" || true)"

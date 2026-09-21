@@ -75,6 +75,12 @@ interface Excecao {
  * linhas da OUTRA organização, não uma leitura como superusuário.
  */
 const PROVA_PROPRIA: readonly Excecao[] = [
+  // ⚠️ DESTE FORK (módulo de imóveis). Elas nascem em `supabase/local/imoveis.sql`,
+  // depois do baseline, e a prova comportamental é por JWT real, com contagem
+  // cruzada entre organizações e entre PAPÉIS — que é mais do que esta varredura
+  // cobra.
+  { tabela: "properties", razao: "tests/invariants/properties-rbac.test.ts — leitura por membro da organização e escrita a partir de `agent` (fn_role_at_least), com contagem cruzada entre organizações e entre papéis; viewer não escreve nem apaga." },
+  { tabela: "properties_media", razao: "tests/invariants/properties-rbac.test.ts — mesma prova da tabela dona: a mídia herda o recorte de organização e o piso de papel para escrita." },
   { tabela: "prospecting_settings", razao: "tests/invariants/prospecting.test.ts — tabela exclusiva do servidor, ACL e RLS verificadas; FK composta e comandos autenticados cercam a organização." },
   { tabela: "prospecting_campaigns", razao: "tests/invariants/prospecting.test.ts — tabela exclusiva do servidor, ACL e RLS verificadas; FK composta e comandos autenticados cercam a organização." },
   { tabela: "prospecting_candidates", razao: "tests/invariants/prospecting.test.ts — tabela exclusiva do servidor, ACL e RLS verificadas; FK composta e comandos autenticados cercam a organização." },

@@ -165,7 +165,7 @@ describe("sidebarGroups", () => {
 });
 
 describe("hubSections", () => {
-  it("o hub do CRM é inventário: as seis telas do grupo, nas duas seções", () => {
+  it("o hub do CRM é inventário: as telas do grupo, nas duas seções", () => {
     // As seções são a régua do sidebar escrita por extenso — o que se abre todo
     // dia contra o que se define uma vez. Lista EXATA: `toContain` deixaria uma
     // tela nova entrar sem que ninguém decidisse de que lado dela ela cai.
@@ -178,6 +178,11 @@ describe("hubSections", () => {
       "/app/tasks",
       "/app/calls",
       "/app/comandas",
+      // ⚠️ DESTA CASA: Imóveis entra no hub do CRM e NÃO no sidebar (o menu lateral
+      // está no limite medido, e o catálogo do upstream já deixou Prospecção de fora
+      // pela mesma razão). A posição não é escolha: `catalogo-local` é concatenado no
+      // FIM do catálogo, então o destino fecha a seção "O dia a dia da venda".
+      "/app/properties",
       "/app/products",
       "/app/settings/tenant/pipelines",
     ]);

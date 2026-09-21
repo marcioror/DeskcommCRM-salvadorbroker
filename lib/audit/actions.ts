@@ -348,6 +348,14 @@ export const AUDIT_ACTIONS = [
   "pipeline.deleted",
   "system.update_requested",
   "system.update_finished",
+  // Módulo de imóveis — customização do fork (ver supabase/migrations 9001-9004).
+  "property.created",
+  "property.updated",
+  "property.deactivated",
+  "property.media_added",
+  "property.media_removed",
+  "property.lead_linked",
+  "property.lead_unlinked",
   // IA 360 · wave 2 — o retorno agendado deixou de ser exclusividade do motor e
   // virou capacidade configurável. `followup_enrollment.*` é o motor de FLUXOS;
   // estas duas são a PROMESSA avulsa (cron_jobs), que é outra coisa e precisava

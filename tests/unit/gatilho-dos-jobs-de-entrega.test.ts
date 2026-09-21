@@ -65,19 +65,62 @@ const DIR = join(process.cwd(), ".github/workflows");
  */
 const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string }> = {
   // --- a cadeia que leva o conserto até a VPS ---------------------------------
+  // ⚠️ AS TRÊS ENTRADAS ABAIXO DIVERGEM DO UPSTREAM, E ESTE TESTE É O LUGAR
+  // CERTO PARA ISSO ACONTECER — foi para isto que o mapa existe.
+  //
+  // O cabeçalho conta a história do PR #458: "um contribuidor de fork tinha
+  // (com razão, no fork dele) desligado os jobs de release, e a adaptação pegou
+  // carona no PR de volta". Este fork é esse fork, e a adaptação está sendo
+  // feita AQUI, declarada, em vez de escondida num `&& false`.
+  //
+  // ⚠️ QUEM LEVAR QUALQUER COISA DAQUI PARA O UPSTREAM: estas três entradas
+  // NÃO VÃO JUNTO. Lá elas desligariam a cadeia que atualiza o parque instalado
+  // inteiro, exatamente o desfecho que o `efeito` do `cortar-tag` descreve.
+  //
+  // POR QUE, NESTE REPOSITÓRIO, `skipped` AQUI NÃO ESCONDE PERDA NENHUMA:
+  // este fork não corta release. Não há App de release cadastrado (não há
+  // segredo nenhum no repositório), nunca nasceu uma tag `v*`, e o deploy da
+  // VPS é manual, com as imagens fixadas no `.env` pela tag `latest` — que
+  // `publish-image.yml` publica a cada push de `main`, por um caminho que NÃO
+  // passa por estes dois jobs. Desligá-los não congela `stable` para ninguém
+  // porque ninguém aqui instala por `stable`.
+  //
+  // O QUE ACONTECIA SEM ISTO, e é o motivo da mudança: `cortar-tag` dispara em
+  // todo push de `main` e morria no primeiro passo (`create-github-app-token`
+  // com `app-id` vazio), mandando um e-mail de falha por merge. Vermelho
+  // recorrente que não significa nada treina quem recebe a ignorar o vermelho —
+  // e o dia em que algo quebrar de verdade, o e-mail vai parecer com os outros.
+  //
+  // Para LIGAR o corte aqui, basta cadastrar `RELEASE_APP_ID` e
+  // `RELEASE_APP_PRIVATE_KEY`: o portão passa a devolver `sim` e os dois jobs
+  // voltam a rodar sem que nada neste arquivo mude.
+  "release.yml::ha-app-de-release": {
+    condicao: null,
+    efeito:
+      "Job-portão DESTE FORK: responde se `RELEASE_APP_ID` existe neste repositório. É " +
+      "SEM `if:` de propósito — pulado, ele deixaria os dois jobs abaixo pulados junto, " +
+      "por ausência de output em vez de por decisão. O contexto `secrets` não existe em " +
+      "`jobs.<id>.if`, e é por isso que a pergunta precisa de um job para ser feita.",
+  },
   "release.yml::abrir-pr-de-release": {
-    condicao: "github.event_name == 'workflow_dispatch'",
+    condicao:
+      "github.event_name == 'workflow_dispatch' && needs.ha-app-de-release.outputs.configurado == 'sim'",
     efeito:
       "Este job é quem monta o PR de release a partir dos fragmentos de `.changes/`. " +
-      "Desligá-lo faz nenhuma versão ser fechada — sem erro em lugar nenhum.",
+      "Desligá-lo faz nenhuma versão ser fechada — sem erro em lugar nenhum. A segunda " +
+      "condição é a divergência do fork: sem o App cadastrado ele não teria como agir, e " +
+      "morreria no primeiro passo em vez de não rodar.",
   },
   "release.yml::cortar-tag": {
-    condicao: "github.event_name == 'push'",
+    condicao:
+      "github.event_name == 'push' && needs.ha-app-de-release.outputs.configurado == 'sim'",
     efeito:
-      "Este job é quem CRIA E EMPURRA a tag `vX.Y.Z`, que é o gatilho da atualização " +
-      "do parque instalado inteiro. Desligá-lo faz a release parar em silêncio: nenhuma " +
-      "tag nasce, nenhuma imagem sai, `stable` congela, e a descoberta é um cliente " +
-      "rodando `update.sh` e não recebendo nada.",
+      "Este job é quem CRIA E EMPURRA a tag `vX.Y.Z`, que NO UPSTREAM é o gatilho da " +
+      "atualização do parque instalado inteiro: desligá-lo lá faz a release parar em " +
+      "silêncio — nenhuma tag nasce, nenhuma imagem sai, `stable` congela, e a descoberta " +
+      "é um cliente rodando `update.sh` e não recebendo nada. NESTE FORK não há parque, " +
+      "nem tag, nem App: a segunda condição troca uma falha por merge (token vazio) por " +
+      "um `skipped` que não esconde perda nenhuma. O argumento inteiro está acima.",
   },
   "publish-image.yml::a-tag-veio-da-main": {
     condicao: null,

@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { extFromMime, MAX_MEDIA_BYTES } from "@/lib/messaging/media/types";
 import { validateOutboundMedia } from "@/lib/messaging/media/upload-validation";
+import { requireSupportWrite } from "@/lib/impersonate/support";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,14 @@ interface RouteCtx {
 }
 
 export async function POST(req: NextRequest | Request, ctx: RouteCtx): Promise<Response> {
+  // ⚠️ GUARDA DE SUPORTE, exigida pelo upstream desde que o modo de
+  // acompanhamento somente-leitura existe: quem entrou por impersonação NÃO
+  // escreve, e `suporte-cobertura-de-efeitos.test.ts` reprova todo handler
+  // mutante que não a declare. Nasceu depois do módulo de imóveis, então é
+  // trabalho novo da reconstrução, não algo que se perdeu na fusão.
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id: propertyId } = await ctx.params;
   const authz = await requireRole("agent", { requestId, resource: "properties" });

@@ -13,6 +13,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { propertyPatchSchema } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
+import { requireSupportWrite } from "@/lib/impersonate/support";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,14 @@ export async function GET(_req: NextRequest | Request, ctx: RouteCtx): Promise<R
 }
 
 export async function PATCH(req: NextRequest | Request, ctx: RouteCtx): Promise<Response> {
+  // ⚠️ GUARDA DE SUPORTE, exigida pelo upstream desde que o modo de
+  // acompanhamento somente-leitura existe: quem entrou por impersonação NÃO
+  // escreve, e `suporte-cobertura-de-efeitos.test.ts` reprova todo handler
+  // mutante que não a declare. Nasceu depois do módulo de imóveis, então é
+  // trabalho novo da reconstrução, não algo que se perdeu na fusão.
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   const authz = await requireRole("agent", { requestId, resource: "properties" });
@@ -117,6 +126,14 @@ export async function PATCH(req: NextRequest | Request, ctx: RouteCtx): Promise<
 }
 
 export async function DELETE(_req: NextRequest | Request, ctx: RouteCtx): Promise<Response> {
+  // ⚠️ GUARDA DE SUPORTE, exigida pelo upstream desde que o modo de
+  // acompanhamento somente-leitura existe: quem entrou por impersonação NÃO
+  // escreve, e `suporte-cobertura-de-efeitos.test.ts` reprova todo handler
+  // mutante que não a declare. Nasceu depois do módulo de imóveis, então é
+  // trabalho novo da reconstrução, não algo que se perdeu na fusão.
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const { id } = await ctx.params;
   const authz = await requireRole("agent", { requestId, resource: "properties" });

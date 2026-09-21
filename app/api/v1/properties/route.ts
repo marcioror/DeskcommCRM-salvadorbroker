@@ -10,6 +10,7 @@ import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { propertyCreateSchema, propertyListQuerySchema } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
+import { requireSupportWrite } from "@/lib/impersonate/support";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,14 @@ export async function GET(req: NextRequest | Request): Promise<Response> {
 }
 
 export async function POST(req: NextRequest | Request): Promise<Response> {
+  // ⚠️ GUARDA DE SUPORTE, exigida pelo upstream desde que o modo de
+  // acompanhamento somente-leitura existe: quem entrou por impersonação NÃO
+  // escreve, e `suporte-cobertura-de-efeitos.test.ts` reprova todo handler
+  // mutante que não a declare. Nasceu depois do módulo de imóveis, então é
+  // trabalho novo da reconstrução, não algo que se perdeu na fusão.
+  const supportDenied = await requireSupportWrite();
+  if (supportDenied) return supportDenied;
+
   const requestId = randomUUID();
   const authz = await requireRole("agent", { requestId, resource: "properties" });
   if (!authz.ok) return authz.response;

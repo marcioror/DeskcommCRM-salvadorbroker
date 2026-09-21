@@ -132,3 +132,30 @@ begin
 end $$;
 
 notify pgrst, 'reload schema';
+
+-- ---- as varreduras finais do baseline, de novo, agora que as tabelas existem ----
+--
+-- ⚠️ ISTO É CONSEQUÊNCIA DIRETA DE O SCHEMA DESTA CASA VIVER FORA DO BASELINE, e
+-- foi o CI que mostrou: `travas-de-suporte-cobrem-toda-tabela-na-instalacao`
+-- reprovou dizendo que `properties` e `properties_media` estavam sem as três
+-- travas restritivas do modo somente-leitura do suporte.
+--
+-- A razão é de ORDEM, não de policy: o baseline termina varrendo todas as
+-- tabelas com `organization_id` e aplicando as travas (`fn_aplicar_travas_de_
+-- suporte`, migration 0274). Quando ele roda, as tabelas deste arquivo ainda não
+-- existem — elas nascem duas linhas abaixo, no passo seguinte do install.sh.
+--
+-- Então a varredura se repete aqui, no fim, depois de criar. É idempotente (a
+-- própria função foi escrita para ser reaplicada pelo update.sh a cada versão) e
+-- é barata: ela lê o catálogo e cria o que faltar.
+--
+-- ⚠️ TODA TABELA NOVA DESTA CASA HERDA ESTA REGRA. Se um dia houver outro
+-- arquivo em `supabase/local/`, ou ele termina com esta chamada, ou as tabelas
+-- dele nascem fora do modo suporte — e o gate do upstream vai dizer isso, o que
+-- é o comportamento desejado.
+do $$
+begin
+  if to_regprocedure('public.fn_aplicar_travas_de_suporte()') is not null then
+    perform public.fn_aplicar_travas_de_suporte();
+  end if;
+end $$;

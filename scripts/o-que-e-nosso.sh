@@ -217,6 +217,8 @@ contato "hostgator-setup-kit/_common.sh"              "ghcr.io/marcioror"       
 contato "hostgator-setup-kit/_common.sh"              "aplicar_sql_local"        "função que aplica supabase/local"
 contato "hostgator-setup-kit/install.sh"              "aplicar_sql_local"        "chamada na instalação"
 contato "hostgator-setup-kit/update.sh"               "aplicar_sql_local"        "chamada na atualização"
+contato "lib/audit/actions.ts"                        "property.created"         "verbos de auditoria do módulo"
+contato "lib/leads/activity-vocabulary.ts"            "property_linked"          "rótulos de vínculo de imóvel"
 contato ".github/workflows/release.yml"               "ha-app-de-release"        "release não quebra sem App"
 contato "tests/unit/gatilho-dos-jobs-de-entrega.test.ts" "configurado == 'sim'"  "mapa de gatilhos desta casa"
 if [ "$FALTOU" = 1 ]; then

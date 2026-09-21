@@ -108,6 +108,20 @@ const CONTATOS: Contato[] = [
       "reponha a chamada logo depois do bloco do baseline. Sem ela, versão nova do módulo nunca alcança o banco de quem já tem a instalação de pé.",
   },
   {
+    arquivo: "lib/audit/actions.ts",
+    marca: '"property.created"',
+    oQueE: "os sete verbos de auditoria do módulo de imóveis",
+    seSumir:
+      "reponha o bloco `property.*` na lista de ações. Sem ele o typecheck reprova em sete rotas de uma vez, com `TS2322` dizendo que o verbo não pertence ao tipo.",
+  },
+  {
+    arquivo: "lib/leads/activity-vocabulary.ts",
+    marca: "property_linked",
+    oQueE: "os rótulos de vínculo e desvínculo de imóvel na linha do tempo do lead",
+    seSumir:
+      "reponha `property_linked` e `property_unlinked`, no tipo e no mapa de rótulos. Sem eles a timeline mostra o texto genérico para todo vínculo de imóvel, e o typecheck reprova na rota que grava a atividade.",
+  },
+  {
     arquivo: ".github/workflows/release.yml",
     marca: "ha-app-de-release",
     oQueE: "o job que pula o corte de release quando não há App de release configurado",

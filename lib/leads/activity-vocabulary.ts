@@ -38,6 +38,8 @@ export type ActivityType =
   | "reactivation_accepted"
   | "reactivation_dismissed"
   | "reactivation_expired"
+  | "property_linked"
+  | "property_unlinked"
   | "followup_scheduled"
   // DECISÃO 22 — a agenda na timeline do lead. `appointment_completed` e
   // `appointment_no_show` são o PAR que a DECISÃO 17 exige: sem os dois,
@@ -203,6 +205,13 @@ export const ACTIVITY_LABELS: Record<ActivityType, string> = {
   reactivation_accepted: "Retomada de contato aprovada",
   reactivation_dismissed: "Retomada de contato descartada",
   reactivation_expired: "Sugestão de retomada venceu sem decisão",
+  // O módulo Imóveis (Task 6) vincula lead↔imóvel via crm_lead_links, mas essa
+  // tabela não tem trigger de atividade (doutrina: trigger nunca faz o
+  // trabalho que o handler já fez na mesma request) — a rota grava as duas
+  // linhas explicitamente. Sem rótulo aqui, a timeline mostraria o fallback
+  // genérico pra todo vínculo/desvínculo de imóvel.
+  property_linked: "Vinculado a um imóvel",
+  property_unlinked: "Desvinculado de um imóvel",
   // O RETORNO É O ANTI-MORTE (invariante 4): marcar e desmarcar são os dois
   // acontecimentos que decidem se a demanda continua viva. Sem as duas linhas,
   // o negócio some do radar (ou volta a ele) e a timeline não sabe explicar por

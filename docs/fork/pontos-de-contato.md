@@ -36,6 +36,8 @@ namespace errado. A fusão que causou já está a dez commits de distância.
 | `hostgator-setup-kit/_common.sh` | a função `aplicar_sql_local` | install e update deixam de criar ou atualizar as tabelas desta casa |
 | `hostgator-setup-kit/install.sh` | duas chamadas de `aplicar_sql_local` (banco novo e schema existente) | instalação nova nasce sem o módulo |
 | `hostgator-setup-kit/update.sh` | uma chamada de `aplicar_sql_local` | versão nova do módulo nunca alcança quem já tem instalação de pé |
+| `lib/audit/actions.ts` | os sete verbos `property.*` | o typecheck reprova em sete rotas de uma vez, com `TS2322` |
+| `lib/leads/activity-vocabulary.ts` | `property_linked` e `property_unlinked`, no tipo e nos rótulos | a timeline do lead mostra texto genérico no vínculo de imóvel, e o typecheck reprova na rota |
 | `.github/workflows/release.yml` | o job `ha-app-de-release` e a condição nos dois jobs seguintes | todo merge na main manda e-mail de falha, para sempre |
 | `tests/unit/gatilho-dos-jobs-de-entrega.test.ts` | as três entradas com a condição de release do fork | o `verify` reprova acusando mudança de gatilho |
 

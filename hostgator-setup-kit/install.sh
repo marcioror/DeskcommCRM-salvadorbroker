@@ -1834,6 +1834,13 @@ if [ -f supabase/baseline.sql ]; then
     # em disputa: `reaplicar_baseline` em _common.sh.
     if reaplicar_baseline "$PROJECT_DIR/supabase/baseline.sql" "$SCHEMA_LOG"; then
       c_grn "✓ schema re-aplicado (apêndice de migrations incluído)"
+      # O schema DESTA casa (módulo de imóveis) vem logo atrás, do mesmo jeito.
+      if aplicar_sql_local "$PROJECT_DIR/.deskcomm-banco-local.log"; then
+        c_grn "✓ schema local aplicado (supabase/local)"
+      else
+        c_ylw "⚠ O schema local teve erro inesperado (log: $PROJECT_DIR/.deskcomm-banco-local.log):"
+        listar_erros_do_banco "$BASELINE_INESPERADO" 20
+      fi
     else
       c_ylw "⚠ Erros no banco que NÃO são os esperados (log completo: $SCHEMA_LOG):"
       # Sem `| head`: com pipefail, o head que fecha cedo mata o printf com SIGPIPE
@@ -1845,6 +1852,11 @@ if [ -f supabase/baseline.sql ]; then
         postgres:17-alpine psql "$(url_do_schema)" -v ON_ERROR_STOP=1 -f /baseline.sql \
         > "$SCHEMA_LOG" 2>&1; then
       c_grn "✓ schema aplicado (log: $SCHEMA_LOG)"
+      if aplicar_sql_local "$PROJECT_DIR/.deskcomm-banco-local.log"; then
+        c_grn "✓ schema local aplicado (supabase/local)"
+      else
+        die "o schema local falhou num banco NOVO — o módulo de imóveis ficaria sem tabela nem RLS. Log: $PROJECT_DIR/.deskcomm-banco-local.log"
+      fi
     else
       tail -5 "$SCHEMA_LOG"
       die "baseline falhou num banco NOVO — o schema ficaria incompleto (sem RLS). Log completo: $SCHEMA_LOG

@@ -1,4 +1,5 @@
 import type { Role } from "@/lib/auth/types";
+import { NAV_CATALOG_LOCAL } from "./catalogo-local";
 
 /**
  * Registro de navegação — a ÚNICA lista de destinos do app do tenant.
@@ -102,7 +103,7 @@ export const GRUPO_NO_RODAPE: NavGroupId = "organizacao";
  * (`canShare` em Respostas rápidas, `canCompare` em Desempenho) NÃO é porta
  * fechada e por isso não vira `minRole`.
  */
-export const NAV_CATALOG = [
+const NAV_CATALOG_BASE = [
   {
     // SEM `sidebar: true`, e a razão não tem nada a ver com a qualidade desta
     // tela: o menu lateral está no limite medido. Com ela, seriam 20 portas, e
@@ -869,6 +870,16 @@ export const NAV_CATALOG = [
     // SEM `sidebar`: o menu de Organização já estourou a dobra uma vez e hub é
     // onde se agrupa por uso. Configurar fonte de dados é tarefa de uma vez.
   },
+] as const satisfies readonly NavMetadata[];
+
+/**
+ * O catálogo que o resto do app consome: o do produto mais os destinos desta
+ * casa. Ponto ÚNICO de encosto do fork na navegação do upstream — o array
+ * acima continua sendo dele, item a item. Ver `catalogo-local.ts`.
+ */
+export const NAV_CATALOG = [
+  ...NAV_CATALOG_BASE,
+  ...NAV_CATALOG_LOCAL,
 ] as const satisfies readonly NavMetadata[];
 
 export type NavDestinationId = (typeof NAV_CATALOG)[number]["href"];

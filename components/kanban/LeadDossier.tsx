@@ -12,6 +12,7 @@ import { ConversaNoDossie } from "./ConversaNoDossie";
 import { LeadFieldsForm } from "./LeadFieldsForm";
 import { ScoreSlot } from "./ScoreSlot";
 import { LeadTimeline } from "./LeadTimeline";
+import { LeadInterestedProperties } from "./LeadInterestedProperties";
 import { OwnerBadge } from "./OwnerBadge";
 import { resolveLeadOwner } from "@/lib/kanban/owner";
 import type { CustomFieldDef } from "@/components/contacts/CustomFieldsEditor";
@@ -154,6 +155,10 @@ export function LeadDossier({
             isError={timeline.isError}
           />
         </section>
+
+        {/* ②.5 imóveis de interesse — entra perto do que já é lido primeiro
+            (o que aconteceu → interesses), edição continua por último. */}
+        <LeadInterestedProperties leadId={lead.id} />
 
         {/* ③ campos, por último */}
         <div ref={campos} className="border-t border-border pt-3">

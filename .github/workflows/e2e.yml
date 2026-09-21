@@ -648,6 +648,12 @@ jobs:
         canal-mudo-avisa-na-central.spec.ts
         qa-l12-troca-de-funil.spec.ts
         qa-l12-agente-ia.spec.ts
+        # DESTA CASA: o módulo de imóveis não existe no upstream, e toda fusão
+        # que reescreva esta lista o apaga daqui sem conflito nenhum. Quem pega
+        # é o gate `e2e-cobertura-completa` (spec no disco fora de toda lista
+        # reprova), mas o sintoma aponta para a lista, não para a fusão.
+        # Entra na parte 1 porque não depende de WAHA, Redis nem Resend.
+        properties.spec.ts
       # ⚠️ A ORDEM DESTA LISTA NÃO DECIDE A ORDEM DE EXECUÇÃO. O Playwright
       # ordena os arquivos por CAMINHO, não pela ordem em que são passados na
       # linha de comando. Medido no run 31838253496: `marca-logo.spec.ts` estava

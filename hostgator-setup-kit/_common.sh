@@ -865,6 +865,37 @@ ler_rodada_do_banco() {
     "$([ "$disputa" = "1" ] && printf true || printf false)" "$retentativas" "$passada"
 }
 
+# ── O SQL DESTA CASA, APLICADO DEPOIS DO BASELINE ────────────────────────────
+#
+# ⚠️ ESTE BLOCO É DO FORK, e existe para o schema do módulo de imóveis NÃO
+# morar dentro de `supabase/baseline.sql`.
+#
+# O baseline é o arquivo mais quente do upstream: 729 commits o tocaram entre
+# 2026-09-06 e 2026-09-21. Enquanto as 134 linhas de `properties` moravam lá
+# dentro, toda sincronização com o Rafael colidia no mesmo lugar — e resolver
+# conflito à mão num dump de schema é a maneira mais fácil que existe de perder
+# uma policy de isolamento sem ninguém perceber.
+#
+# Agora o baseline é dele, byte a byte, e o que é nosso vive em
+# `supabase/local/*.sql`, aplicado logo depois, pela MESMA função, com a mesma
+# retentativa. Os arquivos são idempotentes (saíram do apêndice, que já era),
+# então reaplicar não custa nada.
+#
+# ⚠️ LOG SEPARADO de propósito: `reaplicar_baseline` trunca o log que recebe, e
+# passar o mesmo arquivo apagaria a evidência da rodada do baseline.
+aplicar_sql_local() {
+  local log="${1:-}" arq rc=0 achou=0
+  local dir="$PROJECT_DIR/supabase/local"
+  [ -d "$dir" ] || return 0
+  for arq in "$dir"/*.sql; do
+    [ -e "$arq" ] || break   # sem nullglob: diretório vazio deixa o glob cru
+    achou=1
+    reaplicar_baseline "$arq" "$log" || rc=1
+  done
+  [ "$achou" = 1 ] || return 0
+  return $rc
+}
+
 # ── As três imagens que NÓS publicamos ───────────────────────────────────────
 # O namespace é constante e literal de propósito: ele está gravado no .env de
 # toda instalação viva, e derivá-lo de variável faria o kit antigo (que já está

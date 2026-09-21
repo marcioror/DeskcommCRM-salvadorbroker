@@ -60,7 +60,11 @@ function lerArquivo(arquivo: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const linha of fs.readFileSync(caminho, "utf8").split("\n")) {
     const m = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/.exec(linha);
-    if (m) env[m[1]!] = (m[2] ?? "").replace(/^"(.*)"$/, "$1").trim();
+    // Aceita aspas simples OU duplas: o `.env.local` gerado pelo kit self-host
+    // (docker-compose --env-file) envolve todo valor em aspas simples, e um
+    // parser que só trata duplas devolve a string com as aspas literais dentro
+    // — quebra createClient() com "Invalid supabaseUrl" nesse formato.
+    if (m) env[m[1]!] = (m[2] ?? "").replace(/^['"](.*)['"]$/, "$1").trim();
   }
   return env;
 }

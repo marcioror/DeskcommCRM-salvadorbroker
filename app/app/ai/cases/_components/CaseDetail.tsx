@@ -5,6 +5,7 @@ import { formatDistanceToNowStrict } from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ContatoProtegido } from "@/components/contacts/ContatoProtegido";
 import { useCase } from "@/hooks/ai/useCases";
 import { STATUS_BADGE_VARIANT, STATUS_LABEL, caseEventLabel } from "@/lib/ai/case-copy";
 import { useT } from "@/hooks/i18n/useT";
@@ -40,7 +41,15 @@ export function CaseDetail({ caseId }: { caseId: string | null }) {
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-base font-semibold">{data.contact_name ?? t("Contato sem nome")}</h2>
-          <p className="text-xs text-muted-foreground">{data.contact_phone ?? t("Sem telefone")}</p>
+          <p className="text-xs text-muted-foreground">
+            {/* O fallback traduzido entra como `valor` (e não em volta do
+                componente) porque quando o contato é PROTEGIDO nada disso é
+                mostrado: sai o selo "Protegido" e nenhum dígito. */}
+            <ContatoProtegido
+              valor={data.contact_phone ?? t("Sem telefone")}
+              protegido={data.contact_protected}
+            />
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {data.source === "guardrail_autofallback" ? (

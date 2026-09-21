@@ -141,6 +141,11 @@ export const crmListHumanCases: McpToolDefinition<typeof listaChamadosInputShape
       // acompanha a fila inteira. A divergência com a tela é deliberada e está
       // declarada no tipo (`ConversasVisiveis`), não escondida num default.
       visiveisPara: "todas",
+      // ⚠️ O ATOR é desta casa, e aqui ele quase sempre é `ai_agent`:
+      // `podeVerContatoSensivel` nunca mascara ator que não é pessoa, então o
+      // agente continua vendo tudo. Ele viaja no mesmo objeto de opts desde que
+      // o upstream trocou o 4º argumento posicional por `visiveisPara`.
+      actor: ctx.actor,
     });
     return { cases: chamados, open_count: abertos };
   },
@@ -170,6 +175,11 @@ export const crmGetHumanCase: McpToolDefinition<typeof chamadoInputShape> = {
     // conversa não está atribuída a ninguém.
     const chamado = await lerChamado(ctx.supabase, ctx.organizationId, input.case_id, {
       visiveisPara: "todas",
+      // ⚠️ O ATOR é desta casa, e aqui ele quase sempre é `ai_agent`:
+      // `podeVerContatoSensivel` nunca mascara ator que não é pessoa, então o
+      // agente continua vendo tudo. Ele viaja no mesmo objeto de opts desde que
+      // o upstream trocou o 4º argumento posicional por `visiveisPara`.
+      actor: ctx.actor,
     });
     if (!chamado) throw new Error("case_not_found");
 

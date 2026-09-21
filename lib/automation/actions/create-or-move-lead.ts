@@ -100,7 +100,12 @@ async function execute(ctx: ActionCtx, config: Record<string, unknown>): Promise
         // O título nasce do MESMO resolvedor das telas. Remontado à mão, ele
         // gravava `Contato 543134@lid` no card do funil — e título de lead
         // não se reescreve sozinho depois.
-        title: nomeDoContato(contact) ?? contact.phone_number ?? "Lead da automação",
+        // ⚠️ SEM FALLBACK PARA O TELEFONE, e isto é desta casa (achado I2).
+        // `title` é coluna de texto plano que `GET /api/v1/leads` devolve a
+        // QUALQUER viewer. Gravado o telefone aqui, não há como mascará-lo depois
+        // por espectador: a proteção por viewer do contato nunca alcança esta cópia
+        // solta. Sem nome usável, o card nasce genérico, que é o lado certo de errar.
+        title: nomeDoContato(contact) ?? "Lead da automação",
         contact_id: contact.id,
         source: "automation",
       } as Parameters<typeof createLeadHandler>[2]);

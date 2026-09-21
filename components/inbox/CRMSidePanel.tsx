@@ -30,6 +30,7 @@ import { useEditLead } from "@/hooks/kanban/useUpdateLead";
 import { cn } from "@/lib/utils";
 import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { phoneForDisplay } from "@/lib/channels/phone-variants";
+import { ContatoProtegido } from "@/components/contacts/ContatoProtegido";
 
 interface Props {
   conversation: ConversationWithContact | null;
@@ -613,8 +614,13 @@ export function CRMSidePanel({ conversation }: Props) {
         </h3>
         <Card className="mt-2 space-y-2 p-3 text-sm">
           <div className="font-medium">{displayName}</div>
-          {contact?.phone_number && (
-            <div className="text-xs text-muted-foreground">{phoneForDisplay(contact.phone_number)}</div>
+          {(contact?.phone_number || contact?.contact_protected) && (
+            <div className="text-xs text-muted-foreground">
+              <ContatoProtegido
+                valor={contact?.phone_number ? phoneForDisplay(contact.phone_number) : null}
+                protegido={Boolean(contact?.contact_protected)}
+              />
+            </div>
           )}
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1">

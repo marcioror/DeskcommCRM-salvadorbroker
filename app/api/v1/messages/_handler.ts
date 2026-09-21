@@ -48,6 +48,7 @@ import { sendTemplateForSession } from "@/lib/channels/meta/send-template-for-se
 import { nomeDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Message } from "@/lib/types/messaging";
+import { externalIdParaResposta } from "@/lib/channels/external-id-publico";
 
 type SB = SupabaseClient;
 
@@ -245,6 +246,27 @@ export interface ListMessagesResult {
   has_more: boolean;
 }
 
+/**
+ * C3 (revisão final): há transporte cujo id de mensagem embute o ENDEREÇO do
+ * contato — o telefone, em texto plano — e `external_id` não passa por
+ * `protegerContato`/`podeVerContatoSensivel` nenhum, porque não é campo de
+ * contato. Sem normalizar, o número que o resto da feature protege (list/get de
+ * /contacts) voltava pela caixa de entrada do próprio corretor, dentro de um
+ * campo que ninguém olharia como "dado de contato".
+ *
+ * A forma concreta de cada transporte é assunto de `lib/channels/` — esta
+ * camada é feature e não pode conhecê-la (doutrina de restrição de canal,
+ * invariante 1; foi o `lint:channels` que apontou a versão anterior, que
+ * importava o helper do transporte direto para cá).
+ *
+ * Só a RESPOSTA muda: o que fica GRAVADO em `messages.external_id` continua
+ * intacto, porque ingestão e dedup do ack dependem da forma exata recebida.
+ */
+function comExternalIdNormalizado(m: Message): Message {
+  const publico = externalIdParaResposta(m.external_id);
+  return publico === m.external_id ? m : { ...m, external_id: publico };
+}
+
 export async function listMessagesHandler(
   supabase: SB,
   ctx: HandlerCtx,
@@ -309,7 +331,7 @@ export async function listMessagesHandler(
   // A RESPOSTA continua cronológica (antigo → novo), igual a antes: o consumidor
   // renderiza de cima para baixo sem mudar nada. O que mudou foi QUAIS mensagens
   // entram na página, não a ordem em que saem.
-  return { messages: page.slice().reverse(), cursor, has_more: hasMore };
+  return { messages: page.slice().reverse().map(comExternalIdNormalizado), cursor, has_more: hasMore };
 }
 
 // ---------------------------------------------------------------------------

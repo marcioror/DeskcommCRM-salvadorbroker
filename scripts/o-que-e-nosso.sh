@@ -221,6 +221,17 @@ contato "lib/audit/actions.ts"                        "property.created"        
 contato "lib/leads/activity-vocabulary.ts"            "property_linked"          "rótulos de vínculo de imóvel"
 contato ".github/workflows/release.yml"               "ha-app-de-release"        "release não quebra sem App"
 contato "tests/unit/gatilho-dos-jobs-de-entrega.test.ts" "configurado == 'sim'"  "mapa de gatilhos desta casa"
+contato "app/api/v1/contacts/_handler.ts" "protegerContato" "a proteção aplicada em list/get/create/patch de contato"
+contato "app/api/v1/conversations/_handler.ts" "protegerConversaComContato" "a proteção no contato embutido da conversa"
+contato "app/api/v1/messages/_handler.ts" "comExternalIdNormalizado" "o external_id que não carrega telefone"
+contato "lib/escalacao/chamados.ts" "podeVerContatoSensivel" "a proteção na fila de casos, que lê com service role"
+contato "lib/reports/atividades.ts" "podeVerContatoSensivel" "a proteção no relatório de atividades"
+contato "lib/leads/nascimento-do-lead.ts" "nomeDoContato(contato)" "o título do lead que não grava telefone"
+contato "lib/automation/actions/create-or-move-lead.ts" "SEM FALLBACK PARA O TELEFONE" "o título do lead da automação sem telefone"
+contato "components/contacts/ContactsTable.tsx" "ContatoProtegido" "o cadeado no lugar do telefone e do e-mail na lista"
+contato "app/api/v1/contacts/route.ts" "role: authz.org.role" "o papel no ator, que é o que a regra lê"
+contato "lib/agent-engine/edge/crm/drain.ts" "debounceTetoMs" "a janela deslizante com teto na coalescência da rajada"
+contato "package.json" "etiqueta-da-casa" "os testes de shell desta casa na cadeia do `test:shell`"
 if [ "$FALTOU" = 1 ]; then
   printf '\n    ⚠ Algum ponto de contato sumiu — quase sempre é fusão que comeu a linha.\n'
   printf '      O que repor, caso a caso: pnpm vitest run tests/unit/pontos-de-contato-do-fork.test.ts\n'

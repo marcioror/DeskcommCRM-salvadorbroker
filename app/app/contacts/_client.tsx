@@ -44,7 +44,12 @@ const SOURCE_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 
-export function ContactsListClient() {
+export function ContactsListClient({
+  podeJuntarDuplicados,
+}: {
+  /** Espelha o `requireRole("manager")` de `GET /api/v1/contacts/duplicates`. */
+  podeJuntarDuplicados: boolean;
+}) {
   const t = useT();
   const clientesLigado = useActiveOrg()?.cliente_pela_agenda === true;
   const [searchInput, setSearchInput] = useState("");
@@ -121,10 +126,12 @@ export function ContactsListClient() {
             descobre olhando a lista, e a barra lateral não precisa crescer para
             um trabalho que se faz de vez em quando.
           */}
-          <Button variant="outline" onClick={() => setDuplicadosOpen(true)}>
-            <UsersThree size={16} weight="bold" aria-hidden />
-            <span>{t("Duplicados")}</span>
-          </Button>
+          {podeJuntarDuplicados && (
+            <Button variant="outline" onClick={() => setDuplicadosOpen(true)}>
+              <UsersThree size={16} weight="bold" aria-hidden />
+              <span>{t("Duplicados")}</span>
+            </Button>
+          )}
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <UploadSimple size={16} weight="bold" aria-hidden />
             <span>{t("Importar CSV")}</span>
@@ -273,7 +280,9 @@ export function ContactsListClient() {
 
       <NewContactDialog open={createOpen} onOpenChange={setCreateOpen} />
       <ImportContactsDialog open={importOpen} onOpenChange={setImportOpen} />
-      <MergeDialog open={duplicadosOpen} onOpenChange={setDuplicadosOpen} />
+      {podeJuntarDuplicados && (
+        <MergeDialog open={duplicadosOpen} onOpenChange={setDuplicadosOpen} />
+      )}
     </div>
   );
 }

@@ -36,7 +36,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const authz = await requireRole("agent", { requestId, resource: "agent_cases" });
   if (!authz.ok) return authz.response;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { org } = authz;
+  const { org, user } = authz;
 
   const parsed = querySchema.safeParse(
     Object.fromEntries(new URL(req.url).searchParams.entries()),
@@ -57,6 +57,12 @@ export async function GET(req: NextRequest): Promise<Response> {
     const { chamados, abertos } = await listarChamados(createAdminClient(), org.orgId, {
       estado: parsed.data.status === "open" ? "abertos" : "fechados",
       visiveisPara,
+      // ⚠️ O ATOR é desta casa (achado C2): a leitura é privilegiada (service
+      // role, RLS fora do caminho), então sem ele `listarChamados` não teria como
+      // aplicar `podeVerContatoSensivel`, e o telefone do lead sairia cru para
+      // qualquer agent. Compõe com `visiveisPara`, não o substitui: um recorta
+      // QUAIS conversas aparecem, o outro recorta o DADO sensível de cada uma.
+      actor: { type: "user", id: user.id, role: org.role },
     });
     return ok({ cases: chamados, open_count: abertos }, { requestId });
   } catch (erro) {

@@ -109,6 +109,7 @@ beforeAll(() => {
       v_event_type uuid;
       v_sale uuid;
       v_sale_item uuid;
+      v_property uuid;
     begin
       foreach v_org in array array['${ORG_A}'::uuid, '${ORG_B}'::uuid] loop
         select id into v_sess from public.channel_sessions where organization_id = v_org limit 1;
@@ -258,6 +259,18 @@ beforeAll(() => {
         if not exists (select 1 from public.knowledge_searches where organization_id = v_org) then
           insert into public.knowledge_searches (organization_id, hits, top_score, threshold)
             values (v_org, 1, 0.81, 0.72);
+        end if;
+
+        select id into v_property from public.properties
+          where organization_id = v_org and title = 'RLS Invariant Property';
+        if v_property is null then
+          insert into public.properties (organization_id, title, property_type, purpose)
+            values (v_org, 'RLS Invariant Property', 'apartment', 'sale') returning id into v_property;
+        end if;
+
+        if not exists (select 1 from public.properties_media where organization_id = v_org) then
+          insert into public.properties_media (organization_id, property_id, storage_path)
+            values (v_org, v_property, 'rls-invariant/photo.jpg');
         end if;
 
         -- contact_field_proposals (migration 0123): a fila guarda e-mail e
@@ -484,6 +497,8 @@ export const TABLES = [
   "ai_routers",
   "ai_router_decisions",
   "knowledge_searches",
+  "properties",
+  "properties_media",
   // migration 0123 (spec 17 §4b) — guarda e-mail/telefone ditos na conversa.
   "contact_field_proposals",
   // migration 0142 — a escolha de camadas de segurança da organização. Entrou aqui

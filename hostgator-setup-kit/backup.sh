@@ -43,8 +43,8 @@ step "Snapshot das sessões do WhatsApp → $BACKUP_DIR/waha-$ts.tgz"
 vol="$(dc config --volumes 2>/dev/null | grep -m1 waha-data || echo '')"
 proj="$(basename "$PROJECT_DIR" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')"
 vol="${vol:-${proj}_waha-data}"
-docker run --rm -v "${vol}:/data:ro" -v "$BACKUP_DIR:/out" alpine:3.20 
-  sh -c "tar czf /out/waha-$ts.tgz -C /data . && chown $(id -u):$(id -g) /out/waha-$ts.tgz && chmod 600 /out/waha-$ts.tgz" 2>/dev/null 
+docker run --rm -v "${vol}:/data:ro" -v "$BACKUP_DIR:/out" alpine:3.20 \
+  sh -c "tar czf /out/waha-$ts.tgz -C /data . && chown $(id -u):$(id -g) /out/waha-$ts.tgz && chmod 600 /out/waha-$ts.tgz" 2>/dev/null \
   && c_grn "✓ sessões WhatsApp salvas" \
   || c_ylw "⚠ não achei o volume waha-data (nome pode variar). Ajuste manualmente se necessário."
 

@@ -617,6 +617,21 @@ jobs:
       # Única exceção HTTP do laboratório de extensões. O servidor é iniciado
       # pela própria spec, em loopback, com SQLite e PID exclusivos.
       EXTENSIONS_LOCAL_CATALOG_ORIGIN: "http://127.0.0.1:56331"
+      # ⚠️ NADA DE `#` DENTRO DESTE BLOCO. `>-` é escalar de bloco: linha
+      # começada por `#` aqui dentro NÃO é comentário de YAML, é CONTEÚDO — ela
+      # vira argumento do `playwright test`, que trata cada argumento como
+      # regex de caminho. Medido no job 106671437001: um comentário desta casa
+      # tinha a palavra `(spec` e o Playwright morreu em
+      # `SyntaxError: Invalid regular expression: /(spec/gi: Unterminated
+      # group`, com a parte 1 inteira sem rodar (e a `main` vermelha desde a
+      # fusão do #30). Comentário sobre a lista vai ACIMA da chave, como este.
+      #
+      # DESTA CASA nesta lista: `properties.spec.ts` (o módulo de imóveis não
+      # existe no upstream) e `casca-no-celular.spec.ts`. Toda fusão que
+      # reescreva a lista apaga as duas daqui sem conflito nenhum; quem pega é o
+      # gate `e2e-cobertura-completa` (spec no disco fora de toda lista
+      # reprova), mas o sintoma aponta para a lista, não para a fusão. Entram na
+      # parte 1 porque não dependem de WAHA, Redis nem Resend.
       SPECS_PARTE_1: >-
         pre-go-live-whatsapp.spec.ts
         smoke.spec.ts auth.spec.ts error-pages.spec.ts
@@ -648,11 +663,6 @@ jobs:
         canal-mudo-avisa-na-central.spec.ts
         qa-l12-troca-de-funil.spec.ts
         qa-l12-agente-ia.spec.ts
-        # DESTA CASA: o módulo de imóveis não existe no upstream, e toda fusão
-        # que reescreva esta lista o apaga daqui sem conflito nenhum. Quem pega
-        # é o gate `e2e-cobertura-completa` (spec no disco fora de toda lista
-        # reprova), mas o sintoma aponta para a lista, não para a fusão.
-        # Entra na parte 1 porque não depende de WAHA, Redis nem Resend.
         properties.spec.ts
       # ⚠️ A ORDEM DESTA LISTA NÃO DECIDE A ORDEM DE EXECUÇÃO. O Playwright
       # ordena os arquivos por CAMINHO, não pela ordem em que são passados na

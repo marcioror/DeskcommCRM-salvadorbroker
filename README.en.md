@@ -1,3 +1,13 @@
+> [!IMPORTANT]
+> **Unofficial fork, for a single installation.** This repository is an adapted copy of
+> [melgarafael/DeskcommCRM](https://github.com/melgarafael/DeskcommCRM), maintained by Márcio
+> (Salvador Broker) for his own real-estate agency's installation. It carries modules and rules
+> that do not exist upstream, it may lag behind it, and it is not distributed as a product.
+>
+> **This is not the official DeskcommCRM.** To install, evaluate, contribute or open an issue,
+> go to the [original repository](https://github.com/melgarafael/DeskcommCRM). Anything that
+> breaks here is on this house, not on the DeskcommCRM author.
+
 <div align="center">
 
 [🇧🇷 Português](README.md) · 🇺🇸 English · [🇪🇸 Español](README.es.md)

@@ -73,6 +73,28 @@ async function selectOption(page: Page, combobox: Locator, optionName: string): 
   await page.getByRole("option", { name: optionName, exact: true }).click();
 }
 
+const sidebar = (page: Page) => page.getByRole("navigation", { name: "Navegação principal" });
+
+/**
+ * O caminho até Imóveis passa pelo HUB do grupo CRM, não pelo menu lateral.
+ *
+ * `lib/navigation/catalogo-local.ts` declara este destino SEM `sidebar`, e é
+ * decisão, não esquecimento: o menu está no limite medido (`navegacao.spec.ts`
+ * exige que ele caiba sem rolagem em 900px) e o próprio upstream já tirou
+ * Prospecção de lá pelo mesmo motivo. Enquanto a issue #1290 do upstream não
+ * entra, a porta é o hub ("Ver tudo em CRM") e o ⌘K.
+ *
+ * Percorrer o caminho INTEIRO, como `navegacao.spec.ts` faz com Produtos, é o
+ * que prova que tirar do menu não virou tela órfã. Clicar num link "Imóveis"
+ * que não existe mais dava `TimeoutError` sem dizer nada sobre a tela.
+ */
+async function irParaImoveis(page: Page): Promise<void> {
+  await sidebar(page).getByRole("link", { name: "Ver tudo em CRM" }).click();
+  await page.waitForURL(/\/app\/crm$/);
+  await page.getByRole("link", { name: /Imóveis/ }).click();
+  await page.waitForURL(/\/app\/properties/);
+}
+
 test.describe("módulo de imóveis — fluxo completo", () => {
   test.setTimeout(180_000);
   test.use({ actionTimeout: 10_000 });
@@ -92,8 +114,7 @@ test.describe("módulo de imóveis — fluxo completo", () => {
       await login(page, creds.users.agent!.email);
 
       // --- 1. Cadastrar imóvel pela tela, exercitando os dois Select de verdade ---
-      await page.getByRole("link", { name: "Imóveis" }).click();
-      await page.waitForURL(/\/app\/properties/);
+      await irParaImoveis(page);
       await page.getByRole("button", { name: "Novo imóvel" }).click();
       const createDialog = page.getByRole("dialog");
       await expect(createDialog).toBeVisible();
@@ -208,8 +229,7 @@ test.describe("módulo de imóveis — fluxo completo", () => {
         const viewerPage = await viewerContext.newPage();
         try {
           await login(viewerPage, viewerEmail);
-          await viewerPage.getByRole("link", { name: "Imóveis" }).click();
-          await viewerPage.waitForURL(/\/app\/properties/);
+          await irParaImoveis(viewerPage);
           // A lista continua visível pro viewer (permissão "viewer" no GET) —
           // só o botão de criar (POST exige "agent") deve sumir.
           await expect(viewerPage.getByRole("heading", { name: "Imóveis" })).toBeVisible();

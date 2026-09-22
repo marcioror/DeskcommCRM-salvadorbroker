@@ -149,7 +149,9 @@ const mortos = () =>
   );
 
 const TITULO_MIDIA = TITULO_GENERICO;
-const KNOBS = { batchSize: MIL, intervalMs: 0, idleIntervalMs: 0, debounceMs: 0, reapTimeoutMs: 300_000 };
+// `debounceTetoMs` é campo obrigatório de `DrainKnobs` desde a janela deslizante
+// desta casa (issue #196 do upstream): com `debounceMs: 0` ele não muda nada aqui.
+const KNOBS = { batchSize: MIL, intervalMs: 0, idleIntervalMs: 0, debounceMs: 0, debounceTetoMs: 60_000, reapTimeoutMs: 300_000 };
 
 let cenario: Cenario;
 

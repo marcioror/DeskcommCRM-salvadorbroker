@@ -15,7 +15,7 @@ const knobs = {
   batchSize: 2,
   intervalMs: 2000,
   idleIntervalMs: 2000,
-  debounceMs: 0,
+  debounceMs: 0, debounceTetoMs: 60_000,
   reapTimeoutMs: 60_000,
 };
 afterEach(() => vi.useRealTimers());

@@ -48,8 +48,10 @@ function clientDuble(contato: ContatoDuble | null) {
   }
 
   function crmLeadsChain() {
-    // Duas formas de uso na mesma tabela: verificação de lead já aberto
-    // (select…maybeSingle) e a criação (insert…select…single).
+    // Só a verificação de lead já aberto (select…maybeSingle) passa por `from`:
+    // a CRIAÇÃO virou `rpc("fn_nascer_lead_da_conversa")` na v1.41.0, porque o
+    // upstream serializou o nascimento com advisory lock (três mensagens
+    // seguidas abriam três cards). O título que esta cerca mede sai de lá.
     const buscaExistente: Record<string, unknown> = {
       eq() {
         return buscaExistente;
@@ -65,18 +67,6 @@ function clientDuble(contato: ContatoDuble | null) {
     return {
       select() {
         return buscaExistente;
-      },
-      insert(valores: Record<string, unknown>) {
-        inserts.push({ tabela: "crm_leads", valores });
-        return {
-          select() {
-            return {
-              single() {
-                return Promise.resolve({ data: { id: "lead-novo" }, error: null });
-              },
-            };
-          },
-        };
       },
     };
   }
@@ -103,6 +93,14 @@ function clientDuble(contato: ContatoDuble | null) {
   }
 
   const client = {
+    rpc(fn: string, args: Record<string, unknown>) {
+      if (fn !== "fn_nascer_lead_da_conversa") {
+        throw new Error(`rpc não mapeada no duble de nascimento-do-lead: ${fn}`);
+      }
+      inserts.push({ tabela: "crm_leads", valores: { title: args.p_title } });
+      // O id cru, e não `{ id }`: a RPC devolve o uuid do card em `data`.
+      return Promise.resolve({ data: "lead-novo", error: null });
+    },
     from(tabela: string) {
       switch (tabela) {
         case "contacts":

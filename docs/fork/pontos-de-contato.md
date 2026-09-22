@@ -116,3 +116,23 @@ cada função nova do upstream, para sempre.
 
 O sentinela é `tests/invariants/contato-protegido-no-banco.test.ts`: ele afirma
 o estado de hoje e fica vermelho no dia em que a porta fechar do outro lado.
+
+Com a barreira fora, **as sete rotas que tinham virado `createAdminClient()` por
+causa dela voltaram ao cliente da sessão** — cinco em 21/09 e as duas últimas
+(`app/api/v1/contacts/duplicates` e `app/api/v1/ai/followups/queue`) em 22/09.
+Sem barreira, o cliente privilegiado não protegia nada e era só mais um ponto de
+contato com o upstream. Quem guarda `contacts/duplicates` é o gate `manager` da
+própria rota, que continua sendo divergência desta casa.
+
+Duas customizações a mais foram **aposentadas** em 22/09, pelo mesmo motivo das
+cinco de 21/09 (o upstream passou a fazer o mesmo sozinho):
+
+- o `.eq("organization_id")` extra no select e no update de
+  `patchContactHandler` (achado I4). A v1.41.0 já filtra a organização nas duas
+  consultas, na linha imediatamente acima; a linha desta casa virou duplicata.
+  O comentário ficou no lugar dela, para o dia em que o filtro do upstream sair;
+- a ausência do `?? contact.phone_number` no título continua sendo **nossa**; o
+  que mudou é que o teste do upstream sobre o nome escolhido do contato
+  (`automacao-e-agenda-chamam-o-contato-pelo-nome-escolhido.test.ts`, em
+  `tests/unit/`) afirma o contrário, espera o telefone, e precisou ser ajustado
+  aqui com a divergência escrita dentro do caso.

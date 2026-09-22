@@ -19,7 +19,9 @@ import type pg from "pg";
 
 import { drainTick } from "@/lib/agent-engine/edge/crm/drain";
 
-const KNOBS = { batchSize: 10, intervalMs: 0, idleIntervalMs: 0, debounceMs: 0, reapTimeoutMs: 60_000 };
+// `debounceTetoMs` é campo obrigatório de `DrainKnobs` desde a janela deslizante
+// desta casa: com `debounceMs: 0` ele não muda comportamento nenhum aqui.
+const KNOBS = { batchSize: 10, intervalMs: 0, idleIntervalMs: 0, debounceMs: 0, debounceTetoMs: 60_000, reapTimeoutMs: 60_000 };
 const ORG = "abcd0000-0000-4000-8000-000000000001";
 const MOTIVO = "insert or update on table job_queue violates foreign key constraint";
 

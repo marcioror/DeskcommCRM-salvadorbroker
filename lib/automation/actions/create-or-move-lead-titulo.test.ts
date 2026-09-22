@@ -35,9 +35,32 @@ import type { ActionCtx } from "@/lib/automation/types";
 // Import por efeito colateral: registra "create_or_move_lead" no registry.
 import "./create-or-move-lead";
 
+/**
+ * O `admin` deixou de poder ser `{}` na v1.41.0: antes de criar, a ação procura
+ * negócio ABERTO do contato — no funil de destino (#958) e em qualquer outro
+ * (#992, que transfere em vez de abrir o segundo card). São duas consultas a
+ * `crm_leads`, e sem elas a execução morria no catch e devolvia `failed`, que é
+ * como este arquivo ficou vermelho sem que o título mudasse nada.
+ *
+ * As duas devolvem VAZIO de propósito: o caminho sob teste é o da criação, que é
+ * onde o título nasce. Quem mede mover e transferir é
+ * `lib/automation/actions/create-or-move-lead.test.ts`, com o dublê de banco.
+ */
+function bancoSemNegocioAberto(): ActionCtx["admin"] {
+  const consulta: Record<string, unknown> = {
+    select: () => consulta,
+    eq: () => consulta,
+    neq: () => consulta,
+    order: () => consulta,
+    limit: () => consulta,
+    maybeSingle: async () => ({ data: null, error: null }),
+  };
+  return { from: () => consulta } as unknown as ActionCtx["admin"];
+}
+
 function baseCtx(contact: Record<string, unknown>): ActionCtx {
   return {
-    admin: {} as ActionCtx["admin"],
+    admin: bancoSemNegocioAberto(),
     organizationId: "org-1",
     ruleId: "rule-1",
     ruleName: "Regra de teste",

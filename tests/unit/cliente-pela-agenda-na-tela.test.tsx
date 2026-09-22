@@ -83,6 +83,9 @@ const CONTATO = {
   updated_at: "2026-01-01T10:00:00.000Z",
   last_activity_at: null,
   first_service_at: "2025-03-12T14:00:00.000Z",
+  // desta casa: os dois campos que a proteção de contato acrescentou ao tipo
+  created_by_user_id: null,
+  contact_protected: false,
 } satisfies Contact;
 
 function comQuery(ui: ReactNode) {
@@ -148,18 +151,21 @@ describe("nome do perfil do WhatsApp na ficha do contato", () => {
   });
 });
 
+// `podeJuntarDuplicados` é prop obrigatória desta casa (juntar duplicados só de
+// gerente para cima). `false` aqui porque estes dois casos medem o filtro de
+// ETIQUETAS: o botão de juntar não entra em nenhuma das duas asserções.
 describe("opção fixa 'cliente' no filtro de etiquetas", () => {
 
   const botaoDeTag = () => screen.getByRole("button", { name: /^Tag:/ });
 
   it("desligada: sem etiquetas carregadas, o filtro fica sem opção (desabilitado)", () => {
-    render(comQuery(<ContactsListClient />));
+    render(comQuery(<ContactsListClient podeJuntarDuplicados={false} />));
     expect(botaoDeTag()).toBeDisabled();
   });
 
   it("ligada: 'cliente' está sempre lá, então o filtro abre", () => {
     ligada = true;
-    render(comQuery(<ContactsListClient />));
+    render(comQuery(<ContactsListClient podeJuntarDuplicados={false} />));
     expect(botaoDeTag()).toBeEnabled();
   });
 });

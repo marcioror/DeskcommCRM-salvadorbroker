@@ -520,14 +520,15 @@ export async function patchContactHandler(
     .select(
       "id, organization_id, created_by_user_id, is_anonymized, tags, email, phone_number, name, display_name, consent, custom_fields",
     )
+    // I4 (revisão final) era um `.eq("organization_id")` DESTA CASA acrescentado
+    // aqui: com client service-role e RLS bypassada, um `contactId` de outra
+    // organização resolvia, e `created_by_user_id` (que decide a proteção de
+    // telefone/e-mail logo abaixo) vinha de linha de outro tenant. O upstream
+    // passou a filtrar na linha acima a partir da v1.41.0, então a customização
+    // virou duplicata e saiu — este comentário fica para o dia em que o filtro
+    // do upstream sumir daqui.
     .eq("organization_id", ctx.organization_id)
     .eq("id", contactId)
-    // I4 (revisão final, anti-pattern #10 do CLAUDE.md): este client pode ser
-    // service-role — sem o filtro, um `contactId` de OUTRA org resolvia aqui
-    // (RLS bypassada), e a leitura de `created_by_user_id` que decide a
-    // proteção de telefone/e-mail (podeVerContatoSensivel logo abaixo) rodava
-    // sobre uma linha que nem pertence ao tenant do ator.
-    .eq("organization_id", ctx.organization_id)
     .maybeSingle();
 
   if (selErr) {
@@ -632,12 +633,10 @@ export async function patchContactHandler(
   const { data: updated, error: updErr } = await supabase
     .from("contacts")
     .update(patch)
+    // I4, mesmo caso do select acima: o `.eq("organization_id")` desta casa
+    // saiu porque o upstream passou a fazê-lo na linha seguinte.
     .eq("organization_id", ctx.organization_id)
     .eq("id", contactId)
-    // I4: mesmo motivo do select acima — sem isto, um UPDATE com client
-    // service-role e `contactId` de outra org escreveria fora do tenant do
-    // ator, RLS bypassada.
-    .eq("organization_id", ctx.organization_id)
     .select(SELECT_COLS)
     .maybeSingle();
 

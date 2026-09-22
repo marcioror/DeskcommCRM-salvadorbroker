@@ -31,7 +31,6 @@ import { situacaoDoRetorno } from "@/lib/followup/retorno";
 import { createClient } from "@/lib/supabase/server";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { rotuloDoContatoProtegido } from "@/lib/contacts/visibility";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -192,12 +191,11 @@ export async function GET(req: NextRequest): Promise<Response> {
     // `.or()`, então também são removidos (não só escapados) pra um termo de
     // busca nunca injetar uma condição extra na string do filtro.
     const safeQ = q.replace(/[%_]/g, (m) => `\\${m}`).replace(/[,()]/g, " ");
-  // ⚠️ LEITURA PELO SERVIDOR, e não pelo cliente da sessão: `contacts` deixou de
-  // dar `phone_number`/`email` ao papel `authenticated` (supabase/local/contato-
-  // protegido.sql), porque a Data API responde na internet e um corretor com o
-  // próprio JWT lia a carteira inteira por fora da rota. A consulta abaixo já
-  // filtra `organization_id` explicitamente, que é o que a RLS fazia por ela.
-    const { data: matches, error: cErr } = await createAdminClient()
+    // Cliente da SESSÃO: a leitura passou pelo servidor enquanto a barreira de
+    // contato no banco existia, e ela foi retirada (virou dívida medida, em
+    // `docs/fork/pontos-de-contato.md`). Sem a barreira, o cliente privilegiado
+    // aqui não protegia nada — só acrescentava ponto de contato com o upstream.
+    const { data: matches, error: cErr } = await supabase
       .from("contacts")
       .select("id")
       .eq("organization_id", activeOrg.orgId)

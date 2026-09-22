@@ -39,7 +39,6 @@ import {
   type ContatoParaDeduplicar,
 } from "@/lib/contacts/duplicados";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -61,13 +60,16 @@ export async function GET(): Promise<Response> {
   if (!authz.ok) return authz.response;
   const { org } = authz;
 
+  // Cliente da SESSÃO. Esta leitura chegou a ser feita pelo servidor, quando a
+  // barreira de contato no banco existia (`revoke select` em `phone_number` e
+  // `email` para o papel `authenticated`): sem privilégio, a consulta morria. A
+  // barreira foi retirada e virou dívida medida — ver a seção dela em
+  // `docs/fork/pontos-de-contato.md` e o sentinela
+  // `tests/invariants/contato-protegido-no-banco.test.ts` —, e sem ela o cliente
+  // privilegiado não protegia nada: era só mais um ponto de contato com o
+  // upstream. Quem guarda a rota é o gate `manager` acima.
   const supabase = await createClient();
-  // ⚠️ LEITURA PELO SERVIDOR, e não pelo cliente da sessão: `contacts` deixou de
-  // dar `phone_number`/`email` ao papel `authenticated` (supabase/local/contato-
-  // protegido.sql), porque a Data API responde na internet e um corretor com o
-  // próprio JWT lia a carteira inteira por fora da rota. A consulta abaixo já
-  // filtra `organization_id` explicitamente, que é o que a RLS fazia por ela.
-  const { data, error } = await createAdminClient()
+  const { data, error } = await supabase
     .from("contacts")
     .select(
       "id, name, display_name, email, email_normalized, phone_number, is_merged_into, is_anonymized, source_metadata, created_at, last_activity_at",

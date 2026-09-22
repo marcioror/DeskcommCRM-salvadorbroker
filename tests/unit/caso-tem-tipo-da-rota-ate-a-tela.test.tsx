@@ -38,6 +38,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { listarChamados, type ChamadoDaLista } from "@/lib/escalacao/chamados";
+import type { Actor } from "@/lib/api/handlers/types";
 
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (s: string) => s }));
 vi.mock("@/hooks/i18n/useLocaleDeData", () => ({ useLocaleDeData: () => undefined }));
@@ -48,6 +49,7 @@ vi.mock("@/app/app/ai/cases/_components/CaseDetail", () => ({
 const { CaseList } = await import("@/app/app/ai/cases/_components/CaseList");
 
 const ORG = "aaaaaaaa-0000-4000-8000-00000000000a";
+const ATOR: Actor = { type: "user", id: "99999999-0000-4000-8000-000000000099", role: "manager" };
 
 /** A linha como o banco a tem — com o assunto que a IA classificou. */
 const LINHA_DO_BANCO = {
@@ -123,6 +125,10 @@ async function corpoDaRota(): Promise<{ cases: ChamadoDaLista[]; open_count: num
   const { chamados, abertos } = await listarChamados(clienteFake(), ORG, {
     estado: "abertos",
     visiveisPara: "todas",
+    // Gerente pelo mesmo motivo de `visiveisPara: "todas"`: `actor` é o eixo da
+    // proteção de contato desta casa, e recortar aqui mediria outra coisa. Quem
+    // mede a proteção é `tests/unit/chamados-protecao-contato.test.ts`.
+    actor: ATOR,
   });
   return { cases: chamados, open_count: abertos };
 }

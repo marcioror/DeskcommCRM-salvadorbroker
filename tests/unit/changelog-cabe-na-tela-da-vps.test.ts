@@ -128,7 +128,13 @@ function fatiar(raw: string): { cabecalho: string; secoes: Secao[] } {
     const m = /^##\s+\[([^\]]+)\]/.exec(linhas[inicio]!);
     const rotulo = m?.[1] ?? "";
     return {
-      versao: /^\d+\.\d+\.\d+$/.test(rotulo) ? rotulo : null,
+      // ⚠️ O `-sb.N` é DESTA CASA: a numeração X.Y.Z é do upstream, e as
+      // versões daqui andam no sufixo da série (ver `SERIE_DA_CASA`, em
+      // lib/release/fragmento.ts). Sem aceitá-lo aqui, a seção nova seria lida
+      // como se fosse `[Não lançado]`, e a guarda passaria a medir a seção do
+      // upstream logo abaixo — que, empurrada para depois do corte de 30 KB,
+      // reprova por um motivo que não é o do operador desta instalação.
+      versao: /^\d+\.\d+\.\d+(?:-[a-z]+\.\d+)?$/.test(rotulo) ? rotulo : null,
       texto: linhas.slice(inicio, fim).join("\n") + (fim < linhas.length ? "\n" : ""),
     };
   });

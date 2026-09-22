@@ -206,3 +206,71 @@ export function proximaVersao(atual: string, bump: Bump): string {
   if (bump === "minor") return `${maior}.${menor + 1}.0`;
   return `${maior}.${menor}.${correcao + 1}`;
 }
+
+/**
+ * A SÉRIE DESTA CASA, e por que ela não é um número inventado.
+ *
+ * Este repositório é um fork: a numeração X.Y.Z é do upstream e continua sendo
+ * dele. Cortar `1.41.1` aqui roubaria o número que ele vai publicar na semana
+ * que vem (foram 25 versões em duas semanas), e as duas `1.41.1` conviveriam no
+ * mesmo `git tag` de quem sincroniza.
+ *
+ * A saída é a que o próprio upstream já carrega de outro fork: sufixo de série.
+ * O CHANGELOG dele tem `v1.1.1-jmpo.1`, e `scripts/cortar-release.ts` cita as
+ * duas justamente como "numeração que não colide com a daqui".
+ *
+ * Aqui a série é `sb` (Salvador Broker), e o número segue sendo CALCULADO:
+ * a base é a última versão do upstream que o CHANGELOG já registra, e o
+ * contador anda de um a cada corte nosso sobre a mesma base. Quando a base
+ * muda, o contador volta a 1 — é o que mantém a leitura óbvia ("esta é a
+ * primeira desta casa sobre a 1.41.0").
+ *
+ * ⚠️ `git tag --sort=-v:refname` põe `v1.41.0-sb.1` ACIMA de `v1.41.0` (medido),
+ * que é o que faz `etiqueta_mais_alta_da_casa` escolher a NOSSA. O mesmo sort
+ * põe uma `v1.41.1` do upstream acima da nossa `-sb.1` — por isso aquela função
+ * prefere a série desta casa antes de cair no critério geral.
+ */
+export const SERIE_DA_CASA = "sb";
+
+const SECAO_DO_CHANGELOG = /^##\s+\[(\d+\.\d+\.\d+)(?:-([a-z]+)\.(\d+))?\]/;
+
+export interface VersaoDeSecao {
+  /** O texto completo, como vai para a tag: `1.41.0-sb.1`. */
+  versao: string;
+  /** A parte do upstream: `1.41.0`. */
+  base: string;
+  /** `sb` quando a seção é desta casa; `null` quando é do upstream. */
+  serie: string | null;
+  /** O contador da série, ou `null`. */
+  n: number | null;
+}
+
+/** A primeira seção `## [versão]` do CHANGELOG, que é sempre a mais nova. */
+export function versaoDoTopo(changelog: string): VersaoDeSecao {
+  for (const linha of changelog.split("\n")) {
+    const m = SECAO_DO_CHANGELOG.exec(linha);
+    if (!m) continue;
+    const [, base, serie, n] = m;
+    return {
+      versao: serie ? `${base}-${serie}.${n}` : base!,
+      base: base!,
+      serie: serie ?? null,
+      n: n ? Number(n) : null,
+    };
+  }
+  throw new FragmentoInvalido("CHANGELOG.md sem nenhuma seção `## [X.Y.Z]`");
+}
+
+/**
+ * O próximo número DESTA CASA a partir do topo do CHANGELOG.
+ *
+ * O `bump` dos fragmentos não entra na conta, e isso é deliberado: ele responde
+ * "o operador precisa fazer alguma coisa?", que continua valendo para o texto da
+ * seção e para o bloco de atenção. Quem manda no número é a base do upstream,
+ * porque é ela que diz qual código está rodando.
+ */
+export function proximaVersaoDaCasa(changelog: string): string {
+  const topo = versaoDoTopo(changelog);
+  const n = topo.serie === SERIE_DA_CASA ? (topo.n ?? 0) + 1 : 1;
+  return `${topo.base}-${SERIE_DA_CASA}.${n}`;
+}

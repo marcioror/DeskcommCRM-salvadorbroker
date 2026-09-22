@@ -231,6 +231,7 @@ contato "lib/automation/actions/create-or-move-lead.ts" "SEM FALLBACK PARA O TEL
 contato "components/contacts/ContactsTable.tsx" "ContatoProtegido" "o cadeado no lugar do telefone e do e-mail na lista"
 contato "app/api/v1/contacts/route.ts" "role: authz.org.role" "o papel no ator, que é o que a regra lê"
 contato "lib/agent-engine/edge/crm/drain.ts" "debounceTetoMs" "a janela deslizante com teto na coalescência da rajada"
+contato "scripts/cortar-release.ts" "proximaVersaoDaCasa" "a numeracao desta casa, que nao rouba o numero do upstream"
 contato "package.json" "etiqueta-da-casa" 'os testes de shell desta casa na cadeia do test:shell'
 if [ "$FALTOU" = 1 ]; then
   printf '\n    ⚠ Algum ponto de contato sumiu — quase sempre é fusão que comeu a linha.\n'

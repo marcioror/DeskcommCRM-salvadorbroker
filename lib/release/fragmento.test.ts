@@ -7,6 +7,8 @@ import {
   Impacto,
   parseFragmento,
   proximaVersao,
+  proximaVersaoDaCasa,
+  versaoDoTopo,
 } from "./fragmento";
 
 const bom = [
@@ -125,5 +127,42 @@ describe("o número é consequência do efeito declarado", () => {
 
   it.each(["1.6", "1.6.0-rc1", "latest", ""])("recusa base que não é X.Y.Z: %s", (base) => {
     expect(() => proximaVersao(base, "patch")).toThrow(FragmentoInvalido);
+  });
+});
+
+describe("a série desta casa (fork)", () => {
+  const cabecalho = "# Changelog\n\n";
+
+  it("a primeira nossa sobre uma base do upstream é `-sb.1`", () => {
+    expect(proximaVersaoDaCasa(`${cabecalho}## [1.41.0] - 2026-09-20\n`)).toBe("1.41.0-sb.1");
+  });
+
+  it("a segunda anda o contador, sem tocar na base", () => {
+    expect(proximaVersaoDaCasa(`${cabecalho}## [1.41.0-sb.1] - 2026-09-22\n`)).toBe("1.41.0-sb.2");
+  });
+
+  it("base nova do upstream zera o contador", () => {
+    // O caso que acontece toda sincronização: o upstream publicou 1.42.0, a
+    // seção dele entrou no topo, e a nossa próxima é a PRIMEIRA sobre ela.
+    expect(proximaVersaoDaCasa(`${cabecalho}## [1.42.0] - 2026-09-29\n`)).toBe("1.42.0-sb.1");
+  });
+
+  it("o topo é o que manda, e é a PRIMEIRA seção do arquivo", () => {
+    const changelog = `${cabecalho}## [1.41.0-sb.1] - 2026-09-22\n\n## [1.41.0] - 2026-09-20\n`;
+    expect(versaoDoTopo(changelog)).toMatchObject({ versao: "1.41.0-sb.1", base: "1.41.0", serie: "sb", n: 1 });
+    expect(proximaVersaoDaCasa(changelog)).toBe("1.41.0-sb.2");
+  });
+
+  it("seção do upstream é lida como base, sem série", () => {
+    expect(versaoDoTopo(`${cabecalho}## [1.41.0] - 2026-09-20\n`)).toMatchObject({
+      versao: "1.41.0",
+      base: "1.41.0",
+      serie: null,
+      n: null,
+    });
+  });
+
+  it("CHANGELOG sem seção nenhuma RECUSA, em vez de inventar 0.0.1", () => {
+    expect(() => versaoDoTopo("# Changelog\n\nnada aqui\n")).toThrow(FragmentoInvalido);
   });
 });

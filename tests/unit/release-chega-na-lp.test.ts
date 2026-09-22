@@ -278,8 +278,14 @@ describe("a release chega à página de changelog da LP", () => {
   });
 
   it("toda seção do CHANGELOG segue o cabeçalho que a LP sabe ler", () => {
-    // A mesma expressão de deskcomm-site/lib/changelog.ts (CABECALHO_VERSAO).
-    const CABECALHO_VERSAO = /^## \[(\d+\.\d+\.\d+)\]\s*[—–-]\s*(\d{4}-\d{2}-\d{2})\s*$/;
+    // A mesma expressão de deskcomm-site/lib/changelog.ts (CABECALHO_VERSAO),
+    // MAIS o sufixo da série desta casa.
+    //
+    // A vitrine é do UPSTREAM: deskcomm.com.br publica o changelog dele, e uma
+    // versão `X.Y.Z-sb.N` nunca vai parar lá. O que esta guarda continua
+    // fazendo por nós é impedir cabeçalho torto (data fora do formato, traço
+    // trocado), que quebraria a tela da VPS — essa sim, nossa.
+    const CABECALHO_VERSAO = /^## \[(\d+\.\d+\.\d+(?:-[a-z]+\.\d+)?)\]\s*[—–-]\s*(\d{4}-\d{2}-\d{2})\s*$/;
     const cabecalhos = changelog.split("\n").filter((l) => l.startsWith("## "));
     const fora = cabecalhos.filter((l) => !CABECALHO_VERSAO.test(l) && l.trim() !== "## [Não lançado]");
     expect(fora, "seção que a página de changelog da LP não reconheceria").toEqual([]);

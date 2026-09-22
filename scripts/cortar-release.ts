@@ -18,13 +18,22 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { calcularBump, type Fragmento, parseFragmento, proximaVersao } from "../lib/release/fragmento";
+import {
+  calcularBump,
+  type Fragmento,
+  parseFragmento,
+  proximaVersaoDaCasa,
+  versaoDoTopo,
+} from "../lib/release/fragmento";
 import { aplicarNoChangelog, montarSecao } from "../lib/release/montar-secao";
 
 const RAIZ = path.resolve(__dirname, "..");
 const DIR_FRAGMENTOS = path.join(RAIZ, ".changes");
 const CHANGELOG = path.join(RAIZ, "CHANGELOG.md");
-const REPO = "melgarafael/DeskcommCRM";
+// O compare do CHANGELOG aponta para ESTE repositório: as versões desta casa
+// (`X.Y.Z-sb.N`) não existem no repositório do upstream, e o link daria 404 na
+// tela de quem opera a VPS.
+const REPO = "marcioror/crm-salvadorbroker";
 
 const compararUrl = (de: string, para: string) => `https://github.com/${REPO}/compare/${de}...${para}`;
 
@@ -59,11 +68,7 @@ function lerFragmentos(dir: string): Fragmento[] {
  * colidir com a numeração daqui.
  */
 function versaoBase(changelog: string): string {
-  for (const linha of changelog.split("\n")) {
-    const m = /^##\s+\[(\d+\.\d+\.\d+)\]/.exec(linha);
-    if (m?.[1]) return m[1];
-  }
-  throw new Error("CHANGELOG.md sem nenhuma seção `## [X.Y.Z]`");
+  return versaoDoTopo(changelog).versao;
 }
 
 /** Só para conferência: um aviso, nunca uma recusa — o CI clona raso e não vê tag. */
@@ -130,11 +135,16 @@ function main(argv: readonly string[]): number {
     return 1;
   }
 
+  // O `bump` continua sendo calculado, e continua mandando no TEXTO: é ele
+  // que decide se a seção ganha o bloco de atenção. No NÚMERO ele não manda
+  // mais — a numeração X.Y.Z é do upstream, e esta casa anda no sufixo da
+  // própria série. Ver `SERIE_DA_CASA`, em lib/release/fragmento.ts.
   const bump = calcularBump(fragmentos.map((f) => f.impacto));
-  const versao = proximaVersao(base, bump);
+  const versao = proximaVersaoDaCasa(changelog);
   const secao = montarSecao(fragmentos, versao, hoje());
 
-  process.stdout.write(`${base} + ${bump} = ${versao}  (${fragmentos.length} fragmento(s))\n`);
+  process.stdout.write(`${base} → ${versao}  (impacto máximo: ${bump}; ${fragmentos.length} fragmento(s))
+`);
   for (const f of fragmentos) {
     process.stdout.write(`  ${f.impacto.padEnd(16)} ${f.secao.padEnd(11)} ${f.titulo}\n`);
   }

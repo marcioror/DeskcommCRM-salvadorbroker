@@ -185,6 +185,20 @@ const CONTATOS: Contato[] = [
       "apague o `?? contact.phone_number` do `title`. Mesmo motivo do anterior.",
   },
   {
+    arquivo: "scripts/cortar-release.ts",
+    marca: "proximaVersaoDaCasa",
+    oQueE: "a numeração desta casa, que não rouba o número do upstream",
+    seSumir:
+      "reponha `proximaVersaoDaCasa(changelog)` no lugar de `proximaVersao(base, bump)`. Sem isso o próximo corte publica `1.41.1` (ou a que o bump mandar), que é o número que o upstream vai lançar na semana seguinte — e as duas passam a conviver no mesmo `git tag` de quem sincroniza.",
+  },
+  {
+    arquivo: "tests/unit/changelog-cabe-na-tela-da-vps.test.ts",
+    marca: "(?:-[a-z]+",
+    oQueE: "a guarda da tela da VPS reconhecendo a série desta casa",
+    seSumir:
+      "reponha o sufixo opcional no teste de `versao` dentro de `fatiar`. Sem ele a seção desta casa é lida como `[Não lançado]`, e a guarda mede a seção do upstream logo abaixo — reprovando por um corte de 30 KB que não é o do nosso operador.",
+  },
+  {
     arquivo: "components/contacts/ContactsTable.tsx",
     marca: "ContatoProtegido",
     oQueE: "o cadeado no lugar do telefone e do e-mail na lista",

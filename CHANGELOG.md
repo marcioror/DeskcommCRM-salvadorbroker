@@ -8,6 +8,57 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.41.0-sb.1] — 2026-09-22
+
+### Adicionado
+
+- **Módulo de imóveis, com vínculo ao negócio e à timeline** Cadastro de imóveis para venda e locação, com tipo e finalidade, e o vínculo
+  entre o imóvel e o lead interessado. O dossiê do negócio passa a mostrar os
+  imóveis de interesse, e a timeline registra cada vínculo criado ou desfeito.
+
+  A tela fica em Imóveis, alcançável pelo hub do grupo CRM ("Ver tudo em CRM") e
+  pela busca rápida. Ela não entra no menu lateral porque o menu está no limite
+  medido de altura; quando o upstream entregar item de menu condicional a módulo
+  ligado, ela sobe para lá sem tirar a vaga de ninguém.
+
+  Criar e editar imóvel exige o papel `agent`; `viewer` lê a lista sem o botão de
+  criar.
+
+- **Telefone e e-mail do lead só para quem cadastrou, ou para a gerência** O corretor atende pelo chat sem ver o número do cliente que não foi ele quem
+  cadastrou. Telefone e e-mail saem nulos nas rotas de contato, de conversa, de
+  mensagem, na fila de casos e no relatório de atividades, e a tela mostra um
+  cadeado no lugar do dado em vez de um campo vazio sem explicação. Gerente e
+  administrador continuam vendo tudo, e o agente de IA também, porque é ele quem
+  precisa do número para responder.
+
+  A busca acompanha a regra: quem não pode ver o telefone também não pode
+  procurar por ele, senão a busca vira oráculo de confirmação dígito a dígito.
+
+  O título do negócio nunca recebe o telefone como nome, nem quando o contato não
+  tem nome usável: `crm_leads.title` é texto plano que qualquer leitor recebe, e
+  o que é gravado ali não tem como ser mascarado depois.
+
+### Alterado
+
+- **A janela de espera da IA desliza a cada mensagem, com teto** Quando o cliente escreve em bolhas, a resposta espera o silêncio em vez de sair
+  balão por balão. A janela agora desliza: cada mensagem nova adia a resposta,
+  até um teto contado desde a primeira mensagem da rajada, para que quem não para
+  de escrever não adie a resposta para sempre.
+
+  Responder em rajada é gatilho de banimento no WhatsApp, e era o que acontecia
+  com bolhas mais espaçadas que a janela antiga: cada uma abria o próprio
+  atendimento.
+
+### Corrigido
+
+- **O backup diário voltou a rodar, e a atualização automática com ele** Duas linhas do `backup.sh` haviam perdido a barra de continuação, e o arquivo
+  inteiro era recusado pelo interpretador. O efeito não aparecia na tela: o
+  backup das 03:00 morria no primeiro comando e a atualização automática abortava
+  sempre, porque ela exige o backup preventivo antes de tocar no banco.
+
+  Quem roda com Supabase no plano gratuito não tem backup automático do lado de
+  lá, então essa linha do cron é a única rede que existe.
+
 ## [1.41.0] — 2026-09-20
 
 ### Adicionado
@@ -6993,7 +7044,8 @@ Primeira versão marcada do DeskcommCRM. O projeto vinha sendo desenvolvido publ
 
 - **Node 22 é obrigatório para desenvolvimento.** A suíte de invariantes instancia o cliente do Supabase, que exige o `WebSocket` global — nativo apenas a partir do Node 22. Isso não afeta quem apenas hospeda: a VPS roda a imagem pronta.
 
-[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.41.0...HEAD
+[Não lançado]: https://github.com/marcioror/crm-salvadorbroker/compare/v1.41.0-sb.1...HEAD
+[1.41.0-sb.1]: https://github.com/marcioror/crm-salvadorbroker/compare/v1.41.0...v1.41.0-sb.1
 [1.41.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.40.0...v1.41.0
 [1.40.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.39.0...v1.40.0
 [1.39.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.38.0...v1.39.0

@@ -136,3 +136,34 @@ cinco de 21/09 (o upstream passou a fazer o mesmo sozinho):
   (`automacao-e-agenda-chamam-o-contato-pelo-nome-escolhido.test.ts`, em
   `tests/unit/`) afirma o contrário, espera o telefone, e precisou ser ajustado
   aqui com a divergência escrita dentro do caso.
+
+## A numeração desta casa
+
+A série X.Y.Z é do upstream e continua sendo dele. Cortar `1.41.1` aqui roubaria
+o número que ele publica na semana seguinte (foram 25 versões em duas semanas), e
+as duas conviveriam no mesmo `git tag` de quem sincroniza.
+
+As versões daqui saem como `<versão do upstream>-sb.<n>`: `1.41.0-sb.1` é a
+primeira desta casa sobre a 1.41.0 do upstream. O número continua CALCULADO
+(`proximaVersaoDaCasa`, em `lib/release/fragmento.ts`): a base vem da última
+seção do upstream no CHANGELOG, e o contador anda a cada corte nosso sobre a
+mesma base, voltando a 1 quando a base muda. O formato não é invenção: o
+CHANGELOG do próprio upstream já carrega `v1.1.1-jmpo.1`, de outro fork.
+
+Três lugares precisam conhecer o sufixo, e cada um reprova de um jeito diferente
+se ele sumir:
+
+- `scripts/cortar-release.ts` — sem `proximaVersaoDaCasa`, o corte volta a
+  produzir o número do upstream;
+- `tests/unit/changelog-cabe-na-tela-da-vps.test.ts` — sem o sufixo no `fatiar`,
+  a seção desta casa é lida como `[Não lançado]` e a guarda mede a seção de
+  baixo;
+- `tests/unit/release-chega-na-lp.test.ts` — a vitrine é do upstream e as nossas
+  versões nunca vão para lá; a guarda fica por causa do formato do cabeçalho,
+  que a tela da VPS lê.
+
+`git tag --sort=-v:refname` põe `v1.41.0-sb.1` acima de `v1.41.0`, que é o que
+faz `etiqueta_mais_alta_da_casa` escolher a nossa. Uma `v1.41.1` do upstream,
+porém, ficaria acima da nossa `-sb.1`: quando a próxima sincronização trouxer a
+tag dele, a função precisa preferir a série desta casa antes de cair no critério
+geral.

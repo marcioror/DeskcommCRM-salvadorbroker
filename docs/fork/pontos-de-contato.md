@@ -29,7 +29,7 @@ namespace errado. A fusão que causou já está a dez commits de distância.
 | `lib/navigation/catalogo.ts` | o import de `catalogo-local` e o spread `[...NAV_CATALOG_BASE, ...NAV_CATALOG_LOCAL]` | Imóveis some da navegação inteira, inclusive do ⌘K, e a tela continua respondendo por URL |
 | `components/kanban/LeadDossier.tsx` | import e `<LeadInterestedProperties leadId={lead.id} />` | o vínculo lead↔imóvel continua no banco e some da tela |
 | `lib/schemas/index.ts` | `export * from "./properties";` | o build da imagem quebra em `propertyCreateSchema doesn't exist` (o typecheck passa, quem reclama é o bundler) |
-| `scripts/test-db.sh` | o laço que aplica `supabase/local/*.sql` em `aplicar_baseline()` | os invariantes do módulo reprovam por tabela ausente |
+| `scripts/test-db.sh` | o `source` de `scripts/local-no-molde.sh` e a chamada de `aplicar_sql_local_no_molde` dentro de `aplicar_baseline()` | os invariantes do módulo reprovam por tabela ausente |
 | `.github/workflows/e2e.yml` | o passo `Aplicar o supabase/local` | o e2e do módulo reprova por tabela ausente |
 | `.github/workflows/e2e.yml` | `properties.spec.ts` na lista da parte 1 | a spec deixa de rodar; quem pega é o `e2e-cobertura-completa`, apontando para a lista e não para a fusão |
 | `hostgator-setup-kit/_common.sh` | `IMG_NS="ghcr.io/marcioror"` | a VPS passa a puxar a imagem do upstream: sobe igual, sem imóveis e sem proteção de contato, e o log não diz nada |
@@ -87,3 +87,52 @@ menu que só apareça com o módulo ligado; quando ela entrar, o destino de Imó
 passa a se registrar pelo mecanismo dele, o spread em `catalogo.ts` some, e esta
 tabela perde uma linha. Vale conferir o estado dela a cada sincronização grande,
 porque a direção certa é esta tabela encolher.
+
+## A dívida que ficou aberta, e por quê
+
+A proteção de contato vale na ROTA, não no banco. `protegerContato` nula
+telefone e e-mail antes de a API responder, mas o baseline dá `GRANT ALL ON
+TABLE public.contacts TO authenticated` e a única regra da tabela isola por
+organização. Postgres não filtra coluna por RLS, e a Data API do Supabase
+responde na internet: um atendente com as próprias credenciais alcança a tabela
+por fora do aplicativo.
+
+A barreira foi escrita e medida em 21/09/2026, com `revoke select` na tabela e
+`grant select` coluna a coluna derivado do catálogo. Ela funciona, e foi
+retirada por duas colisões que o CI mostrou:
+
+1. **dez funções do banco leem `contacts` sem `security definer`**, ou seja, com
+   o privilégio de quem chama. `fn_activity_report` devolve `contact_phone` e é
+   chamada pelo papel do usuário: com a coluna revogada, o relatório morre em
+   "permission denied";
+2. **os invariantes de isolamento do próprio upstream leem `contacts` e
+   `contact_field_proposals` como usuário** para provar o recorte por
+   organização. É o produto declarando que aquele papel lê aquelas tabelas.
+
+Fechar isso é conserto do produto, não divergência de fork: ou as funções viram
+`security definer` com recorte próprio, ou o dado sensível sai da tabela para
+um lugar com ACL própria. Carregar a barreira só aqui significaria brigar com
+cada função nova do upstream, para sempre.
+
+O sentinela é `tests/invariants/contato-protegido-no-banco.test.ts`: ele afirma
+o estado de hoje e fica vermelho no dia em que a porta fechar do outro lado.
+
+Com a barreira fora, **as sete rotas que tinham virado `createAdminClient()` por
+causa dela voltaram ao cliente da sessão** — cinco em 21/09 e as duas últimas
+(`app/api/v1/contacts/duplicates` e `app/api/v1/ai/followups/queue`) em 22/09.
+Sem barreira, o cliente privilegiado não protegia nada e era só mais um ponto de
+contato com o upstream. Quem guarda `contacts/duplicates` é o gate `manager` da
+própria rota, que continua sendo divergência desta casa.
+
+Duas customizações a mais foram **aposentadas** em 22/09, pelo mesmo motivo das
+cinco de 21/09 (o upstream passou a fazer o mesmo sozinho):
+
+- o `.eq("organization_id")` extra no select e no update de
+  `patchContactHandler` (achado I4). A v1.41.0 já filtra a organização nas duas
+  consultas, na linha imediatamente acima; a linha desta casa virou duplicata.
+  O comentário ficou no lugar dela, para o dia em que o filtro do upstream sair;
+- a ausência do `?? contact.phone_number` no título continua sendo **nossa**; o
+  que mudou é que o teste do upstream sobre o nome escolhido do contato
+  (`automacao-e-agenda-chamam-o-contato-pelo-nome-escolhido.test.ts`, em
+  `tests/unit/`) afirma o contrário, espera o telefone, e precisou ser ajustado
+  aqui com a divergência escrita dentro do caso.

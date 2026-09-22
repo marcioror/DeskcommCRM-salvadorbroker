@@ -396,40 +396,42 @@ test.describe("Contatos duplicados — juntar pela tela", () => {
     ).toBeNull();
   });
 
-  test("agent não funde: o pedido é recusado e o banco não muda", async ({ page }) => {
+  test("agent não funde: a porta nem aparece, e o banco não muda", async ({ page }) => {
+    // ⚠️ ESTE CASO DIVERGE DO UPSTREAM, e a divergência é o conserto de
+    // 2026-09-07: neste fork `GET /api/v1/contacts/duplicates` cobra `manager`,
+    // porque a resposta agrupa POR TELEFONE E POR E-MAIL — `grupo.chave` É o
+    // dado — e a proteção de contato esconde os dois do corretor que não
+    // cadastrou o lead. O botão "Duplicados" some junto, pelo padrão da casa
+    // (`app/app/contacts/page.tsx`): mostrar controle que o servidor recusaria
+    // é prometer o que não se cumpre.
+    //
+    // A ESTRUTURA DO CASO ORIGINAL FICA. Ele media DUAS saídas aceitáveis — "o
+    // controle não é oferecido" ou "é oferecido e recusa com 403" — e anotava
+    // qual, porque um `if` que nunca entra deixa o teste verde por AUSÊNCIA. É
+    // a mesma armadilha aqui: `toHaveCount(0)` passa tanto quando o botão foi
+    // corretamente escondido quanto quando o seletor está errado, quando a
+    // página não carregou, ou quando o login falhou. Por isso o caso primeiro
+    // PROVA QUE ESTÁ NA TELA CERTA (um controle que todo papel vê) e só então
+    // afirma a ausência do outro.
     await login(page, creds.users.agent!.email, creds.password);
     await page.goto("/app/contacts");
-    await page.getByRole("button", { name: /duplicados/i }).click();
-    const dialogo = page.getByRole("dialog");
-    await expect(dialogo.getByText(NOME_PRINCIPAL, { exact: false })).toBeVisible({
+
+    // Controle positivo: se isto falhar, a ausência abaixo não significa nada.
+    await expect(page.getByRole("button", { name: /novo contato/i }).first()).toBeVisible({
       timeout: 20_000,
     });
 
-    const grupo = grupoDoRun(page, dialogo);
-    const juntar = grupo.getByRole("button", { name: /^juntar$/i });
+    const botaoDuplicados = page.getByRole("button", { name: /duplicados/i });
+    await expect(
+      botaoDuplicados,
+      'o agent não é gerente: o botão "Duplicados" não é oferecido a ele',
+    ).toHaveCount(0);
+    await captura(page, "04-agent-sem-a-porta");
 
-    // Duas saídas aceitáveis, e o spec mede QUAL delas: ou o controle não é
-    // oferecido a quem não pode, ou ele é oferecido e recusa com um 403 legível.
-    //
-    // Anotar o caminho não é enfeite: um `if` que nunca entra deixa o teste
-    // verde por AUSÊNCIA, e um seletor errado produz exatamente essa ausência —
-    // foi o que aconteceu na primeira rodada deste arquivo.
-    const oferecido = await juntar.count();
-    // eslint-disable-next-line no-console
-    console.log(`[quem-nao-pode] botão "Juntar" oferecido ao agent: ${oferecido}`);
-    if (oferecido > 0) {
-      const resposta = page.waitForResponse(
-        (r) => r.url().includes("/api/v1/contacts/merge") && r.request().method() === "POST",
-      );
-      await juntar.click();
-      const confirmacao = page.getByRole("alertdialog");
-      if (await confirmacao.isVisible().catch(() => false)) {
-        await confirmacao.getByRole("button", { name: /juntar|confirmar/i }).click();
-      }
-      const r = await resposta;
-      expect(r.status(), "agent não é gerente — a fusão tem de ser recusada").toBe(403);
-      await captura(page, "04-agent-recusado");
-    }
+    // E a rota recusa por conta própria — a tela escondida é conveniência, não
+    // a proteção. Sem esta asserção o caso mediria só o CSS de um botão.
+    const r = await page.request.get("/api/v1/contacts/duplicates");
+    expect(r.status(), "a listagem de duplicados é manager+ no servidor").toBe(403);
 
     const { data } = await admin
       .from("contacts")
@@ -544,12 +546,43 @@ test.describe("Contatos duplicados — juntar pela tela", () => {
     await page.waitForLoadState("networkidle");
     const busca = page.getByPlaceholder(/buscar|pesquisar|search/i).first();
     await busca.fill(`Duplicado`);
-    await page.waitForTimeout(1200);
+
+    // ⚠️ ESPERA PELA CONDIÇÃO, NÃO PELO RELÓGIO.
+    //
+    // Aqui havia `await page.waitForTimeout(1200)`, e 1,2 s tinha de cobrir a
+    // soma de três coisas: o debounce de 250 ms da busca, a ida ao servidor e a
+    // renderização da lista. Quando não cobria, `body.innerText()` era lido com
+    // a lista ainda vazia — e a asserção falhava com a mensagem "quem ficou
+    // continua na lista" mostrando SÓ o texto do menu lateral, que se lê como
+    // "a fusão apagou o contato errado". O defeito estava no instrumento.
+    //
+    // Medido em 2026-09-07, na sincronização com a v1.16.1: 3 reprovações em 5
+    // execuções, em branches SEM RELAÇÃO entre si (uma delas só mexia em YAML de
+    // workflow, outra era do Dependabot). Espera fixa não falha quando o produto
+    // quebra; falha quando o runner está lento — e o vermelho aponta para o
+    // lugar errado.
+    //
+    // O gatilho de agora foi uma mudança legítima deste fork: a tela de contatos
+    // virou componente de SERVIDOR (resolve o papel para esconder o botão
+    // "Duplicados" de quem não é gerente, como `app/app/kanban/page.tsx` já
+    // fazia). Isso acrescentou uma consulta de auth ao carregamento e comeu a
+    // folga. A conta não fecha para nenhum número fixo: quem escolher 2.000 ms
+    // hoje paga de novo na próxima coisa que custar 100 ms.
+    //
+    // `expect.poll` no ABSORVIDO, e não `toBeVisible` no principal, porque
+    // esperar o vencedor aparecer pode ser satisfeito pela lista VELHA — ela já
+    // continha os dois antes da busca. O que só é verdade depois de a lista
+    // certa chegar é o perdedor ter SUMIDO. Confirmado isso, a presença do
+    // vencedor volta a ser asserção de verdade, e não espera disfarçada.
+    await expect
+      .poll(async () => (await page.locator("body").innerText()).toLowerCase(), {
+        timeout: 20_000,
+        message: "o absorvido sai da lista de contatos",
+      })
+      .not.toContain(NOME_ABSORVIDO.toLowerCase());
+
     const corpo = (await page.locator("body").innerText()).toLowerCase();
     expect(corpo, "quem ficou continua na lista").toContain(NOME_PRINCIPAL.toLowerCase());
-    expect(corpo, "o absorvido sai da lista de contatos").not.toContain(
-      NOME_ABSORVIDO.toLowerCase(),
-    );
     await captura(page, "05-lista-depois-da-fusao");
 
     // ── E o grupo de duplicados esvazia: o trabalho ficou feito ────────────

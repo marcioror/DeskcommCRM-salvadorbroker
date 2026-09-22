@@ -69,6 +69,9 @@ const BASE = {
   updated_at: "2026-01-01T10:00:00.000Z",
   last_activity_at: null,
   first_service_at: null,
+  // desta casa: os dois campos que a proteção de contato acrescentou ao tipo
+  created_by_user_id: null,
+  contact_protected: false,
 } satisfies Contact;
 
 let contato: Contact = BASE;

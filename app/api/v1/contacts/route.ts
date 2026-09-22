@@ -103,7 +103,15 @@ async function resolveContactsAuth(req: NextRequest, requestId: string): Promise
   return {
     ok: true,
     organizationId: authz.org.orgId,
-    actor: { type: "user", id: authz.user.id },
+    // ⚠️ O `role` é desta casa: é ele que `podeVerContatoSensivel` lê para decidir
+    // se o telefone e o e-mail saem crus. O upstream reorganizou a autenticação
+    // desta rota em `resolveContactsAuth` (dois modos: cookie e Bearer `dsk_`), e
+    // o ator de USUÁRIO passou a nascer aqui — antes era montado no corpo do GET.
+    //
+    // ⚠️ O RAMO BEARER NÃO PASSA POR AQUI, e isso é deliberado: um token de
+    // integração é `api_token`/`ai_agent`, e `podeVerContatoSensivel` abre para
+    // ator que não é pessoa. A regra protege o COLEGA, não o sistema.
+    actor: { type: "user", id: authz.user.id, role: authz.org.role },
     supabase: await createClient(),
     idioma: authz.user.idioma,
   };
@@ -189,7 +197,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       supabase,
       {
         organization_id: activeOrg.orgId,
-        actor: { type: "user", id: user.id },
+        actor: { type: "user", id: user.id, role: activeOrg.role },
         requestId,
         idioma: user.idioma,
       },

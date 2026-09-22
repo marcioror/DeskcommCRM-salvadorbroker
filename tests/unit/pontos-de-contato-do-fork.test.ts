@@ -135,6 +135,83 @@ const CONTATOS: Contato[] = [
     seSumir:
       "reponha as três entradas com a condição do fork. Elas NÃO vão para o upstream num PR: lá desligariam a cadeia que atualiza o parque instalado inteiro.",
   },
+  {
+    arquivo: "app/api/v1/contacts/_handler.ts",
+    marca: "protegerContato",
+    oQueE: "a proteção aplicada em list/get/create/patch de contato",
+    seSumir:
+      "reponha as chamadas de `protegerContato` e o 403 `contact_protected` no patch. Sem elas o telefone volta a sair cru na API de contatos.",
+  },
+  {
+    arquivo: "app/api/v1/conversations/_handler.ts",
+    marca: "protegerConversaComContato",
+    oQueE: "a proteção no contato embutido da conversa",
+    seSumir:
+      "reponha `protegerConversaComContato` em list/get/patch e o `created_by_user_id` no embed.",
+  },
+  {
+    arquivo: "app/api/v1/messages/_handler.ts",
+    marca: "comExternalIdNormalizado",
+    oQueE: "o external_id que não carrega telefone",
+    seSumir:
+      "reponha `comExternalIdNormalizado` no retorno de `listMessagesHandler`: o id cru do WAHA embute o número.",
+  },
+  {
+    arquivo: "lib/escalacao/chamados.ts",
+    marca: "podeVerContatoSensivel",
+    oQueE: "a proteção na fila de casos, que lê com service role",
+    seSumir:
+      "reponha o `actor` no opts e a marcação `contact_protected`. Esta leitura ignora RLS, então sem o ator o telefone sai para qualquer atendente.",
+  },
+  {
+    arquivo: "lib/reports/atividades.ts",
+    marca: "podeVerContatoSensivel",
+    oQueE: "a proteção no relatório de atividades",
+    seSumir:
+      "reponha o campo obrigatório em `ContextoDoRelatorio`. Ele é obrigatório de propósito: chamador novo vira erro de compilação em vez de vazamento silencioso.",
+  },
+  {
+    arquivo: "lib/leads/nascimento-do-lead.ts",
+    marca: "nomeDoContato(contato)",
+    oQueE: "o título do lead que não grava telefone",
+    seSumir:
+      "reponha `nomeDoContato` no lugar de `rotuloDoContato`. O título é texto plano devolvido a qualquer viewer: telefone gravado ali não tem como ser mascarado depois.",
+  },
+  {
+    arquivo: "lib/automation/actions/create-or-move-lead.ts",
+    marca: "SEM FALLBACK PARA O TELEFONE",
+    oQueE: "o título do lead da automação sem telefone",
+    seSumir:
+      "apague o `?? contact.phone_number` do `title`. Mesmo motivo do anterior.",
+  },
+  {
+    arquivo: "components/contacts/ContactsTable.tsx",
+    marca: "ContatoProtegido",
+    oQueE: "o cadeado no lugar do telefone e do e-mail na lista",
+    seSumir:
+      "reponha o `<ContatoProtegido>` nas duas células. A API já protege; sem isto a tela mostra vazio sem dizer por quê.",
+  },
+  {
+    arquivo: "app/api/v1/contacts/route.ts",
+    marca: "role: authz.org.role",
+    oQueE: "o papel no ator, que é o que a regra lê",
+    seSumir:
+      "reponha o `role` no ator do ramo de cookie de `resolveContactsAuth`. Sem papel, `podeVerContatoSensivel` trata todo mundo como corretor comum.",
+  },
+  {
+    arquivo: "lib/agent-engine/edge/crm/drain.ts",
+    marca: "debounceTetoMs",
+    oQueE: "a janela deslizante com teto na coalescência da rajada",
+    seSumir:
+      "reponha o `update … greatest/least` com a condição `not (payload ? 'held_run_after')` do upstream. Os dois consertos vivem na mesma query e nenhum substitui o outro.",
+  },
+  {
+    arquivo: "package.json",
+    marca: "etiqueta-da-casa",
+    oQueE: "os testes de shell desta casa na cadeia do `test:shell`",
+    seSumir:
+      "reponha `&& bash tests/shell/etiqueta-da-casa.test.sh && bash hostgator-setup-kit/test-validators.sh` no fim da cadeia.",
+  },
 ];
 
 describe("pontos de contato do fork com o upstream", () => {

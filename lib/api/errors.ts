@@ -34,9 +34,12 @@ export const ApiErrorCodes = {
   forbidden_role: "forbidden_role",
   forbidden_tenant: "forbidden_tenant",
   lgpd_anonymization_irreversible: "lgpd_anonymization_irreversible",
+  contact_protected: "contact_protected", // ator não cadastrou este contato — telefone/email protegidos (não editáveis por ele)
 
   // 404
   not_found: "not_found",
+  property_not_found: "property_not_found",
+  lead_not_found: "lead_not_found",
 
   // ⚠️ AGENDA — declarados AQUI, e não no `fail()`, porque `fail()` NÃO protege.
   //
@@ -81,6 +84,7 @@ export const ApiErrorCodes = {
   no_actions_to_resend: "no_actions_to_resend", // resend de regra que não tem mais nenhuma ação de webhook — reenviar nada não é sucesso
   next_action_absent: "next_action_absent", // decisão sobre proposta que não existe (mais) [wave 4]
   next_action_changed: "next_action_changed", // o agente reescreveu a proposta entre o render e o clique
+  duplicate_lead_link: "duplicate_lead_link", // lead já vinculado a esse imóvel
   channel_archived: "channel_archived", // ação sobre canal que o usuário excluiu (a linha só sobrevive como âncora das FKs)
   knowledge_source_type_in_use: "knowledge_source_type_in_use", // fonte ATIVA do mesmo tipo no agente — era o índice ai_knowledge_sources_unique_per_agent, que a 0181 derrubou; nenhuma rota emite mais este código
   voice_already_paired: "voice_already_paired", // POST /voice/sessions/pair com aparelho já vinculado — a saída é DELETE /voice/sessions, nunca re-parear por cima (ver a rota)

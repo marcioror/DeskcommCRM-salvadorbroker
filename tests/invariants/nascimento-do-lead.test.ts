@@ -217,10 +217,17 @@ describe("o lead NASCE", () => {
     expect(rows[0]!.title).toBe("Conhecido Andrade");
   });
 
-  it("rótulo TÉCNICO no cadastro não vaza para o título do card", async () => {
+  it("rótulo TÉCNICO no cadastro não vaza para o título do card, nem o telefone (achado I2)", async () => {
     // Ler o cadastro abriu esta porta: 3 contatos da produção têm
     // `Contato 543134@lid` gravado. Sem a guarda, o kanban — que hoje está
     // limpo — receberia o resíduo no primeiro card.
+    //
+    // Este caso também é o achado I2 da revisão final: `title` é coluna de
+    // texto plano que `app/api/v1/leads/route.ts` devolve a QUALQUER viewer, e
+    // a proteção per-viewer do contato não alcança uma cópia solta ali. Antes
+    // do fix este teste esperava o TELEFONE no título ("cai no telefone, que é
+    // informação útil"); agora isso seria o próprio vazamento — o card cai no
+    // rótulo neutro, igual a um contato sem telefone nenhum.
     const contato = await criarContato(ORG_VIVA, "Contato 543134@lid");
     await pool.query("update contacts set phone_number = '+5531955554444' where id = $1", [contato]);
     const r = await garantirLeadDaConversa(db, {
@@ -235,8 +242,10 @@ describe("o lead NASCE", () => {
       r.leadId,
     ]);
     expect(rows[0]!.title).not.toMatch(/@lid|@c\.us/);
-    // Cai no telefone, que é informação útil — melhor que "Sem nome".
-    expect(rows[0]!.title).toBe("+5531955554444");
+    // Nunca o telefone: um número copiado para esta coluna não pode ser
+    // mascarado por espectador nunca mais.
+    expect(rows[0]!.title).not.toBe("+5531955554444");
+    expect(rows[0]!.title).toBe("Novo contato pelo WhatsApp");
   });
 
   it("sem nome do contato, o título ainda é legível — nunca identificador técnico", async () => {

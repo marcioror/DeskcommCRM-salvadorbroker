@@ -26,6 +26,7 @@ import { rotuloDoContato } from "@/lib/contacts/rotulo-do-contato";
 import { origemDoContato } from "@/lib/leads/origem-do-contato";
 import { phoneForDisplay } from "@/lib/channels/phone-variants";
 import { DialButton } from "@/components/voice/DialButton";
+import { ContatoProtegido } from "@/components/contacts/ContatoProtegido";
 
 interface Props {
   contactId: string;
@@ -115,9 +116,15 @@ export function ContactDetailClient({ contactId }: Props) {
               de nunca esconder informação crítica. Deixa quebrar linha. */}
           <h1 className="break-words text-2xl font-semibold tracking-tight">{displayName}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            {contact.email && <span>{contact.email}</span>}
-            {contact.email && contact.phone_number && <span>•</span>}
-            {contact.phone_number && <span>{phoneForDisplay(contact.phone_number)}</span>}
+            {contact.contact_protected ? (
+              <ContatoProtegido valor={null} protegido />
+            ) : (
+              <>
+                {contact.email && <span>{contact.email}</span>}
+                {contact.email && contact.phone_number && <span>•</span>}
+                {contact.phone_number && <span>{phoneForDisplay(contact.phone_number)}</span>}
+              </>
+            )}
           </div>
           <div className="mt-2 flex flex-wrap gap-1">
             {contact.tags.map((t) => (
@@ -172,12 +179,20 @@ export function ContactDetailClient({ contactId }: Props) {
               </div>
               <div>
                 <dt className="text-xs uppercase text-muted-foreground">Email</dt>
-                <dd className="mt-1">{contact.email ?? "—"}</dd>
+                <dd className="mt-1">
+                  <ContatoProtegido valor={contact.email} protegido={contact.contact_protected} />
+                </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase text-muted-foreground">{t("Telefone")}</dt>
                 <dd className="mt-1">
-                  {contact.phone_number ? phoneForDisplay(contact.phone_number) : "—"}
+                  {/* A formatação do upstream entra no VALOR, não em volta do
+                      componente: contato protegido não mostra dígito nenhum, e
+                      formatar antes mantém as duas regras em um lugar só. */}
+                  <ContatoProtegido
+                    valor={contact.phone_number ? phoneForDisplay(contact.phone_number) : null}
+                    protegido={contact.contact_protected}
+                  />
                 </dd>
               </div>
               {/*

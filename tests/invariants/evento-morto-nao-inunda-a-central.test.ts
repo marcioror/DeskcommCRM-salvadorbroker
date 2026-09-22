@@ -136,7 +136,9 @@ const mortos = (org: string) =>
     [org],
   );
 
-const KNOBS = { batchSize: MIL, intervalMs: 0, idleIntervalMs: 0, debounceMs: 0, reapTimeoutMs: 300_000 };
+// `debounceTetoMs` é campo obrigatório de `DrainKnobs` desde a janela deslizante
+// desta casa: com `debounceMs: 0` ele não muda comportamento nenhum aqui.
+const KNOBS = { batchSize: MIL, intervalMs: 0, idleIntervalMs: 0, debounceMs: 0, debounceTetoMs: 60_000, reapTimeoutMs: 300_000 };
 
 let a: Cenario;
 let b: Cenario;

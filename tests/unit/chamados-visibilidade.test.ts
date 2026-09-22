@@ -44,8 +44,17 @@ import {
   lerChamado,
   listarChamados,
 } from "@/lib/escalacao/chamados";
+import type { Actor } from "@/lib/api/handlers/types";
 
 const ORG = "aaaaaaaa-0000-4000-8000-00000000000a";
+/**
+ * Gerente de propósito, e isso não afrouxa nada aqui: `actor` é o eixo da
+ * PROTEÇÃO DE CONTATO desta casa (quem cadastrou o lead vê o telefone), que é
+ * medida em `tests/unit/chamados-protecao-contato.test.ts`. O que este arquivo
+ * mede é o recorte por CONVERSA, do upstream. Fixar um eixo isola o outro; se
+ * os dois variassem juntos, um verde aqui não diria qual dos dois recortou.
+ */
+const ATOR: Actor = { type: "user", id: "99999999-0000-4000-8000-000000000099", role: "manager" };
 const CONV_MINHA = "bbbbbbbb-0000-4000-8000-00000000000b";
 const CONV_ALHEIA = "cccccccc-0000-4000-8000-00000000000c";
 const CASO_MEU = "dddddddd-0000-4000-8000-00000000000d";
@@ -154,6 +163,7 @@ describe("listarChamados recorta pela conversa", () => {
     const { chamados } = await listarChamados(cliente, ORG, {
       estado: "abertos",
       visiveisPara: [CONV_MINHA],
+      actor: ATOR,
     });
 
     expect(
@@ -168,6 +178,7 @@ describe("listarChamados recorta pela conversa", () => {
     const { abertos } = await listarChamados(cliente, ORG, {
       estado: "abertos",
       visiveisPara: [CONV_MINHA],
+      actor: ATOR,
     });
 
     // O contador é o crachá da navegação: dizer "2 em aberto" e mostrar um só
@@ -181,6 +192,7 @@ describe("listarChamados recorta pela conversa", () => {
     const { chamados, abertos } = await listarChamados(cliente, ORG, {
       estado: "abertos",
       visiveisPara: "todas",
+      actor: ATOR,
     });
 
     // Par de vacuidade: sem ele, um recorte que zerasse TUDO passaria pelos
@@ -195,6 +207,7 @@ describe("listarChamados recorta pela conversa", () => {
     const { chamados, abertos } = await listarChamados(cliente, ORG, {
       estado: "abertos",
       visiveisPara: [],
+      actor: ATOR,
     });
 
     expect(chamados).toEqual([]);
@@ -220,7 +233,7 @@ describe("lerChamado recorta pela conversa", () => {
   it("o caso da conversa visível abre", async () => {
     const { cliente } = bancoDeUmAtendenteRestrito();
 
-    const chamado = await lerChamado(cliente, ORG, CASO_MEU, { visiveisPara: [CONV_MINHA] });
+    const chamado = await lerChamado(cliente, ORG, CASO_MEU, { visiveisPara: [CONV_MINHA], actor: ATOR });
 
     expect(chamado?.id).toBe(CASO_MEU);
     expect(chamado?.contact_name).toBe("Joana");
@@ -229,9 +242,10 @@ describe("lerChamado recorta pela conversa", () => {
   it("o caso que EXISTE mas cuja conversa a RLS esconde volta nulo — o mesmo nulo de um caso inexistente", async () => {
     const { cliente } = bancoDeUmAtendenteRestrito();
 
-    const escondido = await lerChamado(cliente, ORG, CASO_ALHEIO, { visiveisPara: [CONV_MINHA] });
+    const escondido = await lerChamado(cliente, ORG, CASO_ALHEIO, { visiveisPara: [CONV_MINHA], actor: ATOR });
     const inexistente = await lerChamado(cliente, ORG, "ffffffff-0000-4000-8000-00000000000f", {
       visiveisPara: [CONV_MINHA],
+      actor: ATOR,
     });
 
     // Os dois pelo MESMO caminho: é o que faz a rota devolver 404 nos dois
@@ -243,7 +257,7 @@ describe("lerChamado recorta pela conversa", () => {
   it('com "todas" o caso alheio abre — o agente de IA não perde alcance', async () => {
     const { cliente } = bancoDeUmAtendenteRestrito();
 
-    const chamado = await lerChamado(cliente, ORG, CASO_ALHEIO, { visiveisPara: "todas" });
+    const chamado = await lerChamado(cliente, ORG, CASO_ALHEIO, { visiveisPara: "todas", actor: ATOR });
 
     expect(chamado?.id).toBe(CASO_ALHEIO);
   });

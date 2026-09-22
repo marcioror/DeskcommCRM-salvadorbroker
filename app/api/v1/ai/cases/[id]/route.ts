@@ -32,7 +32,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<R
   const authz = await requireRole("agent", { requestId, resource: "agent_cases" });
   if (!authz.ok) return authz.response;
   const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { org } = authz;
+  const { org, user } = authz;
   const { id } = await params;
 
   let chamado;
@@ -44,7 +44,13 @@ export async function GET(_req: NextRequest, { params }: RouteParams): Promise<R
     const visiveisPara = await conversasVisiveisDosCasos(await createClient(), org.orgId, {
       caseId: id,
     });
-    chamado = await lerChamado(createAdminClient(), org.orgId, id, { visiveisPara });
+    // ⚠️ O ATOR é desta casa (achado C2), pelo mesmo motivo do GET de lista: a
+    // leitura é privilegiada, e sem ele `lerChamado` não teria como proteger o
+    // telefone do lead de quem não cadastrou o contato.
+    chamado = await lerChamado(createAdminClient(), org.orgId, id, {
+      visiveisPara,
+      actor: { type: "user", id: user.id, role: org.role },
+    });
   } catch (erro) {
     // Mesma correção da lista (ver o `catch` de `app/api/v1/ai/cases/route.ts`):
     // um 500 sem causa registrada deixa a tela vazia e o log mudo, e quem

@@ -13,6 +13,7 @@ import { type NextRequest } from "next/server";
 
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
+import { filtrarPropostasVisiveis } from "@/lib/contacts/visibility";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -52,5 +53,20 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
 
   if (error) return fail("internal_error", error.message, 500, { requestId });
 
-  return ok({ items: (data ?? []) as PropostaViva[] }, { requestId });
+  // Quem cadastrou o contato decide se as propostas de telefone/e-mail podem
+  // ser vistas — a fila da IA não pode ser a porta dos fundos da proteção.
+  const { data: dono } = await supabase
+    .from("contacts")
+    .select("created_by_user_id")
+    .eq("id", contactId)
+    .eq("organization_id", guard.org.orgId)
+    .maybeSingle();
+
+  const items = filtrarPropostasVisiveis(
+    (data ?? []) as PropostaViva[],
+    { type: "user", id: guard.user.id, role: guard.org.role },
+    (dono as { created_by_user_id: string | null } | null)?.created_by_user_id ?? null,
+  );
+
+  return ok({ items }, { requestId });
 }

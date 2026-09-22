@@ -61,6 +61,9 @@ const CONTATO = {
   // agendamento, com a regra "Clientes pela agenda" ligada (migration 0262), e
   // este caso é o do cadastro manual.
   first_service_at: null,
+  // desta casa: os dois campos que a proteção de contato acrescentou ao tipo
+  created_by_user_id: null,
+  contact_protected: false,
 } satisfies Contact;
 
 /** O corpo que a rota devolve, tipado pelo retorno dela. */

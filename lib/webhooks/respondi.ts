@@ -271,7 +271,11 @@ export function mapRespondiPayload(payload: RespondiPayload): RespondiMapped {
 /** Título do card: empresa + contato — nunca um rótulo genérico fixo. */
 export function respondiLeadTitle(mapped: RespondiMapped): string {
   if (mapped.companyName && mapped.name) return `${mapped.companyName} — ${mapped.name}`;
-  return mapped.companyName ?? mapped.name ?? mapped.phone ?? mapped.email ?? "Lead sem nome";
+  // Sem fallback pro telefone/e-mail (achado I2): `crm_leads.title` é texto
+  // plano que `GET /api/v1/leads` devolve a QUALQUER viewer, inclusive corretor
+  // que não cadastrou o contato — uma vez gravado ali, não há como mascarar por
+  // espectador. Divergência consciente do upstream; ver proteção de contato.
+  return mapped.companyName ?? mapped.name ?? "Lead sem nome";
 }
 
 /**

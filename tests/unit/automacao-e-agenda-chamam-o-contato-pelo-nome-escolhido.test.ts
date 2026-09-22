@@ -67,12 +67,19 @@ describe("a automação titula o negócio pelo nome escolhido", () => {
     );
   });
 
-  it("identificador técnico não vira título: cai no telefone", async () => {
-    // O fallback de quem GRAVA o título é o telefone — melhor que um código
-    // interno do WhatsApp e melhor que o genérico "Lead da automação".
+  it("identificador técnico não vira título: cai no fallback neutro", async () => {
+    // ⚠️ DIVERGÊNCIA DESTA CASA, e é deliberada. O upstream escreveu este caso
+    // esperando o TELEFONE aqui ("melhor que um código interno do WhatsApp"), e
+    // para exibição ele tem razão. Só que `crm_leads.title` é coluna de texto
+    // plano que `app/api/v1/leads/route.ts` devolve a QUALQUER viewer, inclusive
+    // a quem a proteção de contato esconde o número (achado I2 da revisão
+    // final): telefone gravado ali já vazou, e nenhuma máscara per-viewer o
+    // alcança depois. Por isso `create_or_move_lead` usa `nomeDoContato` e cai
+    // no genérico — está registrado em `docs/fork/pontos-de-contato.md` e em
+    // `tests/unit/pontos-de-contato-do-fork.test.ts`.
     expect(
       await tituloCriadoPara({ name: null, display_name: "Contato 543134@lid", phone_number: "+5531988887777" }),
-    ).toBe("+5531988887777");
+    ).toBe("Lead da automação");
   });
 });
 

@@ -47,6 +47,12 @@ export interface DrainKnobs {
   idleIntervalMs: number;
   /** Janela de coalescência de rajada inbound por contato (0 = sem debounce). */
   debounceMs: number;
+  /**
+   * Teto da espera desde a PRIMEIRA mensagem da rajada. A janela desliza a
+   * cada mensagem nova; sem teto, um contato que não para de escrever adia a
+   * resposta indefinidamente — o debounce viraria silêncio.
+   */
+  debounceTetoMs: number;
   /** Evento 'processing' órfão volta a 'pending' após isto. */
   reapTimeoutMs: number;
   /**
@@ -439,17 +445,48 @@ async function processEvent(
   // rodava. Medido em produção (2026-09-14): 6 mensagens ao longo de 7h,
   // zero resposta, zero job novo — só o coalescing silencioso repetido no
   // mesmo job com `held_run_after` no payload.
+  
+  // ⚠️ OS DOIS CONSERTOS VIVEM NA MESMA QUERY, e nenhum é caso particular do
+  // outro. O `not (payload ? 'held_run_after')` é do upstream e impede coalescer
+  // num job em HOLD (`run_after = 'infinity'`, que É maior que `now()`); a janela
+  // deslizante com teto (`greatest`/`least`) é desta casa (issue #196). Sem a
+  // condição, o UPDATE desta casa é PIOR que o select original: ele passa a
+  // ESCREVER num job morto em vez de só lê-lo.
+  // O UPDATE não é só "achar": ele ESTENDE a janela. Debounce é espera de
+  // SILÊNCIO depois da última mensagem, e antes disto `run_after` era fixado na
+  // criação e nunca mexido — quem escrevesse em bolhas mais espaçadas que a
+  // janela não achava job para pegar carona, criava outro, e o agente respondia
+  // balão por balão. Reportado por @Gervanno (issue #196) medindo em produção:
+  // 3 bolhas em ~30s viraram 3 respostas em menos de 2 minutos. Responder em
+  // rajada é gatilho de banimento — exatamente o que este knob existe para
+  // evitar.
+  //
+  // Achar e estender no MESMO statement fecha de graça a corrida entre duas
+  // mensagens quase simultâneas, que o SELECT-depois-UPDATE deixaria aberta.
+  //
+  // `least(...)` aplica o teto contado desde `created_at` (a primeira mensagem
+  // da rajada) e `greatest(run_after, ...)` garante que estender nunca vire
+  // ANTECIPAR: se um backoff já empurrou o job para mais longe, ele fica onde
+  // está. Sem isso, uma mensagem nova puxaria para +8s um job reagendado para
+  // +5min, atropelando a decisão de quem o adiou.
   if (knobs.debounceMs > 0) {
     const { rows: pendingRows } = await pool.query<{ id: string }>(
-      `select id from job_queue
-       where organization_id = $1 and contact_id = $2
-         and kind = 'inbound_turn' and status = 'pending' and run_after > now()
-         and not (payload ? 'held_run_after')
-       limit 1`,
-      [event.organization_id, p.contact_id],
+      `update job_queue
+          set run_after = greatest(
+                run_after,
+                least(
+                  now()       + ($3::bigint * interval '1 millisecond'),
+                  created_at  + ($4::bigint * interval '1 millisecond')
+                )
+              )
+        where organization_id = $1 and contact_id = $2
+          and kind = 'inbound_turn' and status = 'pending' and run_after > now()
+          and not (payload ? 'held_run_after')
+        returning id`,
+      [event.organization_id, p.contact_id, knobs.debounceMs, knobs.debounceTetoMs],
     );
     if (pendingRows[0]) {
-      log.info('drain: rajada coalescida em job pendente', {
+      log.info('drain: rajada coalescida em job pendente (janela estendida)', {
         event_id: event.id,
         job_id: pendingRows[0].id,
       });

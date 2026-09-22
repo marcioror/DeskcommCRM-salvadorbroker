@@ -55,6 +55,12 @@ export type CaseHumanAction = "resolved" | "need_lead_info" | "escalate";
  */
 export interface CaseListItem extends ChamadoDaLista {
   status: CaseStatus;
+
+  opened_at: string;
+  conversation_id: string;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_protected: boolean;
 }
 
 export interface CaseListData {
@@ -84,6 +90,7 @@ export interface CaseDetailData {
   conversation_id: string;
   contact_name: string | null;
   contact_phone: string | null;
+  contact_protected: boolean;
   events: CaseEvent[];
 }
 

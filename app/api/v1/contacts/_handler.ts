@@ -19,6 +19,7 @@ import { roleAtLeast } from "@/lib/auth/types";
 import { canonicalPhoneBR, phoneLookupVariants } from "@/lib/channels/phone-variants";
 import { encontrarContatoPorTelefone } from "@/lib/channels/contato-por-telefone";
 import { hashCpf, encryptCpfSql } from "@/lib/contacts/cpf";
+import { podeVerContatoSensivel, protegerContato } from "@/lib/contacts/visibility";
 import type { Contact } from "@/lib/types/contacts";
 import { ensureConversation, sessaoProntaParaEnvio } from "@/lib/automation/start-conversation";
 import type {
@@ -32,7 +33,7 @@ import { contactListQuerySchema } from "@/lib/schemas";
 type SB = SupabaseClient;
 
 const SELECT_COLS =
-  "id, organization_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, custom_fields, created_at, updated_at, last_activity_at, first_service_at";
+  "id, organization_id, created_by_user_id, name, display_name, email, email_normalized, phone_number, cpf_hash, birthdate, is_blocked, blocked_reason, is_anonymized, anonymized_at, is_merged_into, merged_at, consent, tags, source, source_metadata, custom_fields, created_at, updated_at, last_activity_at, first_service_at";
 
 interface CursorPayload {
   sort: string | null;
@@ -149,23 +150,40 @@ export async function listContactsHandler(
       // zero resultados para um contato que EXISTE, e desistiu — a demanda
       // morreria por uma coluna faltando no OR.
       `display_name.ilike.%${s}%`,
-      `email.ilike.%${s}%`,
-      `phone_number.ilike.%${s}%`,
     ];
-    if (digits.length >= 8) {
-      // 10/11 dígitos sem DDI: no Brasil é DDD+local. Sem o 55, `3284793302`
-      // não gera a variante com o 9 e o cadastro `+5532984793302` some da busca.
-      const base =
-        !digits.startsWith("55") && (digits.length === 10 || digits.length === 11)
-          ? `55${digits}`
-          : digits;
-      for (const v of phoneLookupVariants(base)) {
-        const d = v.replace(/\D/g, "");
-        if (d && d !== digits) orParts.push(`phone_number.ilike.%${d}%`);
+    // C4 (revisão final): busca por telefone/e-mail/cpf é ORÁCULO DE CONFIRMAÇÃO
+    // pra quem não pode ver esses dados — um corretor sem acesso ao telefone de
+    // um lead que não cadastrou consegue colar o número aqui e ver se "bate"
+    // (ou caçar dígito a dígito), o que devolve o dado protegido por um caminho
+    // lateral que `protegerContato` não cobre (a busca em si, não a resposta).
+    // manager/admin e atores não-humanos (bot, webhook) continuam buscando por
+    // tudo — só quem `podeVerContatoSensivel` recusaria por padrão perde essas
+    // colunas do OR.
+    //
+    // ⚠️ AS VARIANTES DE TELEFONE DO UPSTREAM ENTRAM AQUI DENTRO, e não ao lado.
+    // Elas ampliam a busca por telefone (nono dígito, DDI faltando) — deixá-las
+    // fora do portão devolveria o oráculo pela porta de trás, e num formato mais
+    // generoso que o original: quem não pode ver o número passaria a confirmá-lo
+    // até digitando-o na forma errada.
+    const podeBuscarPorDadoSensivel =
+      ctx.actor.type !== "user" || roleAtLeast(ctx.actor.role, "manager");
+    if (podeBuscarPorDadoSensivel) {
+      orParts.push(`email.ilike.%${s}%`, `phone_number.ilike.%${s}%`);
+      if (digits.length >= 8) {
+        // 10/11 dígitos sem DDI: no Brasil é DDD+local. Sem o 55, `3284793302`
+        // não gera a variante com o 9 e o cadastro `+5532984793302` some da busca.
+        const base =
+          !digits.startsWith("55") && (digits.length === 10 || digits.length === 11)
+            ? `55${digits}`
+            : digits;
+        for (const v of phoneLookupVariants(base)) {
+          const d = v.replace(/\D/g, "");
+          if (d && d !== digits) orParts.push(`phone_number.ilike.%${d}%`);
+        }
       }
-    }
-    if (digits.length === 11) {
-      orParts.push(`cpf_hash.eq.${hashCpf(digits)}`);
+      if (digits.length === 11) {
+        orParts.push(`cpf_hash.eq.${hashCpf(digits)}`);
+      }
     }
     query = query.or(orParts.join(","));
   }
@@ -201,8 +219,9 @@ export async function listContactsHandler(
   }
 
   const rows = (data ?? []) as Contact[];
-  const hasMore = rows.length > q.limit;
-  const page = hasMore ? rows.slice(0, q.limit) : rows;
+  const protegidos = rows.map((r) => protegerContato(r, ctx.actor));
+  const hasMore = protegidos.length > q.limit;
+  const page = hasMore ? protegidos.slice(0, q.limit) : protegidos;
   const last = page[page.length - 1];
   const nextCursor =
     hasMore && last
@@ -356,8 +375,10 @@ export async function getContactHandler(
   }
   const contactWithConversa = enriched[0] ?? contact;
 
+  // A proteção vem DEPOIS do enriquecimento: `withConversas` precisa do contato
+  // como veio do banco, e `protegerContato` é genérico — preserva `conversa`.
   return {
-    ...contactWithConversa,
+    ...protegerContato(contactWithConversa, ctx.actor),
     cpf_available: !!contact.cpf_hash,
     cpf_decrypted: cpfDecrypted,
     cpf_decrypt_denied: cpfDecryptDenied || undefined,
@@ -474,7 +495,7 @@ export async function createContactHandler(
     metadata: { ...a.metadataActor, source: contact.source },
   });
 
-  return { contact, action: "created" };
+  return { contact: protegerContato(contact, ctx.actor), action: "created" };
 }
 
 // ---------------------------------------------------------------------------
@@ -497,8 +518,15 @@ export async function patchContactHandler(
     // patch dele passou a ser MERGE (ver abaixo), e merge precisa do estado
     // anterior.
     .select(
-      "id, organization_id, is_anonymized, tags, email, phone_number, name, display_name, consent, custom_fields",
+      "id, organization_id, created_by_user_id, is_anonymized, tags, email, phone_number, name, display_name, consent, custom_fields",
     )
+    // I4 (revisão final) era um `.eq("organization_id")` DESTA CASA acrescentado
+    // aqui: com client service-role e RLS bypassada, um `contactId` de outra
+    // organização resolvia, e `created_by_user_id` (que decide a proteção de
+    // telefone/e-mail logo abaixo) vinha de linha de outro tenant. O upstream
+    // passou a filtrar na linha acima a partir da v1.41.0, então a customização
+    // virou duplicata e saiu — este comentário fica para o dia em que o filtro
+    // do upstream sumir daqui.
     .eq("organization_id", ctx.organization_id)
     .eq("id", contactId)
     .maybeSingle();
@@ -522,6 +550,22 @@ export async function patchContactHandler(
       undefined,
       ctx.requestId,
       traduzir("Contato anonimizado — edição bloqueada (LGPD).", ctx.idioma ?? "pt-BR"),
+    );
+  }
+
+  if (
+    (input.email !== undefined || input.phone_number !== undefined) &&
+    !podeVerContatoSensivel(
+      ctx.actor,
+      (existing as { created_by_user_id: string | null }).created_by_user_id,
+    )
+  ) {
+    throw new ApiError(
+      403,
+      "contact_protected",
+      undefined,
+      ctx.requestId,
+      "Você não cadastrou este contato — telefone e e-mail são protegidos.",
     );
   }
 
@@ -589,6 +633,8 @@ export async function patchContactHandler(
   const { data: updated, error: updErr } = await supabase
     .from("contacts")
     .update(patch)
+    // I4, mesmo caso do select acima: o `.eq("organization_id")` desta casa
+    // saiu porque o upstream passou a fazê-lo na linha seguinte.
     .eq("organization_id", ctx.organization_id)
     .eq("id", contactId)
     .select(SELECT_COLS)
@@ -678,7 +724,7 @@ export async function patchContactHandler(
     metadata: { ...a.metadataActor, fields, ...sensiveis },
   });
 
-  return contact;
+  return protegerContato(contact, ctx.actor);
 }
 
 // ---------------------------------------------------------------------------

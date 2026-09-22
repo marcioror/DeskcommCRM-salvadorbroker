@@ -158,6 +158,8 @@ const ACTION_MIN_ROLE: Record<string, Role> = {
   // banner de chamada para quem não pode atendê-la é uma promessa falsa, e a
   // sondagem por trás dele levava 403 em toda navegação.
   "voice.call": "agent",
+  "property.create": "agent",
+  "property.update": "agent",
 };
 
 export function usePermission(action: string): boolean {

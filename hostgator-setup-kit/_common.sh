@@ -954,6 +954,33 @@ etiqueta_mais_alta_da_casa() {
   else
     saida="$(git tag -l 'v*' --sort=-v:refname 2>/dev/null || true)"
   fi
+  # A SERIE DESTA CASA VEM PRIMEIRO, e o `--merged` sozinho nao da conta.
+  #
+  # Ele exclui a tag que vive em OUTRA linha de codigo (o caso do cabecalho
+  # acima). Nao exclui a tag do upstream que esta DENTRO da nossa historia, e
+  # depois da reconstrucao sobre a v1.41.0 ela esta: a `main` daqui nasce do
+  # commit que o upstream taggeou. Medido em 22/09/2026, antes desta linha
+  # existir: a funcao devolvia `v1.41.0`, que e a arvore SEM os modulos desta
+  # casa, e um clique em "Atualizar agora" levaria a instalacao para la.
+  #
+  # A ordenacao do git tambem nao resolve sozinha: ela poe `v1.41.0-sb.1` acima
+  # de `v1.41.0` (o que queremos), mas poria uma `v1.41.1` do upstream acima da
+  # nossa `-sb.1` na primeira sincronizacao que trouxesse aquela tag.
+  #
+  # Entao: havendo tag da nossa serie, ela ganha. Nao havendo (instalacao que
+  # ainda nao cortou release), cai no criterio de antes.
+  local daCasa
+  # `|| true` porque `grep` sem casar sai 1 e, com `pipefail` e `set -e` do
+  # chamador, a funcao morreria aqui devolvendo VAZIO — que o update.sh lê como
+  # "sem versao publicada" e usa para parar antes do banco. Falha aberta, como
+  # as outras linhas desta funcao.
+  daCasa="$(printf '%s
+' "$saida" | grep -E -- '-sb[.][0-9]+$' | head -1 || true)"
+  if [ -n "$daCasa" ]; then
+    printf '%s
+' "$daCasa"
+    return 0
+  fi
   # `head` fecha o pipe cedo e, com `pipefail`, derrubaria o `git tag`. Por isso
   # a lista é capturada antes, e só depois cortada.
   printf '%s\n' "$saida" | head -1

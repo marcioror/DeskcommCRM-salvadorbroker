@@ -131,6 +131,37 @@ igual "sem ramo rastreado, devolve a mais alta em vez de vazio" \
       "$degradado" "v3.0.0"
 
 printf '\n'
+# ── A tag do upstream que está DENTRO da nossa história ────────────────────
+#
+# O caso que o `--merged` NÃO cobre, e que apareceu de verdade em 22/09/2026: a
+# `main` desta casa foi refeita a partir do commit que o upstream taggeou, então
+# a `v1.41.0` dele é ancestral da nossa. O filtro por `--merged` a mantém, e a
+# ordenação do git a colocaria na frente enquanto não houvesse tag nossa.
+#
+# O caso 2 mede a preferência pela nossa série, e o 3 mede a falha ABERTA: numa
+# instalação que ainda não cortou release, a função não pode devolver vazio (o
+# update.sh lê vazio como "sem versão publicada" e para antes do banco).
+casa2="$SANDBOX/casa2"
+git init -q "$casa2"
+( cd "$casa2"
+  git -c user.email=t@exemplo -c user.name=teste commit -q --allow-empty -m base
+  git tag v1.41.0                      # a do upstream, ancestral da nossa main
+  git -c user.email=t@exemplo -c user.name=teste commit -q --allow-empty -m casa
+  git branch -f main HEAD 2>/dev/null || true
+  git checkout -q main 2>/dev/null || true
+) >/dev/null 2>&1
+
+sem_a_nossa="$(cd "$casa2" && . "$RAIZ/hostgator-setup-kit/_common.sh" >/dev/null 2>&1; etiqueta_mais_alta_da_casa)"
+igual "sem release nossa, devolve a do upstream em vez de vazio" "$sem_a_nossa" "v1.41.0"
+
+( cd "$casa2" && git tag v1.41.0-sb.1 ) >/dev/null 2>&1
+com_a_nossa="$(cd "$casa2" && . "$RAIZ/hostgator-setup-kit/_common.sh" >/dev/null 2>&1; etiqueta_mais_alta_da_casa)"
+igual "havendo a nossa série, ela ganha da tag do upstream" "$com_a_nossa" "v1.41.0-sb.1"
+
+( cd "$casa2" && git tag v1.41.1 ) >/dev/null 2>&1
+com_upstream_novo="$(cd "$casa2" && . "$RAIZ/hostgator-setup-kit/_common.sh" >/dev/null 2>&1; etiqueta_mais_alta_da_casa)"
+igual "uma v1.41.1 do upstream NÃO ganha da nossa -sb.1" "$com_upstream_novo" "v1.41.0-sb.1"
+
 if [ "$FALHAS" -eq 0 ]; then
   printf '\033[32mtodos os casos passaram\033[0m\n'
   exit 0

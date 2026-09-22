@@ -135,25 +135,28 @@ describe("getConversationHandler — proteção do telefone embutido", () => {
   });
 });
 
+/**
+ * Encadeamento livre: o PATCH monta `update(...).select(...).eq().eq()` quando há
+ * campo para gravar e `from(...).select(...)` quando não há, e a ordem dos elos
+ * mudou de lugar na v1.41.0. Um dublê em forma de árvore fixa quebra a cada
+ * reordenação sem que nada de comportamento tenha mudado — este devolve o mesmo
+ * elo para tudo e resolve no `maybeSingle`.
+ */
 function makeSupabaseForPatch(updatedRow: ReturnType<typeof conversationRow>) {
+  const elo: Record<string, unknown> = {
+    update: () => elo,
+    select: () => elo,
+    eq: () => elo,
+    maybeSingle: async () => ({ data: updatedRow, error: null }),
+  };
   const client = {
-    // Assumir agora passa por `fn_conversation_assign` — é ela que cala o
-    // automático na conversa. Aqui só precisa não explodir: o que este arquivo
-    // mede é o telefone da conversa DEVOLVIDA, depois do update.
+    // Assumir passa por `fn_conversation_assign` — é ela que cala o automático
+    // na conversa. Aqui só precisa não explodir: o que este arquivo mede é o
+    // telefone da conversa DEVOLVIDA, depois do update.
     rpc: async () => ({ data: null, error: null }),
     from(table: string) {
       if (table !== "conversations") throw new Error(`fake_supabase: tabela inesperada '${table}'`);
-      return {
-        update: () => ({
-          eq: () => ({
-            eq: () => ({
-              select: () => ({
-                maybeSingle: async () => ({ data: updatedRow, error: null }),
-              }),
-            }),
-          }),
-        }),
-      };
+      return elo;
     },
   };
   return client as unknown as SupabaseClient;
@@ -166,7 +169,14 @@ describe("patchConversationHandler — proteção do telefone embutido", () => {
       supabase,
       ctxFor({ type: "user", id: OUTRO_USER, role: "agent" }),
       CONV_ID,
-      { status: "claimed" },
+      // `tags` e não `status`: desde a v1.41.0 mudar o status sai da tabela e vai
+      // para DUAS rpc — `fn_conversation_assign` no client da sessão e
+      // `fn_service_status` no client de SERVIÇO, criado dentro do handler. Medir
+      // a proteção por ali obrigaria a mockar o módulo do admin e faria este
+      // arquivo depender da máquina de estado da conversa, que ele não mede.
+      // O que importa aqui é o caminho de escrita + leitura de volta, e `tags` o
+      // percorre inteiro.
+      { tags: ["quente"] },
     );
     const conv = result as unknown as { contacts: { phone_number: string | null; contact_protected: boolean } };
     expect(conv.contacts.phone_number).toBeNull();

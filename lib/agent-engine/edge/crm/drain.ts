@@ -18,9 +18,11 @@ import type pg from 'pg';
 import { insertInboxItem } from '../../db/repository';
 import type { Logger } from '../../obs/logger';
 import { enqueueJob } from '../../queue/queue';
+import { decidirRajada } from './debounce';
 import { avisoDeEventoMorto, IA_QUE_NAO_RESPONDEU } from '@/lib/event-log/aviso-de-evento-morto';
 import { TIPOS_DERIVAVEIS, DERIVACAO_TERMINADA } from '@/lib/messaging/media/derivable';
 import { decidirElegibilidadeDaConversa } from '@/lib/ai/elegibilidade/consulta-pg';
+import { deveCederTurnoAoRetorno } from '@/lib/followup/ceder-turno-ao-retorno';
 
 const DRAIN_CONSUMER = 'agent-engine';
 
@@ -346,6 +348,23 @@ async function processEvent(
     return 'processado';
   }
 
+  // UMA VOZ: se o gatilho "cliente voltou" enrollaria neste inbound, o LLM
+  // não responde por cima. Fail-open dentro do helper — consulta falha = turno segue.
+  if (
+    await deveCederTurnoAoRetorno(pool, {
+      organizationId: event.organization_id,
+      contactId: p.contact_id,
+      conversationId: p.conversation_id,
+      messageId: p.inbound_message_id,
+    })
+  ) {
+    log.info('drain: turno cedido ao follow-up de retorno — inbound_turn pulado', {
+      event_id: event.id,
+      contact_id: p.contact_id,
+    });
+    return 'processado';
+  }
+
   // GATE DE ELEGIBILIDADE (opt-in por canal — `metadata.ai_gate = 'allowlist'`).
   // Num canal 'open' (o default), `decidirElegibilidade` devolve `permite:true`
   // com motivo 'gate_aberto' e nada muda. Num canal 'allowlist', a IA só assume
@@ -434,67 +453,30 @@ async function processEvent(
   // Coalescência: já existe job PENDING futuro deste contato → esta mensagem
   // entra de carona (o turno lê o histórico completo). Evento vira done.
   //
-  // ⚠️ `run_after > now()` sozinho casa com um job em HOLD (`enforceHolds`,
-  // session-watchdog.ts) — que usa `run_after = 'infinity'` como marcador, e
-  // 'infinity' É maior que `now()`. Um job em hold por sessão MORTA (WhatsApp
-  // reconectado, sessão antiga arquivada) nunca libera — a condição de
-  // liberação exige a MESMA sessão antiga voltar a 'WORKING', o que não
-  // acontece nunca. Sem esta exclusão, TODA mensagem nova do mesmo contato —
-  // inclusive na sessão NOVA — coalescia nesse job morto para sempre: o
-  // cliente escrevia, o evento saía "done" sem erro nenhum, e nenhum turno
-  // rodava. Medido em produção (2026-09-14): 6 mensagens ao longo de 7h,
-  // zero resposta, zero job novo — só o coalescing silencioso repetido no
-  // mesmo job com `held_run_after` no payload.
-  
-  // ⚠️ OS DOIS CONSERTOS VIVEM NA MESMA QUERY, e nenhum é caso particular do
-  // outro. O `not (payload ? 'held_run_after')` é do upstream e impede coalescer
-  // num job em HOLD (`run_after = 'infinity'`, que É maior que `now()`); a janela
-  // deslizante com teto (`greatest`/`least`) é desta casa (issue #196). Sem a
-  // condição, o UPDATE desta casa é PIOR que o select original: ele passa a
-  // ESCREVER num job morto em vez de só lê-lo.
-  // O UPDATE não é só "achar": ele ESTENDE a janela. Debounce é espera de
-  // SILÊNCIO depois da última mensagem, e antes disto `run_after` era fixado na
-  // criação e nunca mexido — quem escrevesse em bolhas mais espaçadas que a
-  // janela não achava job para pegar carona, criava outro, e o agente respondia
-  // balão por balão. Reportado por @Gervanno (issue #196) medindo em produção:
-  // 3 bolhas em ~30s viraram 3 respostas em menos de 2 minutos. Responder em
-  // rajada é gatilho de banimento — exatamente o que este knob existe para
-  // evitar.
+  // A janela e a exclusão do job em HOLD (`held_run_after` no payload — a lição
+  // do #830) moram em ./debounce.ts, com teste próprio.
   //
-  // Achar e estender no MESMO statement fecha de graça a corrida entre duas
-  // mensagens quase simultâneas, que o SELECT-depois-UPDATE deixaria aberta.
-  //
-  // `least(...)` aplica o teto contado desde `created_at` (a primeira mensagem
-  // da rajada) e `greatest(run_after, ...)` garante que estender nunca vire
-  // ANTECIPAR: se um backoff já empurrou o job para mais longe, ele fica onde
-  // está. Sem isso, uma mensagem nova puxaria para +8s um job reagendado para
-  // +5min, atropelando a decisão de quem o adiou.
-  if (knobs.debounceMs > 0) {
-    const { rows: pendingRows } = await pool.query<{ id: string }>(
-      `update job_queue
-          set run_after = greatest(
-                run_after,
-                least(
-                  now()       + ($3::bigint * interval '1 millisecond'),
-                  created_at  + ($4::bigint * interval '1 millisecond')
-                )
-              )
-        where organization_id = $1 and contact_id = $2
-          and kind = 'inbound_turn' and status = 'pending' and run_after > now()
-          and not (payload ? 'held_run_after')
-        returning id`,
-      [event.organization_id, p.contact_id, knobs.debounceMs, knobs.debounceTetoMs],
-    );
-    if (pendingRows[0]) {
-      log.info('drain: rajada coalescida em job pendente (janela estendida)', {
-        event_id: event.id,
-        job_id: pendingRows[0].id,
-      });
-      return 'processado';
-    }
+  // ⚠️ `debounceTetoMs` é DESTA CASA (issue #196): com ele a janela DESLIZA a
+  // cada mensagem, até o teto contado da primeira. Sem ele o módulo volta à
+  // janela ancorada do upstream, e quem escreve em bolhas mais espaçadas que a
+  // janela recebe uma resposta por bolha — o gatilho de banimento que o knob
+  // existe para evitar.
+  const rajada = await decidirRajada(
+    pool,
+    { organizationId: event.organization_id, contactId: p.contact_id },
+    knobs.debounceMs,
+    Date.now(),
+    knobs.debounceTetoMs,
+  );
+  if (rajada.tipo === 'coalescido') {
+    log.info('drain: rajada coalescida em job pendente', {
+      event_id: event.id,
+      job_id: rajada.jobId,
+    });
+    return 'processado';
   }
 
-  const runAfter = knobs.debounceMs > 0 ? new Date(Date.now() + knobs.debounceMs) : undefined;
+  const runAfter = rajada.runAfter;
   const { job, deduped } = await enqueueJob(pool, event.organization_id, {
     kind: 'inbound_turn',
     leadId: p.contact_id,

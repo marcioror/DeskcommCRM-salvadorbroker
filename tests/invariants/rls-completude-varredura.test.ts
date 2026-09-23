@@ -238,9 +238,18 @@ const PROVA_PROPRIA: readonly Excecao[] = [
       "filtrando organization_id à mão (a tela `/app/settings/conversoes`).",
   },
   {
+    tabela: "ad_hierarchy_cache",
+    razao:
+      "tests/invariants/credencial-de-anuncios-e-server-side.test.ts — mesmo " +
+      "`describe.each` das três acima. Guarda o nome da campanha, do conjunto e " +
+      "do anúncio de quem anuncia: a estratégia de mídia, não um segredo de " +
+      "autenticação. Quem a lê é o servidor com o admin client filtrando " +
+      "organization_id à mão.",
+  },
+  {
     tabela: "google_ads_landing_pages",
     razao:
-      "tests/invariants/google-ads-captura-e-server-side.test.ts — mesmo desenho " +
+      "tests/invariants/captura-de-clique-e-server-side.test.ts — mesmo desenho " +
       "deny-all de ad_platform_connections (0213): RLS ligada, zero policies, " +
       "grants revogados de anon/authenticated, organization_id NOT NULL com FK " +
       "em cascata. Guarda para qual WhatsApp e com qual texto a landing page " +
@@ -249,9 +258,24 @@ const PROVA_PROPRIA: readonly Excecao[] = [
   {
     tabela: "google_ads_click_refs",
     razao:
-      "tests/invariants/google-ads-captura-e-server-side.test.ts — mesmo " +
+      "tests/invariants/captura-de-clique-e-server-side.test.ts — mesmo " +
       "`describe.each` da linha acima. Guarda o `gclid` de cada clique de " +
       "anúncio e o token que o liga à mensagem do WhatsApp.",
+  },
+  {
+    tabela: "meta_ads_landing_pages",
+    razao:
+      "tests/invariants/captura-de-clique-e-server-side.test.ts — mesmo " +
+      "`describe.each` das duas linhas acima. É o par da migration 0381: " +
+      "guarda para qual WhatsApp e com qual texto a rota pública de captura " +
+      "de UTM redireciona.",
+  },
+  {
+    tabela: "meta_ads_click_refs",
+    razao:
+      "tests/invariants/captura-de-clique-e-server-side.test.ts — mesmo " +
+      "`describe.each`. Guarda as UTMs de cada clique no botão da landing " +
+      "page e o ref curto que as liga à mensagem do WhatsApp.",
   },
 ];
 

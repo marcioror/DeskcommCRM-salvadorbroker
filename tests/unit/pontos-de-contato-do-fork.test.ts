@@ -192,11 +192,11 @@ const CONTATOS: Contato[] = [
       "reponha `proximaVersaoDaCasa(changelog)` no lugar de `proximaVersao(base, bump)`. Sem isso o próximo corte publica `1.41.1` (ou a que o bump mandar), que é o número que o upstream vai lançar na semana seguinte — e as duas passam a conviver no mesmo `git tag` de quem sincroniza.",
   },
   {
-    arquivo: "tests/unit/changelog-cabe-na-tela-da-vps.test.ts",
+    arquivo: "lib/release/cabe-na-tela.ts",
     marca: "(?:-[a-z]+",
     oQueE: "a guarda da tela da VPS reconhecendo a série desta casa",
     seSumir:
-      "reponha o sufixo opcional no teste de `versao` dentro de `fatiar`. Sem ele a seção desta casa é lida como `[Não lançado]`, e a guarda mede a seção do upstream logo abaixo — reprovando por um corte de 30 KB que não é o do nosso operador.",
+      "reponha o sufixo opcional no teste de `versao` dentro de `fatiar` (o upstream moveu a função do teste para cá na v1.45.0, e a fusão trouxe a regex sem o sufixo). Sem ele a seção desta casa é lida como `[Não lançado]`, e a guarda mede a seção do upstream logo abaixo — reprovando por um corte de 30 KB que não é o do nosso operador.",
   },
   {
     arquivo: "components/contacts/ContactsTable.tsx",
@@ -214,10 +214,17 @@ const CONTATOS: Contato[] = [
   },
   {
     arquivo: "lib/agent-engine/edge/crm/drain.ts",
-    marca: "debounceTetoMs",
+    marca: "knobs.debounceTetoMs",
+    oQueE: "o teto da janela deslizante passado a `decidirRajada`",
+    seSumir:
+      "passe `knobs.debounceTetoMs` como quinto argumento de `decidirRajada`. Sem ele o módulo cai no ramo ancorado do upstream e o agente volta a responder bolha por bolha (issue #196).",
+  },
+  {
+    arquivo: "lib/agent-engine/edge/crm/debounce.ts",
+    marca: "SQL_ESTENDER_JANELA",
     oQueE: "a janela deslizante com teto na coalescência da rajada",
     seSumir:
-      "reponha o `update … greatest/least` com a condição `not (payload ? 'held_run_after')` do upstream. Os dois consertos vivem na mesma query e nenhum substitui o outro.",
+      "reponha `estenderJanelaDoJob` (o `update … greatest/least` com a condição `not (payload ? 'held_run_after')` do upstream) e o parâmetro `tetoMs` de `decidirRajada`. Os dois consertos vivem na mesma query e nenhum substitui o outro. Quem mede é `debounce.casa.test.ts`.",
   },
   {
     arquivo: "package.json",

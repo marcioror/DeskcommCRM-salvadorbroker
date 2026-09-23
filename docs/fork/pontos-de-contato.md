@@ -155,9 +155,11 @@ se ele sumir:
 
 - `scripts/cortar-release.ts` — sem `proximaVersaoDaCasa`, o corte volta a
   produzir o número do upstream;
-- `tests/unit/changelog-cabe-na-tela-da-vps.test.ts` — sem o sufixo no `fatiar`,
-  a seção desta casa é lida como `[Não lançado]` e a guarda mede a seção de
-  baixo;
+- `lib/release/cabe-na-tela.ts` — sem o sufixo no `fatiar`, a seção desta casa
+  é lida como `[Não lançado]` e a guarda mede a seção de baixo. Até a v1.41.0 a
+  função morava dentro de `tests/unit/changelog-cabe-na-tela-da-vps.test.ts`;
+  na v1.45.0 o upstream a moveu para a `lib`, e a fusão trouxe a regex SEM o
+  sufixo, sem conflito nenhum naquela linha. Foi o mapa que pegou;
 - `tests/unit/release-chega-na-lp.test.ts` — a vitrine é do upstream e as nossas
   versões nunca vão para lá; a guarda fica por causa do formato do cabeçalho,
   que a tela da VPS lê.

@@ -94,6 +94,9 @@ function clientDuble(contato: ContatoDuble | null) {
 
   const client = {
     rpc(fn: string, args: Record<string, unknown>) {
+      // A v1.45.0 passou a emitir `lead.created` depois do nascimento. Fire-and-
+      // forget, como a timeline: este teste mede o título, não o evento.
+      if (fn === "emit_event") return Promise.resolve({ data: null, error: null });
       if (fn !== "fn_nascer_lead_da_conversa") {
         throw new Error(`rpc não mapeada no duble de nascimento-do-lead: ${fn}`);
       }

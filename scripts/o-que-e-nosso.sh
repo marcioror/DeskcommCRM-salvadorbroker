@@ -230,7 +230,8 @@ contato "lib/leads/nascimento-do-lead.ts" "nomeDoContato(contato)" "o título do
 contato "lib/automation/actions/create-or-move-lead.ts" "SEM FALLBACK PARA O TELEFONE" "o título do lead da automação sem telefone"
 contato "components/contacts/ContactsTable.tsx" "ContatoProtegido" "o cadeado no lugar do telefone e do e-mail na lista"
 contato "app/api/v1/contacts/route.ts" "role: authz.org.role" "o papel no ator, que é o que a regra lê"
-contato "lib/agent-engine/edge/crm/drain.ts" "debounceTetoMs" "a janela deslizante com teto na coalescência da rajada"
+contato "lib/agent-engine/edge/crm/drain.ts" "knobs.debounceTetoMs" "o teto da janela deslizante passado a decidirRajada"
+contato "lib/agent-engine/edge/crm/debounce.ts" "SQL_ESTENDER_JANELA" "a janela deslizante com teto na coalescência da rajada"
 contato "scripts/cortar-release.ts" "proximaVersaoDaCasa" "a numeracao desta casa, que nao rouba o numero do upstream"
 contato "package.json" "etiqueta-da-casa" 'os testes de shell desta casa na cadeia do test:shell'
 if [ "$FALTOU" = 1 ]; then

@@ -8,6 +8,16 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.45.0-sb.1] — 2026-09-23
+
+### Corrigido
+
+- **Esta instalação acompanha a versão 1.45.0 do projeto de origem** As quatro versões publicadas pelo projeto de origem desde a 1.41.0 entram aqui
+  de uma vez, com o que cada uma trouxe listado logo abaixo. Os módulos desta
+  casa continuam como estavam: o cadastro de imóveis, a proteção do contato do
+  corretor e a espera que junta as mensagens seguidas de um mesmo cliente numa
+  resposta só, em vez de responder bolha por bolha.
+
 ## [1.45.0] — 2026-09-23
 
 ### Adicionado
@@ -7686,7 +7696,8 @@ Primeira versão marcada do DeskcommCRM. O projeto vinha sendo desenvolvido publ
 
 - **Node 22 é obrigatório para desenvolvimento.** A suíte de invariantes instancia o cliente do Supabase, que exige o `WebSocket` global — nativo apenas a partir do Node 22. Isso não afeta quem apenas hospeda: a VPS roda a imagem pronta.
 
-[Não lançado]: https://github.com/marcioror/crm-salvadorbroker/compare/v1.41.0-sb.2...HEAD
+[Não lançado]: https://github.com/marcioror/crm-salvadorbroker/compare/v1.45.0-sb.1...HEAD
+[1.45.0-sb.1]: https://github.com/marcioror/crm-salvadorbroker/compare/v1.45.0...v1.45.0-sb.1
 [1.45.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.44.0...v1.45.0
 [1.44.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.43.0...v1.44.0
 [1.43.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.42.0...v1.43.0

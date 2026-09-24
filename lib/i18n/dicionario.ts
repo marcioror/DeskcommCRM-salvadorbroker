@@ -11056,6 +11056,9 @@ export const DICIONARIO: Traducoes = {
   "Contato removido": { es: "Contacto eliminado" },
   "Imóveis de interesse": { es: "Inmuebles de interés" },
   "Cadastro de imóveis para venda e locação.": { es: "Registro de inmuebles en venta y alquiler." },
+  "Catálogo de imóveis para venda e locação, vinculados aos leads interessados.": {
+    es: "Catálogo de inmuebles en venta y alquiler, vinculados a las oportunidades interesadas.",
+  },
   "Novo imóvel": { es: "Nuevo inmueble" },
   "Editar imóvel": { es: "Editar inmueble" },
   "Cadastrar imóvel": { es: "Registrar inmueble" },

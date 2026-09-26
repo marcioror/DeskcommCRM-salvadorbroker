@@ -154,20 +154,24 @@ umask 077
 # O atraso escalonado não muda a FREQUÊNCIA de nada: cada rota roda exatamente
 # quando rodava, só não larga no mesmo instante que as irmãs.
 #
-# `(i * 2) % 42` dá 0,2,4…40 — vinte e uma posições distintas, uma por rota, e
+# `i % 41` dá 0,1,2…40 — quarenta e uma posições distintas, uma por rota, e
 # nenhuma colisão no minuto em que TODAS as cadências coincidem (o minuto 0 de
 # uma hora divisível por 30, quando `*/5`, `*/10`, `*/15` e `*/30` caem juntas).
 # Um passo de 5s parecia mais folgado e era pior: com ciclo de 9, a décima rota
 # voltava ao zero e reintroduzia a simultaneidade justamente no pior minuto.
 #
+# O passo foi de 2s (21 posições) até 26/09/2026, quando a sincronização com a
+# v1.51.0 levou o crontab a 32 rotas e o teste do pior minuto achou duas largando
+# juntas. Um segundo de distância sobra: a rota isolada responde em ~70 ms.
+#
 # Teto de 40s de propósito — acima disso uma rota de cadência de 1 minuto começaria
-# a invadir o tique seguinte. Se um dia houver mais de 21 rotas, o resto do módulo
+# a invadir o tique seguinte. Se um dia houver mais de 41 rotas, o resto do módulo
 # volta a repetir posições: continua muito melhor que todas em zero, mas é o
-# momento de rever o passo em vez de deixar crescer calado.
+# momento de rever o esquema em vez de deixar crescer calado.
 i=0
 echo "$CRONS" | while IFS='|' read -r quando timeout rota; do
   [ -n "$rota" ] || continue
-  atraso=$(( (i * 2) % 42 ))
+  atraso=$(( i % 41 ))
   i=$(( i + 1 ))
   # `sleep 0` seria inofensivo, mas a primeira linha sem prefixo nenhum deixa
   # óbvio, para quem lê o crontab dentro do contêiner, que o atraso é acréscimo

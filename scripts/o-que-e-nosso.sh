@@ -155,10 +155,10 @@ case "$ns" in
   *)             printf '  %s✓%s %-22s %s\n' "$C_G" "$C_0" "IMG_NS do kit" "$ns" ;;
 esac
 
-if grep -q 'etiqueta_mais_alta_da_casa' hostgator-setup-kit/update.sh 2>/dev/null; then
-  printf '  %s✓%s %-22s filtra por --merged (tag alheia não é candidata)\n' "$C_G" "$C_0" "escolha de versão"
+if grep -q 'TARGET_TAG="$(ultima_release_estavel)"' hostgator-setup-kit/update.sh 2>/dev/null; then
+  printf '  %s✓%s %-22s última release publicada no origin (tag alheia não é candidata)\n' "$C_G" "$C_0" "escolha de versão"
 else
-  printf '  %s✗%s %-22s escolhe a tag mais alta do clone, INCLUSIVE a do upstream\n' "$C_R" "$C_0" "escolha de versão"
+  printf '  %s✗%s %-22s não pergunta pela release publicada: pode escolher a tag do upstream\n' "$C_R" "$C_0" "escolha de versão"
 fi
 
 sujo="$(git status --porcelain --untracked-files=no 2>/dev/null | grep -c . || true)"
@@ -233,7 +233,6 @@ contato "app/api/v1/contacts/route.ts" "role: authz.org.role" "o papel no ator, 
 contato "lib/agent-engine/edge/crm/drain.ts" "knobs.debounceTetoMs" "o teto da janela deslizante passado a decidirRajada"
 contato "lib/agent-engine/edge/crm/debounce.ts" "SQL_ESTENDER_JANELA" "a janela deslizante com teto na coalescência da rajada"
 contato "scripts/cortar-release.ts" "proximaVersaoDaCasa" "a numeracao desta casa, que nao rouba o numero do upstream"
-contato "package.json" "etiqueta-da-casa" 'os testes de shell desta casa na cadeia do test:shell'
 if [ "$FALTOU" = 1 ]; then
   printf '\n    ⚠ Algum ponto de contato sumiu — quase sempre é fusão que comeu a linha.\n'
   printf '      O que repor, caso a caso: pnpm vitest run tests/unit/pontos-de-contato-do-fork.test.ts\n'

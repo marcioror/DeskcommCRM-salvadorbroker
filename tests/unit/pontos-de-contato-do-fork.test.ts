@@ -226,13 +226,6 @@ const CONTATOS: Contato[] = [
     seSumir:
       "reponha `estenderJanelaDoJob` (o `update … greatest/least` com a condição `not (payload ? 'held_run_after')` do upstream) e o parâmetro `tetoMs` de `decidirRajada`. Os dois consertos vivem na mesma query e nenhum substitui o outro. Quem mede é `debounce.casa.test.ts`.",
   },
-  {
-    arquivo: "package.json",
-    marca: "etiqueta-da-casa",
-    oQueE: "os testes de shell desta casa na cadeia do `test:shell`",
-    seSumir:
-      "reponha `&& bash tests/shell/etiqueta-da-casa.test.sh && bash hostgator-setup-kit/test-validators.sh` no fim da cadeia.",
-  },
 ];
 
 describe("pontos de contato do fork com o upstream", () => {

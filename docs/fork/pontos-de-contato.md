@@ -164,8 +164,23 @@ se ele sumir:
   versões nunca vão para lá; a guarda fica por causa do formato do cabeçalho,
   que a tela da VPS lê.
 
-`git tag --sort=-v:refname` põe `v1.41.0-sb.1` acima de `v1.41.0`, que é o que
-faz `etiqueta_mais_alta_da_casa` escolher a nossa. Uma `v1.41.1` do upstream,
-porém, ficaria acima da nossa `-sb.1`: quando a próxima sincronização trouxer a
-tag dele, a função precisa preferir a série desta casa antes de cair no critério
-geral.
+## Tag não basta: a release precisa ser publicada
+
+Até a v1.45.0 o kit escolhia a versão-alvo pela maior tag, e esta casa carregava
+`etiqueta_mais_alta_da_casa` para que a tag do upstream, que todo clone guarda,
+nunca fosse a escolhida. Na v1.51.0 o upstream trocou a régua: `update.sh` e
+`agent.sh` perguntam a `/releases/latest` do `origin` (`ultima_release_estavel`,
+em `_common.sh`). Como o `origin` da VPS é este repositório, e só ele publica
+releases `-sb`, a tag alheia deixou de ser candidata pela origem, e a função
+desta casa foi aposentada na sincronização de 26/09/2026.
+
+O preço é um passo a mais no corte. Este repositório não tem o App de release, o
+job `cortar-tag` sai pulado, e a tag continua sendo criada à mão. Depois do push
+da tag (que publica as imagens), é preciso publicar a release:
+
+```bash
+gh release create v<versão> --verify-tag --title v<versão> --notes-from-tag
+```
+
+Sem isso, a VPS responde "não sei" em vez de oferecer a versão nova, e a tela de
+atualização fica muda.

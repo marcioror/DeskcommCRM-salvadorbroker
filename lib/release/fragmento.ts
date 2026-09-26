@@ -225,10 +225,10 @@ export function proximaVersao(atual: string, bump: Bump): string {
  * muda, o contador volta a 1 — é o que mantém a leitura óbvia ("esta é a
  * primeira desta casa sobre a 1.41.0").
  *
- * ⚠️ `git tag --sort=-v:refname` põe `v1.41.0-sb.1` ACIMA de `v1.41.0` (medido),
- * que é o que faz `etiqueta_mais_alta_da_casa` escolher a NOSSA. O mesmo sort
- * põe uma `v1.41.1` do upstream acima da nossa `-sb.1` — por isso aquela função
- * prefere a série desta casa antes de cair no critério geral.
+ * A VPS não escolhe a versão pelo número: desde a v1.51.0 ela pergunta ao
+ * GitHub pela última release PUBLICADA do `origin` (`ultima_release_estavel`,
+ * no kit), e só este repositório publica releases `-sb`. Tag desta casa sem
+ * release publicada nunca chega à produção.
  */
 export const SERIE_DA_CASA = "sb";
 

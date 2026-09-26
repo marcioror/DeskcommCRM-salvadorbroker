@@ -30,7 +30,7 @@ import {
 } from "./graph-parceiro/webhook";
 import { sincronizarSaudeDaConexao } from "./health";
 import { lerEnvelopeMeta } from "./meta/envelope";
-import { ingestMetaInbound } from "./meta/ingest";
+import { ingestMetaEcho, ingestMetaInbound } from "./meta/ingest";
 import { parseMetaWebhook } from "./meta/webhook";
 import {
   atualizarEspelhoDoTemplate,
@@ -179,7 +179,12 @@ async function zernioInbound(
     // O espelho local também: o aviso empurra para olhar, e a tela de modelos
     // precisa mostrar o estado novo. Ver o estado velho depois de ler o aviso é
     // pior que não ter avisado.
-    const espelhado = await atualizarEspelhoDoTemplate(admin, input.session.organization_id, payload);
+    const espelhado = await atualizarEspelhoDoTemplate(
+      admin,
+      input.session.organization_id,
+      payload,
+      input.session.id,
+    );
 
     // ─── Evento de CONEXÃO passa pelo vigia, não por um insert cru ──────────
     //
@@ -289,6 +294,19 @@ async function datafyInbound(
         channelSessionId: input.session.id,
       });
       desfechos.push(r.status);
+      continue;
+    }
+    if (e.kind === "outbound_echo") {
+      // Coexistência pelo parceiro: resposta dada pelo app WhatsApp Business.
+      if (e.phoneNumberId !== refs.phoneNumberId) {
+        desfechos.push("outro_numero");
+        continue;
+      }
+      const r = await ingestMetaEcho(admin, e, {
+        organizationId: orgId,
+        channelSessionId: input.session.id,
+      });
+      desfechos.push(`eco:${r.status}`);
       continue;
     }
     if (e.kind === "message_status") {

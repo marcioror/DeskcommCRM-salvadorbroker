@@ -14,9 +14,13 @@
  * entra pela mesma porta de Prospecção: o hub do grupo CRM ("Ver tudo em CRM")
  * e o ⌘K.
  *
- * CONDIÇÃO QUE ENCERRA ESTA EXCEÇÃO: quando a issue #1290 do upstream entrar
- * (item de menu que só aparece com o módulo ligado), este destino ganha
- * `sidebar` sem tirar a vaga de ninguém.
+ * O `modulo?: ModuloOpcional` que a #1290 trouxe (v1.45.0) NÃO encerra esta
+ * exceção, e isso foi conferido na sincronização da v1.51.0 (26/09/2026): ele
+ * ESCONDE a porta quando o módulo está desligado, não dá vaga no menu. Num
+ * grupo com hub, como CRM, só `sidebar: true` põe o item no menu lateral
+ * (`sidebarGroups`, em `registry.ts`), e o limite de 900px continua valendo.
+ * Usar o campo exigiria acrescentar "imoveis" a `MODULOS_OPCIONAIS`, que é
+ * arquivo do upstream: um ponto de contato novo sem ganho nenhum.
  */
 import type { NavMetadata } from "./catalogo";
 

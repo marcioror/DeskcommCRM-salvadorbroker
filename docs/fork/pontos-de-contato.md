@@ -82,11 +82,15 @@ dizendo o nome do arquivo e a linha que falta.
 
 ## Quando um ponto de contato deixar de ser necessário
 
-O caso mais próximo é a navegação. A issue #1290 do upstream pede um item de
-menu que só apareça com o módulo ligado; quando ela entrar, o destino de Imóveis
-passa a se registrar pelo mecanismo dele, o spread em `catalogo.ts` some, e esta
-tabela perde uma linha. Vale conferir o estado dela a cada sincronização grande,
-porque a direção certa é esta tabela encolher.
+A direção certa é esta tabela encolher, e ela encolheu uma vez: na v1.51.0 a
+escolha de versão passou a ser do upstream (ver "Tag não basta", no fim).
+
+A navegação era a candidata seguinte, e não é. A issue #1290 entrou na v1.45.0
+como `modulo?: ModuloOpcional` no catálogo, mas o campo esconde a porta de um
+módulo desligado e não dá vaga no menu lateral; os módulos são uma lista
+fechada em `lib/instalacao/modulos.ts`, arquivo dele. Registrar Imóveis por ali
+trocaria o spread em `catalogo.ts` por uma linha naquela lista, sem ganho.
+Conferido em 26/09/2026; o raciocínio completo está em `catalogo-local.ts`.
 
 ## A dívida que ficou aberta, e por quê
 

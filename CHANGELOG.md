@@ -8,6 +8,16 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.51.0-sb.1] — 2026-09-26
+
+### Corrigido
+
+- **Esta instalação acompanha a versão 1.51.0 do projeto de origem** As seis versões publicadas pelo projeto de origem desde a 1.45.0 entram aqui
+  de uma vez, com o que cada uma trouxe listado logo abaixo, inclusive o Jev, que
+  chega desligado. As tarefas automáticas do servidor, que passaram a ser 32,
+  voltam a sair cada uma no seu segundo, sem disputar o banco no mesmo instante.
+  E a tela de atualização passa a oferecer só a versão publicada desta casa.
+
 ## [1.51.0] — 2026-09-26
 
 ### Adicionado
@@ -8203,7 +8213,8 @@ Primeira versão marcada do DeskcommCRM. O projeto vinha sendo desenvolvido publ
 
 - **Node 22 é obrigatório para desenvolvimento.** A suíte de invariantes instancia o cliente do Supabase, que exige o `WebSocket` global — nativo apenas a partir do Node 22. Isso não afeta quem apenas hospeda: a VPS roda a imagem pronta.
 
-[Não lançado]: https://github.com/marcioror/crm-salvadorbroker/compare/v1.45.0-sb.1...HEAD
+[Não lançado]: https://github.com/marcioror/crm-salvadorbroker/compare/v1.51.0-sb.1...HEAD
+[1.51.0-sb.1]: https://github.com/marcioror/crm-salvadorbroker/compare/v1.51.0...v1.51.0-sb.1
 [1.51.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.50.0...v1.51.0
 [1.50.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.49.0...v1.50.0
 [1.49.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.48.0...v1.49.0

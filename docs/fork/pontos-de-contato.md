@@ -82,11 +82,15 @@ dizendo o nome do arquivo e a linha que falta.
 
 ## Quando um ponto de contato deixar de ser necessário
 
-O caso mais próximo é a navegação. A issue #1290 do upstream pede um item de
-menu que só apareça com o módulo ligado; quando ela entrar, o destino de Imóveis
-passa a se registrar pelo mecanismo dele, o spread em `catalogo.ts` some, e esta
-tabela perde uma linha. Vale conferir o estado dela a cada sincronização grande,
-porque a direção certa é esta tabela encolher.
+A direção certa é esta tabela encolher, e ela encolheu uma vez: na v1.51.0 a
+escolha de versão passou a ser do upstream (ver "Tag não basta", no fim).
+
+A navegação era a candidata seguinte, e não é. A issue #1290 entrou na v1.45.0
+como `modulo?: ModuloOpcional` no catálogo, mas o campo esconde a porta de um
+módulo desligado e não dá vaga no menu lateral; os módulos são uma lista
+fechada em `lib/instalacao/modulos.ts`, arquivo dele. Registrar Imóveis por ali
+trocaria o spread em `catalogo.ts` por uma linha naquela lista, sem ganho.
+Conferido em 26/09/2026; o raciocínio completo está em `catalogo-local.ts`.
 
 ## A dívida que ficou aberta, e por quê
 
@@ -164,8 +168,23 @@ se ele sumir:
   versões nunca vão para lá; a guarda fica por causa do formato do cabeçalho,
   que a tela da VPS lê.
 
-`git tag --sort=-v:refname` põe `v1.41.0-sb.1` acima de `v1.41.0`, que é o que
-faz `etiqueta_mais_alta_da_casa` escolher a nossa. Uma `v1.41.1` do upstream,
-porém, ficaria acima da nossa `-sb.1`: quando a próxima sincronização trouxer a
-tag dele, a função precisa preferir a série desta casa antes de cair no critério
-geral.
+## Tag não basta: a release precisa ser publicada
+
+Até a v1.45.0 o kit escolhia a versão-alvo pela maior tag, e esta casa carregava
+`etiqueta_mais_alta_da_casa` para que a tag do upstream, que todo clone guarda,
+nunca fosse a escolhida. Na v1.51.0 o upstream trocou a régua: `update.sh` e
+`agent.sh` perguntam a `/releases/latest` do `origin` (`ultima_release_estavel`,
+em `_common.sh`). Como o `origin` da VPS é este repositório, e só ele publica
+releases `-sb`, a tag alheia deixou de ser candidata pela origem, e a função
+desta casa foi aposentada na sincronização de 26/09/2026.
+
+O preço é um passo a mais no corte. Este repositório não tem o App de release, o
+job `cortar-tag` sai pulado, e a tag continua sendo criada à mão. Depois do push
+da tag (que publica as imagens), é preciso publicar a release:
+
+```bash
+gh release create v<versão> --verify-tag --title v<versão> --notes-from-tag
+```
+
+Sem isso, a VPS responde "não sei" em vez de oferecer a versão nova, e a tela de
+atualização fica muda.
